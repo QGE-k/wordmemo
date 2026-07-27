@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:background="@color/primary">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="背单词"
+        android:textSize="48sp"
+        android:textColor="@android:color/white"
+        android:textStyle="bold"
+        android:letterSpacing="0.1" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="WordMemo"
+        android:textSize="16sp"
+        android:textColor="#A5B4FC"
+        android:layout_marginTop="8dp"
+        android:letterSpacing="0.2" />
+
+    <ProgressBar
+        android:layout_width="32dp"
+        android:layout_height="32dp"
+        android:layout_marginTop="48dp"
+        android:indeterminateTint="@android:color/white" />
+
+</LinearLayout>
