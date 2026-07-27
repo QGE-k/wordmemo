@@ -1,5 +1,12 @@
 import os
 
+# 本地开发：自动加载 .env 文件（部署到 Render 时无 .env，用平台环境变量，不影响）
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # 没装 python-dotenv 也不影响运行
+
 
 class Config:
     """应用配置类"""
