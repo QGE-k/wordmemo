@@ -1325,6 +1325,10 @@ input, textarea, select {
   transform: rotateY(180deg);
   overflow-y: auto;
   border: 1px solid var(--border);
+  /* 背面内容从顶部开始排，内容多时可往下滚动看到全部（含单词） */
+  justify-content: flex-start;
+  padding-top: 24px;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* 卡片背面记忆方法样式（白底） */
