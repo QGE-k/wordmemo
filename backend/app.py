@@ -1405,5 +1405,24 @@ def serve_icons(filename):
     return send_from_directory(os.path.join(FRONTEND_DIR, 'icons'), filename)
 
 
+# ==================== TWA (Trusted Web Activity) 验证 ====================
+# 用于 Android APK 全屏运行验证，移除浏览器地址栏
+# 路径必须为 /.well-known/assetlinks.json
+@app.route('/.well-known/assetlinks.json')
+def serve_assetlinks():
+    """Android Digital Asset Links - TWA 全屏验证文件"""
+    assetlinks = [{
+        "relation": ["delegate_permission/common.handle_all_urls"],
+        "target": {
+            "namespace": "android_app",
+            "package_name": "com.wordmemo.app",
+            "sha256_cert_fingerprints": [
+                "1C:96:82:23:88:2C:FB:B5:BE:D3:7A:5B:52:71:A9:A4:BA:25:05:8A:E9:85:69:A5:E5:20:80:DE:D2:03:61:34"
+            ]
+        }
+    }]
+    return jsonify(assetlinks), 200, {'Content-Type': 'application/json'}
+
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
