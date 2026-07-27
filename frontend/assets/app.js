@@ -5,6 +5,52 @@
    ==================================================== */
 
 /* ====================================================
+   答题音效（Web Audio API，无需外部音频文件）
+   ==================================================== */
+let _audioCtx = null;
+function getAudioCtx() {
+  if (!_audioCtx) {
+    try { _audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch(e) { return null; }
+  }
+  return _audioCtx;
+}
+// 播放正确音效（上升音调 C-E-G）
+function playCorrectSound() {
+  const ctx = getAudioCtx();
+  if (!ctx) return;
+  const notes = [523.25, 659.25, 783.99]; // C5, E5, G5
+  notes.forEach((freq, i) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.value = freq;
+    osc.type = 'sine';
+    const t0 = ctx.currentTime + i * 0.1;
+    gain.gain.setValueAtTime(0.3, t0);
+    gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.15);
+    osc.start(t0); osc.stop(t0 + 0.15);
+  });
+}
+// 播放错误音效（下降音调）
+function playWrongSound() {
+  const ctx = getAudioCtx();
+  if (!ctx) return;
+  const notes = [392.00, 311.13]; // G4, Eb4
+  notes.forEach((freq, i) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.frequency.value = freq;
+    osc.type = 'square';
+    const t0 = ctx.currentTime + i * 0.12;
+    gain.gain.setValueAtTime(0.2, t0);
+    gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.2);
+    osc.start(t0); osc.stop(t0 + 0.2);
+  });
+}
+
+/* ====================================================
    一、API 封装类
    统一处理 fetch 请求、错误、JSON 解析
    ==================================================== */
@@ -30,7 +76,7 @@ class WordAPI {
     }
 
     try {
-      const res = await fetch(url, { ...options, headers });
+      const res = await fetch(url, { ...options, headers, credentials: 'include' });
 
       // 处理 HTTP 错误状态码
       if (!res.ok) {
@@ -244,10 +290,317 @@ class WordAPI {
   async deleteWordbook(id) {
     return this.request(`/wordbooks/${id}`, { method: 'DELETE' });
   }
+
+  // ===== 认证 API =====
+  async register(username, password, nickname) {
+    const payload = { username, password };
+    if (nickname) payload.nickname = nickname;
+    return this.request('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async login(username, password) {
+    return this.request('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    });
+  }
+
+  async logout() {
+    return this.request('/auth/logout', { method: 'POST' });
+  }
+
+  async getMe() {
+    return this.request('/auth/me');
+  }
+
+  // ===== 管理员 API =====
+  async adminListUsers() {
+    return this.request('/admin/users');
+  }
+
+  async adminGetUserWords(userId) {
+    return this.request(`/admin/users/${userId}/words`);
+  }
 }
 
 // 创建全局 API 实例
 const api = new WordAPI();
+
+/* ====================================================
+   认证状态管理
+   ==================================================== */
+let currentUser = null;  // 当前登录用户 {id, username, role, nickname}
+
+/**
+ * 检查登录状态：页面加载时调用
+ * 已登录则隐藏登录弹窗，显示用户信息
+ * 未登录则显示登录弹窗
+ */
+async function checkAuthStatus() {
+  try {
+    const res = await api.getMe();
+    if (res && res.success && res.data) {
+      currentUser = res.data;
+      onLoginSuccess();
+      return true;
+    }
+  } catch (e) {
+    // 未登录或 session 过期
+  }
+  currentUser = null;
+  showLoginModal();
+  return false;
+}
+
+/** 显示登录弹窗 */
+function showLoginModal() {
+  const modal = document.getElementById('loginModal');
+  if (modal) modal.style.display = 'flex';
+}
+
+/** 隐藏登录弹窗 */
+function hideLoginModal() {
+  const modal = document.getElementById('loginModal');
+  if (modal) modal.style.display = 'none';
+}
+
+/** 登录成功后的统一处理 */
+function onLoginSuccess() {
+  hideLoginModal();
+  // 显示用户名在状态栏
+  const userEl = document.getElementById('statusUser');
+  if (userEl) {
+    userEl.textContent = currentUser.nickname || currentUser.username;
+    userEl.style.display = 'inline-block';
+    userEl.onclick = null; // 不再点击用户名退出
+  }
+  // 显示退出按钮
+  const logoutEl = document.getElementById('statusLogout');
+  if (logoutEl) {
+    logoutEl.style.display = 'inline-block';
+    logoutEl.onclick = () => {
+      if (confirm('确定退出登录吗？')) handleLogout();
+    };
+  }
+  // 管理员显示管理 Tab
+  const adminTab = document.querySelector('.tab-admin-only');
+  if (adminTab) {
+    adminTab.style.display = currentUser.role === 'admin' ? 'flex' : 'none';
+  }
+}
+
+/** 处理登录 */
+async function handleLogin() {
+  const username = document.getElementById('loginUsername').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  const errEl = document.getElementById('loginError');
+  errEl.style.display = 'none';
+
+  if (!username || !password) {
+    errEl.textContent = '请输入用户名和密码';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  const btn = document.getElementById('btnLogin');
+  btn.textContent = '登录中...';
+  btn.disabled = true;
+
+  try {
+    const res = await api.login(username, password);
+    if (res && res.success && res.data) {
+      currentUser = res.data;
+      onLoginSuccess();
+      showToast('登录成功', 'success');
+      renderHome();
+    } else {
+      errEl.textContent = (res && res.error) || '登录失败';
+      errEl.style.display = 'block';
+    }
+  } catch (err) {
+    errEl.textContent = err.message || '登录失败，请检查网络';
+    errEl.style.display = 'block';
+  } finally {
+    btn.textContent = '登录';
+    btn.disabled = false;
+  }
+}
+
+/** 处理注册 */
+async function handleRegister() {
+  const username = document.getElementById('registerUsername').value.trim();
+  const password = document.getElementById('registerPassword').value;
+  const confirmPassword = document.getElementById('registerConfirmPassword').value;
+  const nickname = document.getElementById('registerNickname').value.trim();
+  const errEl = document.getElementById('registerError');
+  errEl.style.display = 'none';
+
+  if (!username || !password) {
+    errEl.textContent = '请输入用户名和密码';
+    errEl.style.display = 'block';
+    return;
+  }
+  if (password !== confirmPassword) {
+    errEl.textContent = '两次密码不一致';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  const btn = document.getElementById('btnRegister');
+  btn.textContent = '注册中...';
+  btn.disabled = true;
+
+  try {
+    const res = await api.register(username, password, nickname);
+    if (res && res.success && res.data) {
+      currentUser = res.data;
+      onLoginSuccess();
+      showToast('注册成功，欢迎加入', 'success');
+      renderHome();
+    } else {
+      errEl.textContent = (res && res.error) || '注册失败';
+      errEl.style.display = 'block';
+    }
+  } catch (err) {
+    errEl.textContent = err.message || '注册失败，请检查网络';
+    errEl.style.display = 'block';
+  } finally {
+    btn.textContent = '注册';
+    btn.disabled = false;
+  }
+}
+
+/** 退出登录 */
+async function handleLogout() {
+  try {
+    await api.logout();
+  } catch (e) { /* 忽略 */ }
+  currentUser = null;
+  const userEl = document.getElementById('statusUser');
+  if (userEl) userEl.style.display = 'none';
+  const logoutEl = document.getElementById('statusLogout');
+  if (logoutEl) logoutEl.style.display = 'none';
+  const adminTab = document.querySelector('.tab-admin-only');
+  if (adminTab) adminTab.style.display = 'none';
+  showLoginModal();
+  showToast('已退出登录', 'info');
+}
+
+/** 切换登录/注册 Tab */
+function switchLoginTab(tab) {
+  document.querySelectorAll('.login-tab').forEach(t => t.classList.remove('active'));
+  document.querySelector(`.login-tab[data-login-tab="${tab}"]`).classList.add('active');
+  document.getElementById('loginForm').classList.toggle('active', tab === 'login');
+  document.getElementById('registerForm').classList.toggle('active', tab === 'register');
+}
+
+/* ====================================================
+   管理员页面渲染
+   ==================================================== */
+async function renderAdminPage() {
+  const listEl = document.getElementById('adminUserList');
+  if (!listEl) return;
+  listEl.innerHTML = '<div class="empty-state"><p>加载中...</p></div>';
+
+  try {
+    const res = await api.adminListUsers();
+    if (!res || !res.success || !res.data || res.data.length === 0) {
+      listEl.innerHTML = '<div class="empty-state"><p>暂无用户数据</p></div>';
+      return;
+    }
+
+    listEl.innerHTML = res.data.map(user => `
+      <div class="admin-user-card" data-user-id="${user.id}">
+        <div class="admin-user-header">
+          <span class="admin-user-name">${escapeHtml(user.nickname || user.username)}</span>
+          <span class="admin-role-badge ${user.role}">${user.role === 'admin' ? '管理员' : '普通用户'}</span>
+        </div>
+        <div class="admin-user-stats">
+          <div class="admin-stat-item">
+            <span class="admin-stat-num">${user.word_count || 0}</span>
+            <span class="admin-stat-label">总词数</span>
+          </div>
+          <div class="admin-stat-item">
+            <span class="admin-stat-num">${user.mastered_count || 0}</span>
+            <span class="admin-stat-label">已掌握</span>
+          </div>
+          <div class="admin-stat-item">
+            <span class="admin-stat-num">${user.wordbook_count || 0}</span>
+            <span class="admin-stat-label">词书数</span>
+          </div>
+        </div>
+        <div class="admin-user-date">注册时间：${user.created_at ? user.created_at.substring(0, 10) : '未知'}</div>
+        <div class="admin-user-actions">
+          <button class="btn-secondary btn-sm admin-detail-btn" data-user-id="${user.id}">查看详情</button>
+        </div>
+        <div class="admin-user-detail" id="adminDetail_${user.id}"></div>
+      </div>
+    `).join('');
+
+    // 绑定查看详情按钮
+    listEl.querySelectorAll('.admin-detail-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        loadUserDetail(parseInt(btn.dataset.userId));
+      });
+    });
+  } catch (err) {
+    listEl.innerHTML = `<div class="empty-state"><p>加载失败：${escapeHtml(err.message)}</p></div>`;
+  }
+}
+
+/** 加载用户详情（词书和近期单词） */
+async function loadUserDetail(userId) {
+  const detailEl = document.getElementById(`adminDetail_${userId}`);
+  if (!detailEl) return;
+
+  if (detailEl.classList.contains('active')) {
+    detailEl.classList.remove('active');
+    return;
+  }
+
+  detailEl.innerHTML = '<p style="color:var(--text-tertiary);font-size:13px;">加载中...</p>';
+  detailEl.classList.add('active');
+
+  try {
+    const res = await api.adminGetUserWords(userId);
+    if (!res || !res.success) {
+      detailEl.innerHTML = '<p style="color:var(--danger);font-size:13px;">加载失败</p>';
+      return;
+    }
+    const data = res.data;
+    let html = '';
+
+    // 词书列表
+    if (data.wordbooks && data.wordbooks.length > 0) {
+      html += '<div class="admin-wordbook-list">';
+      data.wordbooks.forEach(wb => {
+        html += `<span class="admin-wordbook-tag">${escapeHtml(wb.name)} (${wb.word_count || 0})</span>`;
+      });
+      html += '</div>';
+    } else {
+      html += '<p style="font-size:12px;color:var(--text-tertiary);margin-bottom:8px;">暂无词书</p>';
+    }
+
+    // 近期单词
+    if (data.recent_words && data.recent_words.length > 0) {
+      html += '<div class="admin-recent-words">';
+      html += data.recent_words.slice(0, 20).map(w =>
+        `<span style="display:inline-block;margin:2px 4px;padding:2px 8px;background:var(--bg-input);border-radius:6px;font-size:12px;">${escapeHtml(w.word)} <span style="color:var(--text-tertiary);">${escapeHtml((w.meaning || '').substring(0, 15))}</span></span>`
+      ).join('');
+      html += '</div>';
+    } else {
+      html += '<p style="font-size:12px;color:var(--text-tertiary);">暂无单词</p>';
+    }
+
+    detailEl.innerHTML = html;
+  } catch (err) {
+    detailEl.innerHTML = `<p style="color:var(--danger);font-size:13px;">${escapeHtml(err.message)}</p>`;
+  }
+}
 
 /* ====================================================
    二、工具函数
@@ -455,6 +808,9 @@ function onPageEnter(pageName) {
     case 'stats':
       renderStats();
       loadSettings();
+      break;
+    case 'admin':
+      renderAdminPage();
       break;
   }
 }
@@ -1311,6 +1667,36 @@ function renderLearnCard() {
   }
 }
 
+/**
+ * 渲染卡片例句（专升本例句）
+ * 在翻卡正面和背面都显示例句
+ * @param {object} word - 单词对象
+ * @param {string} frontId - 正面例句容器ID
+ * @param {string} backId - 背面例句容器ID
+ */
+function renderCardExample(word, frontId, backId) {
+  const frontEl = document.getElementById(frontId);
+  const backEl = document.getElementById(backId);
+  if (!frontEl || !backEl) return;
+
+  const examples = word.examples || [];
+  if (examples.length > 0) {
+    const ex = examples[0]; // 卡片上只显示第一条例句，避免过长
+    // 正面：只显示英文例句，不显示中文翻译（查看释义时才看到翻译）
+    frontEl.innerHTML = '<p class="card-example-label">例句</p>' +
+                        `<p class="card-example-en">${escapeHtml(ex.en || '')}</p>`;
+    // 背面：显示英文+中文翻译
+    backEl.innerHTML = '<p class="card-example-label">例句</p>' +
+                       `<p class="card-example-en">${escapeHtml(ex.en || '')}</p>` +
+                       (ex.zh ? `<p class="card-example-zh">${escapeHtml(ex.zh)}</p>` : '');
+    frontEl.style.display = 'block';
+    backEl.style.display = 'block';
+  } else {
+    frontEl.style.display = 'none';
+    backEl.style.display = 'none';
+  }
+}
+
 // 渲染翻卡模式
 function renderFlipCard(word) {
   // 正面内容
@@ -1332,6 +1718,8 @@ function renderFlipCard(word) {
       mnemonicBox.style.display = 'none';
     }
   }
+  // 例句（专升本）
+  renderCardExample(word, 'learnExampleFront', 'learnExampleBack');
   // 重置翻转状态
   learnFlipped = false;
   $('#learnCard').classList.remove('flipped');
@@ -1396,6 +1784,7 @@ function handleChoiceAnswer(btn, currentWord) {
     btn.classList.add('correct');
     feedback.className = 'quiz-feedback correct';
     feedback.textContent = '回答正确！';
+    playCorrectSound();
     // 答对自动下一题
     autoNextTimer = setTimeout(() => {
       autoNextTimer = null;
@@ -1403,6 +1792,7 @@ function handleChoiceAnswer(btn, currentWord) {
     }, 900);
   } else {
     btn.classList.add('wrong');
+    playWrongSound();
     // 标出正确答案
     optionsEl.querySelectorAll('.quiz-option').forEach(b => {
       if (b.dataset.word === currentWord.word) b.classList.add('correct');
@@ -1455,6 +1845,7 @@ function handleSpellSubmit() {
     input.classList.add('correct');
     feedback.className = 'quiz-feedback correct';
     feedback.textContent = '拼写正确！';
+    playCorrectSound();
     // 答对自动下一题
     autoNextTimer = setTimeout(() => {
       autoNextTimer = null;
@@ -1462,6 +1853,7 @@ function handleSpellSubmit() {
     }, 900);
   } else {
     input.classList.add('wrong');
+    playWrongSound();
     feedback.className = 'quiz-feedback wrong';
     feedback.innerHTML = `拼写错误<span class="feedback-meaning">正确答案：${escapeHtml(answer)}</span>`;
     // 答错不自动跳，手动点"下一题"
@@ -1643,6 +2035,9 @@ function renderReviewCard() {
       reviewMnemonic.style.display = 'none';
     }
   }
+
+  // 例句（专升本）
+  renderCardExample(word, 'reviewExampleFront', 'reviewExampleBack');
 
   // 重置翻转
   reviewFlipped = false;
@@ -1937,42 +2332,89 @@ function fillDetailModal(word) {
   $('#modalPhonetic').textContent = word.phonetic || '';
   $('#modalMeaning').textContent = word.meaning || '暂无释义';
 
-  // 时态变形（仅动词显示，默认收起）
+  // 词性标签：从释义中提取词性标记（n./v./adj./adv./prep./conj./pron./art./num./int.等）
+  const posBadge = $('#modalPosBadge');
+  const posMap = {
+    'n.': '名词', 'v.': '动词', 'adj.': '形容词', 'adv.': '副词',
+    'prep.': '介词', 'conj.': '连词', 'pron.': '代词', 'art.': '冠词',
+    'num.': '数词', 'int.': '感叹词', 'aux.': '助动词', 'modal.': '情态动词',
+  };
+  let posLabel = '';
+  if (word.meaning) {
+    const m = word.meaning.trim().match(/^(n\.|v\.|adj\.|adv\.|prep\.|conj\.|pron\.|art\.|num\.|int\.|aux\.|modal\.)/);
+    if (m && posMap[m[1]]) {
+      posLabel = posMap[m[1]];
+    }
+  }
+  if (posLabel) {
+    posBadge.textContent = posLabel;
+    posBadge.style.display = 'inline-block';
+  } else {
+    posBadge.style.display = 'none';
+  }
+
+  // 变形（时态/复数/比较级等，有什么显示什么，默认收起）
   const tensesSection = $('#modalTensesSection');
   const tensesGrid = $('#modalTenses');
   const tensesToggle = $('#modalTensesToggle');
-  // 默认收起（每次打开详情卡片都重置为收起状态）
+  const tensesToggleText = tensesToggle.querySelector('.modal-tag-text');
+  // 默认收起
   tensesGrid.style.display = 'none';
   tensesToggle.classList.remove('tenses-toggle-open');
-  if (word.tenses && word.tenses.base) {
-    tensesSection.style.display = 'block';
+  if (word.tenses) {
     const t = word.tenses;
-    const items = [
-      { label: '原形',     value: t.base },
-      { label: '三单',     value: t.third_singular },
-      { label: '过去式',   value: t.past },
-      { label: '过去分词', value: t.past_participle },
-      { label: '现在分词', value: t.present_participle },
-    ].filter(it => it.value);
-    tensesGrid.innerHTML = items.map((it, idx) => {
-      const isBase = it.label === '原形';
-      return `<div class="tense-card ${isBase ? 'tense-base' : ''}">
-        <span class="tense-label">${it.label}</span>
-        <span class="tense-word">${escapeHtml(it.value)}</span>
-      </div>`;
-    }).join('');
-    // 绑定展开/收起事件（先移除旧事件避免重复绑定）
-    const toggleHandler = () => {
-      const isOpen = tensesGrid.style.display !== 'none';
-      if (isOpen) {
-        tensesGrid.style.display = 'none';
-        tensesToggle.classList.remove('tenses-toggle-open');
-      } else {
-        tensesGrid.style.display = 'grid';
-        tensesToggle.classList.add('tenses-toggle-open');
-      }
-    };
-    tensesToggle.onclick = toggleHandler;
+    const inflType = t.inflection_type || 'tense';
+    let items = [];
+    let btnLabel = '变形';
+    if (inflType === 'tense' && t.base) {
+      btnLabel = '时态变形';
+      items = [
+        { label: '原形',     value: t.base },
+        { label: '三单',     value: t.third_singular },
+        { label: '过去式',   value: t.past },
+        { label: '过去分词', value: t.past_participle },
+        { label: '现在分词', value: t.present_participle },
+      ].filter(it => it.value);
+    } else if (inflType === 'plural' && (t.singular || t.plural)) {
+      btnLabel = '复数变形';
+      items = [
+        { label: '单数', value: t.singular },
+        { label: '复数', value: t.plural },
+      ].filter(it => it.value);
+    } else if (inflType === 'degree' && (t.positive || t.comparative || t.superlative)) {
+      btnLabel = '级变化';
+      items = [
+        { label: '原级',   value: t.positive },
+        { label: '比较级', value: t.comparative },
+        { label: '最高级', value: t.superlative },
+      ].filter(it => it.value);
+    }
+    if (items.length > 0) {
+      tensesSection.style.display = 'block';
+      tensesToggleText.textContent = btnLabel;
+      tensesGrid.innerHTML = items.map((it) => {
+        const isBase = it.label === '原形' || it.label === '单数' || it.label === '原级';
+        return `<div class="tense-card ${isBase ? 'tense-base' : ''}">
+          <span class="tense-label">${it.label}</span>
+          <span class="tense-word">${escapeHtml(it.value)}</span>
+        </div>`;
+      }).join('');
+      // 绑定展开/收起
+      const toggleHandler = () => {
+        const isOpen = tensesGrid.style.display !== 'none';
+        if (isOpen) {
+          tensesGrid.style.display = 'none';
+          tensesToggle.classList.remove('tenses-toggle-open');
+        } else {
+          tensesGrid.style.display = 'grid';
+          tensesToggle.classList.add('tenses-toggle-open');
+        }
+      };
+      tensesToggle.onclick = toggleHandler;
+    } else {
+      tensesSection.style.display = 'none';
+      tensesToggle.onclick = null;
+    }
   } else {
     tensesSection.style.display = 'none';
     tensesToggle.onclick = null;
@@ -2053,14 +2495,7 @@ function fillDetailModal(word) {
     exampleSection.style.display = 'none';
   }
 
-  // 学习状态信息
-  $('#modalStatusInfo').innerHTML = `
-    <div class="status-info-row"><span class="status-info-label">状态</span><span class="status-info-value">${statusText(word.status)}</span></div>
-    <div class="status-info-row"><span class="status-info-label">添加时间</span><span class="status-info-value">${formatDate(word.added_at)}</span></div>
-    <div class="status-info-row"><span class="status-info-label">上次复习</span><span class="status-info-value">${formatDate(word.last_review)}</span></div>
-    <div class="status-info-row"><span class="status-info-label">复习次数</span><span class="status-info-value">${word.review_count || 0}</span></div>
-    <div class="status-info-row"><span class="status-info-label">下次复习</span><span class="status-info-value">${formatDate(word.next_review)}</span></div>
-  `;
+  // 学习状态信息已移除（用户要求不显示）
 }
 
 // 关闭详情弹窗
@@ -2684,13 +3119,40 @@ function bindEvents() {
 /**
  * 应用初始化
  */
-function init() {
+async function init() {
   bindEvents();
+  bindAuthEvents();
   updateStatusBarTime();
   // 每分钟更新状态栏时间
   setInterval(updateStatusBarTime, 60000);
-  // 默认加载首页
-  renderHome();
+  // 先检查登录状态，已登录才加载首页数据
+  const loggedIn = await checkAuthStatus();
+  if (loggedIn) {
+    renderHome();
+  }
+}
+
+/** 绑定认证相关事件 */
+function bindAuthEvents() {
+  // 登录/注册 Tab 切换
+  document.querySelectorAll('.login-tab').forEach(tab => {
+    tab.addEventListener('click', () => switchLoginTab(tab.dataset.loginTab));
+  });
+  // 登录按钮
+  const btnLogin = document.getElementById('btnLogin');
+  if (btnLogin) btnLogin.addEventListener('click', handleLogin);
+  // 注册按钮
+  const btnRegister = document.getElementById('btnRegister');
+  if (btnRegister) btnRegister.addEventListener('click', handleRegister);
+  // 回车提交
+  const loginForm = document.getElementById('loginForm');
+  if (loginForm) {
+    loginForm.addEventListener('submit', (e) => { e.preventDefault(); handleLogin(); });
+  }
+  const registerForm = document.getElementById('registerForm');
+  if (registerForm) {
+    registerForm.addEventListener('submit', (e) => { e.preventDefault(); handleRegister(); });
+  }
 }
 
 // DOM 就绪后初始化

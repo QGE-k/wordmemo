@@ -118,10 +118,10 @@ class AIService:
    注意不规则动词（如 go→went→gone, run→ran→run, write→wrote→written）要给出正确的不规则变形。
    示例：run 的 tenses = {base:"run", third_singular:"runs", past:"ran", past_participle:"run", present_participle:"running"}
 
-9. 提供2个实用例句
+9. 提供2个实用例句，例句尽量使用江西专升本英语考试中常见的语境和话题（如学习、教育、大学生活、职业发展、社会热点等），难度适中。例句中的英文必须语法正确、表达自然。
 
 10. 【强制规则】以下字段必须非空：
-    - meaning：必须包含词性标注（n./v./adj./adv./prep./conj. 等）和中文释义，如 "n. 苹果"、"v. 跑"。即使是生僻词也要给出释义，不能返回空字符串。
+    - meaning：必须包含词性标注（n./v./adj./adv./prep./conj. 等）和中文释义，如 "n. 苹果"、"v. 跑"。即使是生僻词也要给出释义，不能返回空字符串。翻译必须准确，不能编造意思。
     - phonetic：必须给出音标，如 "/æpl/"。不确定时给出最接近的音标。
     - mnemonic：必须给出记忆方法，不能为空。
     如果单词是短语/词组（如 "sports meeting"、"take care of"），meaning 给出整体释义，split 拆解每个组成单词。
@@ -130,6 +130,11 @@ class AIService:
     - meaning 给出整个短语的意思，如 "take care of" → "v. 照顾，照料"
     - split 把每个独立单词拆开，标注原形和变形
     - type 填"复合词"
+
+12. 【拆解原则】split 必须基于单词的实际构成来拆解：
+    - 只拆解确实由多个部分组成的词（复合词拆成独立单词，派生词拆成词根+词缀）
+    - 基础词（无法拆分的简单词，如 apple, book, water）split 留空数组 []，不要强行拆解
+    - 不要把单词的字母随意分割，每个 part 必须是有意义的英语词素（独立单词或词缀）
 
 请严格返回以下JSON格式，不要包含任何其他文字：
 {

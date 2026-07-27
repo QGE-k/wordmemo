@@ -1,23 +1,69 @@
 """
 数据库模型定义
-包含单词模型和学习历史记录模型
+包含用户模型、单词模型和学习历史记录模型
 """
 from datetime import datetime, date
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import JSON
+import hashlib
+import os
 
 # 创建SQLAlchemy实例，在app.py中初始化
 db = SQLAlchemy()
 
 
+class User(db.Model):
+    """用户模型：支持注册登录、数据隔离、管理员管理"""
+    __tablename__ = 'users'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    username = db.Column(db.String(80), unique=True, nullable=False, index=True)
+    # 密码盐值+哈希（sha256）
+    salt = db.Column(db.String(32), nullable=False)
+    password_hash = db.Column(db.String(64), nullable=False)
+    # 角色：admin / user
+    role = db.Column(db.String(20), default='user')
+    # 昵称（显示名）
+    nickname = db.Column(db.String(80), default='')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def set_password(self, password):
+        self.salt = os.urandom(16).hex()
+        self.password_hash = hashlib.sha256((password + self.salt).encode()).hexdigest()
+
+    def check_password(self, password):
+        h = hashlib.sha256((password + self.salt).encode()).hexdigest()
+        return h == self.password_hash
+
+    def to_dict(self, include_stats=False):
+        data = {
+            'id': self.id,
+            'username': self.username,
+            'role': self.role,
+            'nickname': self.nickname or self.username,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+        if include_stats:
+            data['word_count'] = Word.query.filter_by(user_id=self.id).count()
+            data['mastered_count'] = Word.query.filter_by(user_id=self.id, status='mastered').count()
+            data['wordbook_count'] = Wordbook.query.filter_by(user_id=self.id).count()
+        return data
+
+    def __repr__(self):
+        return f'<User {self.username}>'
+
+
 class Word(db.Model):
     """单词模型"""
     __tablename__ = 'words'
+    __table_args__ = (
+        db.UniqueConstraint('word', 'user_id', name='uq_word_user'),
+    )
 
     # 主键ID
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     # 单词文本（可包含词组，如 "sports meeting"）
-    word = db.Column(db.String(255), nullable=False, unique=True, index=True)
+    word = db.Column(db.String(255), nullable=False, index=True)
     # 音标
     phonetic = db.Column(db.String(255), default='')
     # 释义
@@ -48,6 +94,8 @@ class Word(db.Model):
     tenses = db.Column(JSON, nullable=True)
     # 所属单词本 ID（外键，可空=默认单词本）
     wordbook_id = db.Column(db.Integer, db.ForeignKey('wordbooks.id'), nullable=True, index=True)
+    # 所属用户 ID（外键，可空=旧数据/未登录用户）
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
 
     def to_dict(self):
         """将单词对象转换为字典，用于API响应"""
@@ -167,6 +215,8 @@ class Wordbook(db.Model):
     color = db.Column(db.String(20), default='#4a7fff')
     # 创建时间
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    # 所属用户 ID（外键，可空=旧数据/未登录用户）
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
     # 关联单词（反向关系）
     words = db.relationship('Word', backref='wordbook', lazy='dynamic')
 

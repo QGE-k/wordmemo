@@ -7,12 +7,12 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, date
 
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, session
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 
 from config import Config
-from models import db, Word, LearnHistory, Setting, Wordbook
+from models import db, Word, LearnHistory, Setting, Wordbook, User
 from services.ocr_service import OCRService
 from services.ai_service import AIService
 from services.dictionary_service import DictionaryService
@@ -22,9 +22,11 @@ from services.doc_import_service import parse_document, parse_document_preview
 app = Flask(__name__)
 # 加载配置
 app.config.from_object(Config)
+# session 密钥
+app.secret_key = os.environ.get('SECRET_KEY', 'wordmemo-dev-secret-key-2024')
 
-# 启用CORS，允许前端跨域访问
-CORS(app, resources={r"/api/*": {"origins": "*"}})
+# 启用CORS，允许前端跨域访问（支持 credentials）
+CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
 
 # 初始化数据库
 db.init_app(app)
@@ -41,6 +43,139 @@ def allowed_file(filename):
     """检查上传的文件是否为允许的扩展名"""
     return '.' in filename and \
            filename.rsplit('.', 1)[1].lower() in Config.ALLOWED_EXTENSIONS
+
+
+def get_current_user():
+    """获取当前登录用户，未登录返回 None"""
+    uid = session.get('user_id')
+    if not uid:
+        return None
+    return User.query.get(uid)
+
+
+def get_current_user_id():
+    """获取当前登录用户ID，未登录返回 None（兼容旧数据）"""
+    return session.get('user_id')
+
+
+def require_login():
+    """要求登录，未登录返回错误响应"""
+    if not session.get('user_id'):
+        return jsonify({'success': False, 'error': '请先登录'}), 401
+    return None
+
+
+def require_admin():
+    """要求管理员权限"""
+    user = get_current_user()
+    if not user or user.role != 'admin':
+        return jsonify({'success': False, 'error': '需要管理员权限'}), 403
+    return None
+
+
+# ==================== 认证 API ====================
+
+@app.route('/api/auth/register', methods=['POST'])
+def auth_register():
+    """用户注册"""
+    data = request.get_json()
+    if not data or not data.get('username') or not data.get('password'):
+        return jsonify({'success': False, 'error': '请提供用户名和密码'}), 400
+
+    username = data['username'].strip()
+    password = data['password']
+
+    if len(username) < 2 or len(username) > 20:
+        return jsonify({'success': False, 'error': '用户名长度需2-20个字符'}), 400
+    if len(password) < 4:
+        return jsonify({'success': False, 'error': '密码至少4个字符'}), 400
+
+    if User.query.filter_by(username=username).first():
+        return jsonify({'success': False, 'error': '用户名已存在'}), 409
+
+    # 第一个注册的用户自动成为管理员
+    is_first = User.query.count() == 0
+    user = User(
+        username=username,
+        nickname=data.get('nickname', username),
+        role='admin' if is_first else 'user',
+    )
+    user.set_password(password)
+    db.session.add(user)
+    db.session.commit()
+
+    session['user_id'] = user.id
+    return jsonify({'success': True, 'data': user.to_dict()}), 201
+
+
+@app.route('/api/auth/login', methods=['POST'])
+def auth_login():
+    """用户登录"""
+    data = request.get_json()
+    if not data or not data.get('username') or not data.get('password'):
+        return jsonify({'success': False, 'error': '请提供用户名和密码'}), 400
+
+    user = User.query.filter_by(username=data['username'].strip()).first()
+    if not user or not user.check_password(data['password']):
+        return jsonify({'success': False, 'error': '用户名或密码错误'}), 401
+
+    session['user_id'] = user.id
+    return jsonify({'success': True, 'data': user.to_dict()})
+
+
+@app.route('/api/auth/logout', methods=['POST'])
+def auth_logout():
+    """退出登录"""
+    session.pop('user_id', None)
+    return jsonify({'success': True})
+
+
+@app.route('/api/auth/me', methods=['GET'])
+def auth_me():
+    """获取当前登录用户信息"""
+    user = get_current_user()
+    if not user:
+        return jsonify({'success': False, 'error': '未登录'}), 401
+    return jsonify({'success': True, 'data': user.to_dict()})
+
+
+@app.route('/api/admin/users', methods=['GET'])
+def admin_list_users():
+    """管理员：获取所有用户列表及其学习统计"""
+    err = require_admin()
+    if err:
+        return err
+
+    users = User.query.order_by(User.created_at.desc()).all()
+    return jsonify({
+        'success': True,
+        'data': [u.to_dict(include_stats=True) for u in users],
+    })
+
+
+@app.route('/api/admin/users/<int:user_id>/words', methods=['GET'])
+def admin_user_words(user_id):
+    """管理员：查看指定用户的词库"""
+    err = require_admin()
+    if err:
+        return err
+
+    target_user = User.query.get(user_id)
+    if not target_user:
+        return jsonify({'success': False, 'error': '用户不存在'}), 404
+
+    words = Word.query.filter_by(user_id=user_id).order_by(Word.added_at.desc()).all()
+    wordbooks = Wordbook.query.filter_by(user_id=user_id).all()
+    return jsonify({
+        'success': True,
+        'data': {
+            'user': target_user.to_dict(),
+            'word_count': len(words),
+            'mastered_count': sum(1 for w in words if w.status == 'mastered'),
+            'wordbooks': [wb.to_dict(include_count=True) for wb in wordbooks],
+            'recent_words': [w.to_dict() for w in words[:50]],
+        },
+    })
 
 
 def analyze_word_with_fallback(word):
@@ -191,6 +326,100 @@ def update_learn_history(count=1):
     db.session.commit()
 
 
+def fill_missing_examples():
+    """
+    数据迁移：为没有例句的单词补充专升本例句
+    同时修复旧的低质量模板例句（如 "It is important to {word} in our daily life."）
+    优先使用本地词典的专升本例句库
+    """
+    import json
+
+    filled = 0
+    fixed = 0
+
+    # 旧模板的特征字符串，用于检测低质量例句
+    BAD_PATTERNS = [
+        'It is important to',
+        'Students should learn how to',
+        'is very important in modern society',
+        'We should pay more attention to the',
+        'to learn English well.',
+        'student in our class.',
+    ]
+
+    def is_bad_example(examples):
+        """检测是否是旧模板生成的低质量例句"""
+        if not examples:
+            return True
+        try:
+            if isinstance(examples, str):
+                ex_list = json.loads(examples)
+            else:
+                ex_list = examples
+            if not ex_list or not isinstance(ex_list, list):
+                return True
+            for ex in ex_list:
+                en = ex.get('en', '') if isinstance(ex, dict) else ''
+                for pattern in BAD_PATTERNS:
+                    if pattern in en:
+                        return True
+        except Exception:
+            return True
+        return False
+
+    # 查找所有需要修复的单词：例句为空 或 例句是旧模板生成的
+    all_words = Word.query.all()
+
+    for word in all_words:
+        try:
+            need_fix = False
+            if not word.examples or word.examples == '[]':
+                need_fix = True
+            elif is_bad_example(word.examples):
+                need_fix = True
+
+            if not need_fix:
+                continue
+
+            # 先查本地词典的专升本例句库
+            dict_data = dictionary_service.lookup(word.word)
+            if dict_data and dict_data.get('examples'):
+                # 确认不是旧模板例句
+                if not is_bad_example(dict_data['examples']):
+                    word.examples = dict_data['examples']
+                    if not word.examples or word.examples == '[]':
+                        filled += 1
+                    else:
+                        fixed += 1
+                    continue
+
+            # 词典没有好例句，用规则分析获取例句
+            rule_data = dictionary_service.analyze_with_rules(word.word)
+            if rule_data and rule_data.get('examples'):
+                if not is_bad_example(rule_data['examples']):
+                    word.examples = rule_data['examples']
+                    if not word.examples or word.examples == '[]':
+                        filled += 1
+                    else:
+                        fixed += 1
+                    continue
+
+            # 最后用 _get_zhuanshenben_examples 直接获取
+            zs_examples = dictionary_service._get_zhuanshenben_examples(
+                word.word, word.meaning or ''
+            )
+            if zs_examples and not is_bad_example(zs_examples):
+                word.examples = zs_examples
+                fixed += 1
+
+        except Exception as e:
+            print(f"[迁移] 补充例句 '{word.word}' 失败: {e}")
+
+    if filled > 0 or fixed > 0:
+        db.session.commit()
+        print(f"[迁移] 补充 {filled} 个空例句，修复 {fixed} 个低质量例句")
+
+
 # ==================== 单词管理API ====================
 
 @app.route('/api/words', methods=['GET'])
@@ -209,6 +438,9 @@ def get_words():
 
     # 构建查询
     query = Word.query
+    user_id = get_current_user_id()
+    if user_id:
+        query = query.filter_by(user_id=user_id)
     if status:
         query = query.filter(Word.status == status)
     if search:
@@ -249,8 +481,24 @@ def add_word():
     if not word_text:
         return jsonify({'success': False, 'error': '单词不能为空'}), 400
 
-    # 检查单词是否已存在
-    existing = Word.query.filter_by(word=word_text).first()
+    # 校验：必须是有效的英文单词或短语（只允许英文字母、空格、连字符）
+    # 拒纯数字、中文、特殊符号等非英文内容
+    import re
+    # 允许：英文字母、空格（短语）、连字符（如 well-known）、撇号（如 don't）
+    if not re.match(r"^[a-z][a-z\s\-'']*$", word_text):
+        return jsonify({'success': False, 'error': '请输入有效的英文单词或短语（仅支持英文字母）'}), 400
+    # 长度校验
+    if len(word_text) < 1 or len(word_text) > 100:
+        return jsonify({'success': False, 'error': '单词长度不合法'}), 400
+    # 去除多余空格
+    word_text = re.sub(r'\s+', ' ', word_text).strip()
+
+    # 检查单词是否已存在（仅检查当前用户的词库）
+    user_id = get_current_user_id()
+    if user_id:
+        existing = Word.query.filter_by(word=word_text, user_id=user_id).first()
+    else:
+        existing = Word.query.filter_by(word=word_text).first()
     if existing:
         return jsonify({'success': False, 'error': '该单词已存在', 'data': existing.to_dict()}), 409
 
@@ -269,6 +517,7 @@ def add_word():
         examples=analysis.get('examples', []),
         tenses=analysis.get('tenses'),
         status='new',
+        user_id=user_id,
     )
     db.session.add(word)
     db.session.commit()
@@ -304,11 +553,14 @@ def batch_add_words():
         return jsonify({'success': False, 'error': 'words必须是数组'}), 400
 
     # 可选：单词本 ID
+    user_id = get_current_user_id()
     wordbook_id = data.get('wordbook_id')
     if wordbook_id is not None:
         book = Wordbook.query.get(wordbook_id)
         if not book:
             return jsonify({'success': False, 'error': '指定的单词本不存在'}), 400
+        if user_id and book.user_id and book.user_id != user_id:
+            return jsonify({'success': False, 'error': '无权访问该单词本'}), 403
 
     added = []
     skipped = []
@@ -320,7 +572,15 @@ def batch_add_words():
         word_text = str(raw_word).strip().lower()
         if not word_text:
             continue
-        existing = Word.query.filter_by(word=word_text).first()
+        # 校验：只允许英文单词/短语
+        if not re.match(r"^[a-z][a-z\s\-'']*$", word_text):
+            failed.append({'word': word_text, 'error': '非有效英文单词'})
+            continue
+        word_text = re.sub(r'\s+', ' ', word_text).strip()
+        if user_id:
+            existing = Word.query.filter_by(word=word_text, user_id=user_id).first()
+        else:
+            existing = Word.query.filter_by(word=word_text).first()
         if existing:
             skipped.append(word_text)
             continue
@@ -382,6 +642,7 @@ def batch_add_words():
                 tenses=analysis.get('tenses'),
                 status='new',
                 wordbook_id=wordbook_id,
+                user_id=user_id,
             )
             db.session.add(word)
             added.append(word_text)
@@ -409,6 +670,9 @@ def get_word(word_id):
     word = Word.query.get(word_id)
     if not word:
         return jsonify({'success': False, 'error': '单词不存在'}), 404
+    user_id = get_current_user_id()
+    if user_id and word.user_id and word.user_id != user_id:
+        return jsonify({'success': False, 'error': '无权访问'}), 403
     return jsonify({'success': True, 'data': word.to_dict()})
 
 
@@ -421,6 +685,9 @@ def update_word(word_id):
     word = Word.query.get(word_id)
     if not word:
         return jsonify({'success': False, 'error': '单词不存在'}), 404
+    user_id = get_current_user_id()
+    if user_id and word.user_id and word.user_id != user_id:
+        return jsonify({'success': False, 'error': '无权访问'}), 403
 
     data = request.get_json()
     if not data:
@@ -443,6 +710,9 @@ def delete_word(word_id):
     word = Word.query.get(word_id)
     if not word:
         return jsonify({'success': False, 'error': '单词不存在'}), 404
+    user_id = get_current_user_id()
+    if user_id and word.user_id and word.user_id != user_id:
+        return jsonify({'success': False, 'error': '无权访问'}), 403
 
     db.session.delete(word)
     db.session.commit()
@@ -460,7 +730,11 @@ MAX_DOC_SIZE = 20 * 1024 * 1024  # 20MB
 @app.route('/api/wordbooks', methods=['GET'])
 def list_wordbooks():
     """获取所有单词本列表（含单词数）"""
-    books = Wordbook.query.order_by(Wordbook.created_at.desc()).all()
+    query = Wordbook.query
+    user_id = get_current_user_id()
+    if user_id:
+        query = query.filter_by(user_id=user_id)
+    books = query.order_by(Wordbook.created_at.desc()).all()
     return jsonify({
         'success': True,
         'data': [b.to_dict(include_count=True) for b in books]
@@ -478,7 +752,7 @@ def create_wordbook():
         return jsonify({'success': False, 'error': '名称过长（最多100字符）'}), 400
     description = (data.get('description') or '').strip()
     color = (data.get('color') or '#4a7fff').strip()
-    book = Wordbook(name=name, description=description, color=color)
+    book = Wordbook(name=name, description=description, color=color, user_id=get_current_user_id())
     db.session.add(book)
     db.session.commit()
     return jsonify({'success': True, 'data': book.to_dict()})
@@ -490,6 +764,9 @@ def update_wordbook(book_id):
     book = Wordbook.query.get(book_id)
     if not book:
         return jsonify({'success': False, 'error': '单词本不存在'}), 404
+    user_id = get_current_user_id()
+    if user_id and book.user_id and book.user_id != user_id:
+        return jsonify({'success': False, 'error': '无权访问'}), 403
     data = request.get_json() or {}
     if 'name' in data:
         name = (data['name'] or '').strip()
@@ -510,6 +787,9 @@ def delete_wordbook(book_id):
     book = Wordbook.query.get(book_id)
     if not book:
         return jsonify({'success': False, 'error': '单词本不存在'}), 404
+    user_id = get_current_user_id()
+    if user_id and book.user_id and book.user_id != user_id:
+        return jsonify({'success': False, 'error': '无权访问'}), 403
     # 把单词本里的单词的 wordbook_id 置空
     Word.query.filter_by(wordbook_id=book_id).update({'wordbook_id': None})
     db.session.delete(book)
@@ -523,6 +803,9 @@ def get_wordbook_words(book_id):
     book = Wordbook.query.get(book_id)
     if not book:
         return jsonify({'success': False, 'error': '单词本不存在'}), 404
+    user_id = get_current_user_id()
+    if user_id and book.user_id and book.user_id != user_id:
+        return jsonify({'success': False, 'error': '无权访问'}), 403
     words = Word.query.filter_by(wordbook_id=book_id).order_by(Word.added_at.desc()).all()
     return jsonify({
         'success': True,
@@ -589,12 +872,15 @@ def import_confirm():
         return jsonify({'success': False, 'error': 'words必须是数组'}), 400
 
     # 单词本 ID（可选，导入的单词会归入此单词本）
+    user_id = get_current_user_id()
     wordbook_id = data.get('wordbook_id')
     if wordbook_id is not None:
         # 校验单词本存在
         book = Wordbook.query.get(wordbook_id)
         if not book:
             return jsonify({'success': False, 'error': '指定的单词本不存在'}), 400
+        if user_id and book.user_id and book.user_id != user_id:
+            return jsonify({'success': False, 'error': '无权访问该单词本'}), 403
 
     added = []
     skipped = []
@@ -605,7 +891,10 @@ def import_confirm():
         word_text = str(raw_word).strip().lower()
         if not word_text:
             continue
-        existing = Word.query.filter_by(word=word_text).first()
+        if user_id:
+            existing = Word.query.filter_by(word=word_text, user_id=user_id).first()
+        else:
+            existing = Word.query.filter_by(word=word_text).first()
         if existing:
             skipped.append(word_text)
             continue
@@ -666,6 +955,7 @@ def import_confirm():
                 tenses=analysis.get('tenses'),
                 status='new',
                 wordbook_id=wordbook_id,
+                user_id=user_id,
             )
             db.session.add(word)
             added.append(word_text)
@@ -792,13 +1082,17 @@ def ocr_add_words():
         added = []
         skipped = []
         failed = []
+        user_id = get_current_user_id()
 
         for word_text in words:
             word_text = word_text.strip().lower()
             if not word_text:
                 continue
 
-            existing = Word.query.filter_by(word=word_text).first()
+            if user_id:
+                existing = Word.query.filter_by(word=word_text, user_id=user_id).first()
+            else:
+                existing = Word.query.filter_by(word=word_text).first()
             if existing:
                 skipped.append(word_text)
                 continue
@@ -816,6 +1110,7 @@ def ocr_add_words():
                     examples=analysis.get('examples', []),
                     tenses=analysis.get('tenses'),
                     status='new',
+                    user_id=user_id,
                 )
                 db.session.add(word)
                 added.append(word_text)
@@ -876,19 +1171,29 @@ def ai_recognize_image():
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
     """获取统计数据：各状态单词数量、今日复习数、学习历史等"""
+    user_id = get_current_user_id()
     # 各状态单词数量
-    total = Word.query.count()
-    new_count = Word.query.filter_by(status='new').count()
-    review_count = Word.query.filter_by(status='review').count()
-    mastered_count = Word.query.filter_by(status='mastered').count()
+    if user_id:
+        total = Word.query.filter_by(user_id=user_id).count()
+        new_count = Word.query.filter_by(status='new', user_id=user_id).count()
+        review_count = Word.query.filter_by(status='review', user_id=user_id).count()
+        mastered_count = Word.query.filter_by(status='mastered', user_id=user_id).count()
+    else:
+        total = Word.query.count()
+        new_count = Word.query.filter_by(status='new').count()
+        review_count = Word.query.filter_by(status='review').count()
+        mastered_count = Word.query.filter_by(status='mastered').count()
 
     # 今日待复习数量
     now = datetime.utcnow()
-    today_review = Word.query.filter(
+    review_query = Word.query.filter(
         Word.next_review.isnot(None),
         Word.next_review <= now,
         Word.status != 'mastered',
-    ).count()
+    )
+    if user_id:
+        review_query = review_query.filter_by(user_id=user_id)
+    today_review = review_query.count()
 
     # 今日新词数量
     today = date.today()
@@ -968,20 +1273,27 @@ def get_today_review():
     now = datetime.utcnow()
     setting = get_setting()
     anti_forget = setting.anti_forget if setting.anti_forget is not None else True
+    user_id = get_current_user_id()
 
     if anti_forget:
         # 防遗忘开启：所有到期单词都进入队列（含mastered）
-        words = Word.query.filter(
+        query = Word.query.filter(
             Word.next_review.isnot(None),
             Word.next_review <= now,
-        ).order_by(Word.next_review).all()
+        )
+        if user_id:
+            query = query.filter_by(user_id=user_id)
+        words = query.order_by(Word.next_review).all()
     else:
         # 防遗忘关闭：仅未掌握的到期单词
-        words = Word.query.filter(
+        query = Word.query.filter(
             Word.next_review.isnot(None),
             Word.next_review <= now,
             Word.status != 'mastered',
-        ).order_by(Word.next_review).all()
+        )
+        if user_id:
+            query = query.filter_by(user_id=user_id)
+        words = query.order_by(Word.next_review).all()
 
     # 每日复习上限
     limit = request.args.get('limit', None, type=int)
@@ -1021,6 +1333,9 @@ def submit_review(word_id):
     word = Word.query.get(word_id)
     if not word:
         return jsonify({'success': False, 'error': '单词不存在'}), 404
+    user_id = get_current_user_id()
+    if user_id and word.user_id and word.user_id != user_id:
+        return jsonify({'success': False, 'error': '无权访问'}), 403
 
     data = request.get_json()
     if not data or not data.get('rating'):
@@ -1127,7 +1442,11 @@ def get_today_learn():
         limit = get_setting().daily_goal
 
     # 获取状态为new的单词
-    words = Word.query.filter_by(status='new').order_by(
+    query = Word.query.filter_by(status='new')
+    user_id = get_current_user_id()
+    if user_id:
+        query = query.filter_by(user_id=user_id)
+    words = query.order_by(
         Word.added_at.asc()
     ).limit(limit).all()
 
@@ -1190,8 +1509,14 @@ def update_settings():
 def clear_all_words():
     """清空所有单词数据（含学习历史，不可恢复）"""
     try:
-        db.session.query(Word).delete()
-        db.session.query(LearnHistory).delete()
+        user_id = get_current_user_id()
+        if user_id:
+            # 已登录：仅删除当前用户的单词
+            db.session.query(Word).filter_by(user_id=user_id).delete(synchronize_session=False)
+        else:
+            # 未登录：清空所有（向后兼容）
+            db.session.query(Word).delete(synchronize_session=False)
+        db.session.query(LearnHistory).delete(synchronize_session=False)
         db.session.commit()
         return jsonify({'success': True, 'message': '已清空所有数据'})
     except Exception as e:
@@ -1221,6 +1546,9 @@ def export_words_csv():
 
     # 构建查询
     query = Word.query
+    user_id = get_current_user_id()
+    if user_id:
+        query = query.filter_by(user_id=user_id)
     if wordbook_id and wordbook_id != '0':
         try:
             query = query.filter(Word.wordbook_id == int(wordbook_id))
@@ -1401,6 +1729,61 @@ def ensure_tenses_column():
         print("[迁移] tenses 列添加完成")
 
 
+def ensure_user_id_columns():
+    """
+    数据库迁移：为 words 和 wordbooks 表添加 user_id 列（如果不存在）
+    用于用户数据隔离，旧数据库升级时自动添加
+    """
+    from sqlalchemy import text, inspect
+    inspector = inspect(db.engine)
+    # words 表添加 user_id 列
+    words_columns = [col['name'] for col in inspector.get_columns('words')]
+    if 'user_id' not in words_columns:
+        print("[迁移] 检测到 words 表缺少 user_id 列，正在添加...")
+        with db.engine.connect() as conn:
+            conn.execute(text("ALTER TABLE words ADD COLUMN user_id INTEGER"))
+            conn.commit()
+        print("[迁移] words.user_id 列添加完成")
+    # wordbooks 表添加 user_id 列
+    wordbooks_columns = [col['name'] for col in inspector.get_columns('wordbooks')]
+    if 'user_id' not in wordbooks_columns:
+        print("[迁移] 检测到 wordbooks 表缺少 user_id 列，正在添加...")
+        with db.engine.connect() as conn:
+            conn.execute(text("ALTER TABLE wordbooks ADD COLUMN user_id INTEGER"))
+            conn.commit()
+        print("[迁移] wordbooks.user_id 列添加完成")
+
+
+def fix_word_unique_constraint():
+    """
+    数据库迁移：将 words 表的 word 列从全局 UNIQUE 改为 (word, user_id) 联合唯一
+    这样不同用户可以添加同一个单词
+    """
+    from sqlalchemy import text, inspect
+    inspector = inspect(db.engine)
+    indexes = inspector.get_indexes('words')
+    # 查找旧的 word 唯一索引（名称可能是 ix_words_word 或 word）
+    old_unique_indexes = [
+        idx for idx in indexes
+        if idx.get('unique') and 'word' in idx.get('column_names', [])
+    ]
+    if old_unique_indexes:
+        print("[迁移] 检测到 words.word 上的旧唯一索引，正在移除...")
+        with db.engine.connect() as conn:
+            for idx in old_unique_indexes:
+                idx_name = idx['name']
+                conn.execute(text(f"DROP INDEX IF EXISTS {idx_name}"))
+            # 创建新的联合唯一索引（word + user_id）
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_words_word_user_id ON words(word, user_id)"))
+            conn.commit()
+        print(f"[迁移] 已移除 {len(old_unique_indexes)} 个旧索引，创建 (word, user_id) 联合唯一索引")
+    else:
+        # 确保联合唯一索引存在
+        with db.engine.connect() as conn:
+            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_words_word_user_id ON words(word, user_id)"))
+            conn.commit()
+
+
 with app.app_context():
     # 创建数据库表（含新的 wordbooks 表）
     db.create_all()
@@ -1412,12 +1795,18 @@ with app.app_context():
     ensure_settings_columns()
     # 迁移：为 words 表添加 tenses 列（动词时态变形）
     ensure_tenses_column()
+    # 迁移：为 words 和 wordbooks 表添加 user_id 列（用户数据隔离）
+    ensure_user_id_columns()
+    # 迁移：将 words.word 全局唯一改为 (word, user_id) 联合唯一
+    fix_word_unique_constraint()
     # 插入演示数据
     init_demo_data()
     # 升级已有单词的拆解数据和记忆方法到新结构
     upgrade_split_data()
     # 修复 meaning 为空的旧数据单词
     fix_empty_meanings()
+    # 为没有例句的单词补充专升本例句
+    fill_missing_examples()
 
 
 # ==================== 前端静态文件服务 ====================

@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#4a7fff">
   <title>背单词</title>
-  <link rel="stylesheet" href="assets/style.css?v=20260728a">
+  <link rel="stylesheet" href="assets/style.css?v=20260728i">
   <!-- PWA 支持：允许"添加到桌面"当App用 -->
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" type="image/png" href="/icons/icon-192.png">
@@ -20,10 +20,14 @@
   <header class="status-bar">
     <span class="status-time" id="statusTime">9:41</span>
     <span class="status-title" id="statusTitle">背单词</span>
-    <div class="status-icons">
-      <span class="status-signal"></span>
-      <span class="status-wifi"></span>
-      <span class="status-battery"></span>
+    <div class="status-right">
+      <span class="status-user" id="statusUser" style="display:none"></span>
+      <span class="status-logout" id="statusLogout" style="display:none" title="点击退出登录">退出登录</span>
+      <div class="status-icons">
+        <span class="status-signal"></span>
+        <span class="status-wifi"></span>
+        <span class="status-battery"></span>
+      </div>
     </div>
   </header>
 
@@ -346,6 +350,8 @@
               <span class="card-word" id="learnWord"></span>
               <span class="card-phonetic" id="learnPhonetic"></span>
               <button class="speak-btn" id="learnSpeakBtn" title="发音">🔊</button>
+              <!-- 例句（专升本） -->
+              <div class="card-example" id="learnExampleFront" style="display:none"></div>
               <p class="card-tip">点击查看释义</p>
             </div>
             <!-- 背面：释义+拆解+记忆方法 -->
@@ -355,6 +361,8 @@
               <span class="card-meaning" id="learnMeaning"></span>
               <div class="card-split" id="learnSplit"></div>
               <div class="card-mnemonic" id="learnMnemonic"></div>
+              <!-- 例句（专升本） -->
+              <div class="card-example" id="learnExampleBack" style="display:none"></div>
             </div>
           </div>
         </div>
@@ -416,6 +424,8 @@
               <span class="card-word" id="reviewWord"></span>
               <span class="card-phonetic" id="reviewPhonetic"></span>
               <button class="speak-btn" id="reviewSpeakBtn" title="发音">🔊</button>
+              <!-- 例句（专升本） -->
+              <div class="card-example" id="reviewExampleFront" style="display:none"></div>
               <p class="card-tip">先想想含义，再翻转</p>
             </div>
             <div class="flip-card-back">
@@ -423,6 +433,8 @@
               <span class="card-meaning" id="reviewMeaning"></span>
               <div class="card-split" id="reviewSplit"></div>
               <div class="card-mnemonic" id="reviewMnemonic"></div>
+              <!-- 例句（专升本） -->
+              <div class="card-example" id="reviewExampleBack" style="display:none"></div>
             </div>
           </div>
         </div>
@@ -554,6 +566,17 @@
       </div>
     </section>
 
+    <!-- ===== 管理员页 ===== -->
+    <section class="page page-admin" id="page-admin">
+      <h2 class="page-title">用户管理</h2>
+      <!-- 用户列表容器：由 JS 动态渲染 admin-user-card -->
+      <div class="admin-user-list" id="adminUserList">
+        <div class="empty-state">
+          <p>暂无用户数据</p>
+        </div>
+      </div>
+    </section>
+
   </main>
 
   <!-- ============ 底部 TabBar ============ -->
@@ -577,6 +600,10 @@
     <button class="tab-item" data-page="stats">
       <span class="tab-icon tab-icon-stats"></span>
       <span class="tab-label">统计</span>
+    </button>
+    <button class="tab-item tab-admin-only" data-page="admin" style="display:none">
+      <span class="tab-icon tab-icon-admin">管</span>
+      <span class="tab-label">管理</span>
     </button>
   </nav>
 
@@ -603,14 +630,16 @@
       <div class="modal-body" id="modalBody">
         <!-- 释义 -->
         <div class="modal-section">
-          <h4 class="modal-section-title">释义</h4>
+          <h4 class="modal-section-title">释义
+            <span class="pos-badge" id="modalPosBadge" style="display:none"></span>
+          </h4>
           <p class="modal-meaning" id="modalMeaning"></p>
         </div>
-        <!-- 时态变形（仅动词显示，默认收起） -->
+        <!-- 变形（时态/复数/比较级等，有什么显示什么，默认收起） -->
         <div class="modal-section" id="modalTensesSection" style="display:none">
           <div class="modal-tags-bar">
             <button class="modal-tag-btn" id="modalTensesToggle" type="button">
-              <span class="modal-tag-text">时态变形</span>
+              <span class="modal-tag-text">变形</span>
               <span class="modal-tag-arrow">▸</span>
             </button>
           </div>
@@ -635,11 +664,6 @@
         <div class="modal-section" id="modalExampleSection">
           <h4 class="modal-section-title">例句</h4>
           <div class="example-list" id="modalExamples"></div>
-        </div>
-        <!-- 状态信息 -->
-        <div class="modal-section">
-          <h4 class="modal-section-title">学习状态</h4>
-          <div class="status-info" id="modalStatusInfo"></div>
         </div>
       </div>
       <div class="modal-footer">
@@ -723,7 +747,56 @@
     </div>
   </div>
 
-  <script src="assets/app.js?v=20260728a"></script>
+  <!-- ============ 登录/注册弹窗 ============ -->
+  <div class="login-overlay" id="loginModal">
+    <div class="login-card">
+      <div class="login-logo">
+        <h1>背单词</h1>
+        <p>登录后开始你的单词学习之旅</p>
+      </div>
+      <!-- 登录/注册切换 -->
+      <div class="login-tabs">
+        <div class="login-tab active" data-login-tab="login">登录</div>
+        <div class="login-tab" data-login-tab="register">注册</div>
+      </div>
+      <!-- 登录表单 -->
+      <form class="login-form active" id="loginForm" onsubmit="return false">
+        <div class="login-error" id="loginError"></div>
+        <div class="form-group">
+          <label class="form-label">用户名</label>
+          <input type="text" class="form-input" id="loginUsername" placeholder="请输入用户名" autocomplete="username">
+        </div>
+        <div class="form-group">
+          <label class="form-label">密码</label>
+          <input type="password" class="form-input" id="loginPassword" placeholder="请输入密码" autocomplete="current-password">
+        </div>
+        <button type="submit" class="login-btn" id="btnLogin">登录</button>
+      </form>
+      <!-- 注册表单 -->
+      <form class="login-form" id="registerForm" onsubmit="return false">
+        <div class="login-error" id="registerError"></div>
+        <div class="form-group">
+          <label class="form-label">用户名</label>
+          <input type="text" class="form-input" id="registerUsername" placeholder="请输入用户名" autocomplete="username">
+        </div>
+        <div class="form-group">
+          <label class="form-label">密码</label>
+          <input type="password" class="form-input" id="registerPassword" placeholder="请输入密码" autocomplete="new-password">
+        </div>
+        <div class="form-group">
+          <label class="form-label">确认密码</label>
+          <input type="password" class="form-input" id="registerConfirmPassword" placeholder="请再次输入密码" autocomplete="new-password">
+        </div>
+        <div class="form-group">
+          <label class="form-label">昵称（选填）</label>
+          <input type="text" class="form-input" id="registerNickname" placeholder="请输入昵称">
+        </div>
+        <button type="submit" class="login-btn" id="btnRegister">注册</button>
+      </form>
+    </div>
+  </div>
+
+  <script src="assets/app.js?v=20260728f"></script>
   <!-- PWA service worker 注册：仅在 HTTPS/localhost 生效 -->
   <script>
     if ('serviceWorker' in navigator) {
