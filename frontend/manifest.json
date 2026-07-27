@@ -1,0 +1,25 @@
+{
+  "name": "背单词 WordMemo",
+  "short_name": "背单词",
+  "description": "个人背单词应用，支持AI识别、文档导入、间隔复习",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#4a7fff",
+  "theme_color": "#4a7fff",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

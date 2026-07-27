@@ -1,0 +1,14 @@
+Flask==3.0.0
+Flask-SQLAlchemy==3.1.1
+Flask-CORS==4.0.0
+requests==2.31.0
+Pillow==10.2.0
+gunicorn==21.2.0
+
+# PostgreSQL 驱动（Render 数据库用）
+psycopg2-binary==2.9.9
+
+# 文档导入功能依赖
+python-docx==1.1.0
+openpyxl==3.1.2
+pdfplumber==0.10.3

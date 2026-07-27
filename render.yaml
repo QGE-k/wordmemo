@@ -1,0 +1,24 @@
+# Render Blueprint - 一键部署配置
+# 使用方法：把代码推到 GitHub 后，在 Render 点 "New" → "Blueprint"，选这个仓库即可
+# 详见 DEPLOY.md
+
+services:
+  - type: web
+    name: wordmemo
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn --bind 0.0.0.0:$PORT --workers 1 --timeout 120 app:app
+    healthCheckPath: /api/stats
+    envVars:
+      - key: AGNES_API_KEY
+        sync: false  # 部署时手动填写（你的 Agnes AI 密钥）
+      - key: AGNES_BASE_URL
+        value: https://apihub.agnes-ai.com/v1
+      - key: AGNES_MODEL
+        value: agnes-2.0-flash
+      - key: DATABASE_URL
+        sync: false  # 部署时手动填写（Neon 连接串）
+      - key: SECRET_KEY
+        generateValue: true  # 自动生成随机密钥
