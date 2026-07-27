@@ -136,6 +136,49 @@ def upgrade_split_data():
         print(f"[迁移] 已升级 {upgraded} 个单词的拆解数据和记忆方法")
 
 
+def fix_empty_meanings():
+    """
+    数据迁移：修复 meaning 为空的单词
+    对这些单词重新分析，补充 meaning/phonetic/mnemonic/tenses 等空字段
+    优先用 AI 分析，AI 不可用时降级到字典/规则分析（至少给出兜底释义）
+    """
+    fixed = 0
+    # 查找 meaning 为空的单词
+    empty_words = Word.query.filter(
+        db.or_(Word.meaning.is_(None), Word.meaning == '')
+    ).all()
+
+    for word in empty_words:
+        try:
+            analysis, source = analyze_word_with_fallback(word.word)
+            updated = False
+            # 只补充空字段，不覆盖已有数据
+            new_meaning = analysis.get('meaning', '')
+            if new_meaning and (not word.meaning or word.meaning.strip() == ''):
+                word.meaning = new_meaning
+                updated = True
+            if not word.phonetic and analysis.get('phonetic'):
+                word.phonetic = analysis['phonetic']
+                updated = True
+            if not word.mnemonic and analysis.get('mnemonic'):
+                word.mnemonic = analysis['mnemonic']
+                updated = True
+            if not word.tenses and analysis.get('tenses'):
+                word.tenses = analysis['tenses']
+                updated = True
+            if not word.split_data and analysis.get('split'):
+                word.split_data = analysis['split']
+                updated = True
+            if updated:
+                fixed += 1
+        except Exception as e:
+            print(f"[迁移] 修复 '{word.word}' 失败: {e}")
+
+    if fixed > 0:
+        db.session.commit()
+        print(f"[迁移] 已修复 {fixed} 个空释义单词")
+
+
 def update_learn_history(count=1):
     """更新今日学习历史记录"""
     today = date.today()
@@ -605,15 +648,21 @@ def import_confirm():
             if analysis is None:
                 failed.append(word_text)
                 continue
+            # analyze_word_with_fallback 返回 (dict, source) 元组，需取出字典
+            if isinstance(analysis, tuple):
+                analysis = analysis[0] if analysis else {}
+            if not isinstance(analysis, dict) or not analysis:
+                failed.append(word_text)
+                continue
             word = Word(
                 word=word_text,
                 phonetic=analysis.get('phonetic', ''),
                 meaning=analysis.get('meaning', ''),
-                word_type=analysis.get('word_type', ''),
-                split_data=analysis.get('split_data'),
-                morph_data=analysis.get('morph_data'),
-                examples=analysis.get('examples'),
+                word_type=analysis.get('type', '基础词'),
+                split_data=analysis.get('split', []),
+                morph_data=analysis.get('morph', []),
                 mnemonic=analysis.get('mnemonic', ''),
+                examples=analysis.get('examples', []),
                 tenses=analysis.get('tenses'),
                 status='new',
                 wordbook_id=wordbook_id,
@@ -1367,6 +1416,8 @@ with app.app_context():
     init_demo_data()
     # 升级已有单词的拆解数据和记忆方法到新结构
     upgrade_split_data()
+    # 修复 meaning 为空的旧数据单词
+    fix_empty_meanings()
 
 
 # ==================== 前端静态文件服务 ====================

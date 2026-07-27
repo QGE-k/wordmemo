@@ -496,6 +496,41 @@ async function renderHome() {
     $('#statReview').textContent = stats.review || 0;
     $('#statMastered').textContent = stats.mastered || 0;
 
+    // 首页概览数字可点击跳转
+    const overviewItems = document.querySelectorAll('.overview-item');
+    if (overviewItems.length >= 3) {
+      // 今日已学 → 跳转学习页
+      overviewItems[0].style.cursor = 'pointer';
+      overviewItems[0].onclick = () => {
+        learnQueue = [];
+        switchPage('learn');
+      };
+      // 待复习 → 跳转复习页
+      overviewItems[1].style.cursor = 'pointer';
+      overviewItems[1].onclick = () => {
+        reviewQueue = [];
+        switchPage('review');
+      };
+      // 待学新词 → 跳转学习页
+      overviewItems[2].style.cursor = 'pointer';
+      overviewItems[2].onclick = () => {
+        learnQueue = [];
+        switchPage('learn');
+      };
+    }
+    // 统计卡片也可点击
+    const statCards = document.querySelectorAll('.stat-card');
+    if (statCards.length >= 4) {
+      statCards[0].style.cursor = 'pointer'; // 总词数 → 词库
+      statCards[0].onclick = () => switchPage('library');
+      statCards[1].style.cursor = 'pointer'; // 新词 → 学习
+      statCards[1].onclick = () => { learnQueue = []; switchPage('learn'); };
+      statCards[2].style.cursor = 'pointer'; // 复习中 → 复习
+      statCards[2].onclick = () => { reviewQueue = []; switchPage('review'); };
+      statCards[3].style.cursor = 'pointer'; // 已掌握 → 词库
+      statCards[3].onclick = () => switchPage('library');
+    }
+
     // 学习曲线折线图
     // 后端 history 格式：[{date, count}, ...]，需转为数字数组
     const historyArr = (stats.history || []).map(h => h.count || 0);
@@ -1671,8 +1706,7 @@ async function renderStats() {
       mastered: stats.mastered || 0
     });
 
-    // 热力图
-    renderHeatmap(stats.learn_history || []);
+    // 热力图已移除
   } catch (err) {
     handleError(err);
   }
@@ -1888,6 +1922,8 @@ async function openWordDetail(id) {
     currentDetailWord = word;
     fillDetailModal(word);
     $('#wordDetailModal').classList.add('active');
+    // 自动发音
+    speakWord(word.word);
   } catch (err) {
     handleError(err);
   }
@@ -2357,33 +2393,6 @@ function drawPieChart(canvas, data) {
   `).join('');
 }
 
-/**
- * 渲染学习热力图（最近 35 天真实数据）
- * @param {Array} history - 学习历史，每项 {date, count}
- */
-function renderHeatmap(history) {
-  const container = $('#heatmap');
-  if (!container) return;
-
-  // history 是后端返回的 35 天真实数据
-  const data = Array.isArray(history) && history.length > 0
-    ? history.map(h => (h && h.count) || 0)
-    : new Array(35).fill(0);
-
-  // 计算等级阈值
-  const max = Math.max(...data, 1);
-
-  container.innerHTML = data.map(v => {
-    let level = 0;
-    if (v === 0) level = 0;
-    else if (v <= max * 0.25) level = 1;
-    else if (v <= max * 0.5) level = 2;
-    else if (v <= max * 0.75) level = 3;
-    else level = 4;
-    return `<span class="heat-cell${level ? ' heat-' + level : ''}"></span>`;
-  }).join('');
-}
-
 /* ====================================================
    十二、顶部状态栏时间更新
    ==================================================== */
@@ -2601,6 +2610,37 @@ function bindEvents() {
     const word = reviewQueue[reviewIndex];
     if (word) speakWord(word.word, e.currentTarget);
   });
+
+  // 音标点击发音（所有音标元素都可点击）
+  const phoneticHandler = (getWord) => (e) => {
+    e.stopPropagation();
+    const w = getWord();
+    if (w) speakWord(typeof w === 'string' ? w : w.word, e.currentTarget);
+  };
+  // 学习翻卡正面音标
+  $('#learnPhonetic').addEventListener('click', phoneticHandler(() => {
+    const w = learnQueue[learnIndex]; return w ? w.word : '';
+  }));
+  // 学习翻卡背面音标
+  $('#learnPhoneticBack').addEventListener('click', phoneticHandler(() => {
+    const w = learnQueue[learnIndex]; return w ? w.word : '';
+  }));
+  // 看词选义音标
+  $('#choicePhonetic').addEventListener('click', phoneticHandler(() => {
+    const w = learnQueue[learnIndex]; return w ? w.word : '';
+  }));
+  // 拼写默写音标
+  $('#spellPhonetic').addEventListener('click', phoneticHandler(() => {
+    const w = learnQueue[learnIndex]; return w ? w.word : '';
+  }));
+  // 复习卡音标
+  $('#reviewPhonetic').addEventListener('click', phoneticHandler(() => {
+    const w = reviewQueue[reviewIndex]; return w ? w.word : '';
+  }));
+  // 详情弹窗音标
+  $('#modalPhonetic').addEventListener('click', phoneticHandler(() => {
+    return $('#modalWord').textContent;
+  }));
 
   // 详情弹窗
   $('#modalCloseBtn').addEventListener('click', closeDetailModal);

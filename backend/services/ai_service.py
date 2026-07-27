@@ -120,6 +120,17 @@ class AIService:
 
 9. 提供2个实用例句
 
+10. 【强制规则】以下字段必须非空：
+    - meaning：必须包含词性标注（n./v./adj./adv./prep./conj. 等）和中文释义，如 "n. 苹果"、"v. 跑"。即使是生僻词也要给出释义，不能返回空字符串。
+    - phonetic：必须给出音标，如 "/æpl/"。不确定时给出最接近的音标。
+    - mnemonic：必须给出记忆方法，不能为空。
+    如果单词是短语/词组（如 "sports meeting"、"take care of"），meaning 给出整体释义，split 拆解每个组成单词。
+
+11. 【短语/词组处理】如果输入是短语或词组（包含空格），按复合词处理：
+    - meaning 给出整个短语的意思，如 "take care of" → "v. 照顾，照料"
+    - split 把每个独立单词拆开，标注原形和变形
+    - type 填"复合词"
+
 请严格返回以下JSON格式，不要包含任何其他文字：
 {
     "phonetic": "音标",
@@ -221,14 +232,44 @@ class AIService:
                 'explain': item.get('explain', ''),
             })
 
+        # 规范化 tenses 字段（动词五种形态），非动词为 None
+        raw_tenses = data.get('tenses')
+        tenses_normalized = None
+        if isinstance(raw_tenses, dict) and raw_tenses.get('base'):
+            tenses_normalized = {
+                'base': raw_tenses.get('base', ''),
+                'third_singular': raw_tenses.get('third_singular', ''),
+                'past': raw_tenses.get('past', ''),
+                'past_participle': raw_tenses.get('past_participle', ''),
+                'present_participle': raw_tenses.get('present_participle', ''),
+            }
+
+        # meaning 兜底：AI 偶尔返回空释义，此时尝试从 split 推断，仍为空则给提示
+        meaning = data.get('meaning', '') or ''
+        if not meaning.strip():
+            if split_normalized:
+                # 从拆解部分拼接一个基础释义
+                parts_meaning = '；'.join(
+                    f"{s.get('part','')}: {s.get('meaning','')}" for s in split_normalized if s.get('meaning')
+                )
+                meaning = parts_meaning or f'{word}（暂无释义，可点击编辑补充）'
+            else:
+                meaning = f'{word}（暂无释义，可点击编辑补充）'
+
+        # phonetic 兜底
+        phonetic = data.get('phonetic', '') or ''
+        if not phonetic.strip():
+            phonetic = ''
+
         return {
-            'phonetic': data.get('phonetic', ''),
-            'meaning': data.get('meaning', ''),
+            'phonetic': phonetic,
+            'meaning': meaning,
             'type': word_type,
             'split': split_normalized,
             'morph': data.get('morph', []) if isinstance(data.get('morph'), list) else [],
             'mnemonic': data.get('mnemonic', '') or '',
             'examples': data.get('examples', []) if isinstance(data.get('examples'), list) else [],
+            'tenses': tenses_normalized,
         }
 
     def _extract_json_from_text(self, text):

@@ -736,9 +736,9 @@ class DictionaryService:
                 result['tenses'] = self.VERB_TENSES[word_lower[:-3]]
             return result
 
-        # 即使不在DICTIONARY中，也检查是否是已知动词（提供时态数据）
-        if word_lower in self.VERB_TENSES:
-            return {'tenses': self.VERB_TENSES[word_lower]}
+        # 已知动词但不在词典中：返回 None 降级到 analyze_with_rules
+        # analyze_with_rules 会通过 _lookup_tenses 补充 tenses，并给出兜底释义
+        # 避免这里只返回 tenses 而缺少 meaning/phonetic 等字段
 
         # 未找到返回None
         return None
@@ -827,14 +827,183 @@ class DictionaryService:
                 break
 
         # 构建返回结果
+        # 根据前后缀推断基础释义（避免返回空 meaning）
+        meaning = self._infer_meaning(word_lower, detected_prefix, detected_suffix, final_root)
+
+        # 检查动词时态：原词或词根是已知动词时，补充 tenses
+        tenses = self._lookup_tenses(word_lower, detected_suffix, final_root)
+
+        # 派生词也补充 split（词根 + 词缀），让前端能显示拆解
+        if not split and (detected_prefix or detected_suffix) and final_root:
+            split = self._build_derivative_split(
+                word_lower, detected_prefix, detected_suffix, final_root
+            )
+
+        # 记忆方法兜底
+        affix_parts = []
+        if detected_prefix:
+            affix_parts.append(f'前缀 {detected_prefix}（{self.PREFIXES.get(detected_prefix, "")}）')
+        if detected_suffix:
+            affix_parts.append(f'后缀 -{detected_suffix}（{self.SUFFIXES.get(detected_suffix, "")}）')
+        if affix_parts:
+            mnemonic = f'"{word_lower}" 含有{"、".join(affix_parts)}，可根据词根"{final_root}"推断含义。'
+        elif final_root and final_root != word_lower:
+            mnemonic = f'"{word_lower}" 可拆分为词根"{final_root}"，据此推断含义。'
+        else:
+            mnemonic = f'"{word_lower}" 暂无记忆方法，建议手动补充。'
+
         return {
             'phonetic': '',
-            'meaning': '',
+            'meaning': meaning,
             'type': word_type,
             'split': split,
             'morph': morph,
+            'mnemonic': mnemonic,
             'examples': [],
+            'tenses': tenses,
         }
+
+    def _infer_meaning(self, word, prefix, suffix, root):
+        """
+        根据前后缀推断单词的基础释义
+        当词典和AI都无法给出释义时，用规则推断一个基础含义
+        """
+        # 后缀推断词性和含义
+        suffix_meaning_map = {
+            'ing': f'v. {root}的现在分词/动名词' if root else 'v. 动名词/现在分词',
+            'ed': f'v. {root}的过去式/过去分词' if root else 'v. 过去式/过去分词',
+            'er': f'n. 做{root}的人或物' if root else 'n. 做...的人或物',
+            'or': f'n. 做{root}的人' if root else 'n. 做...的人',
+            'ist': f'n. ...主义者（与{root}相关）' if root else 'n. ...主义者',
+            'tion': f'n. {root}的动作或状态' if root else 'n. 动作或状态',
+            'sion': f'n. {root}的动作或状态' if root else 'n. 动作或状态',
+            'ment': f'n. {root}的行为或结果' if root else 'n. 行为或结果',
+            'ness': f'n. {root}的状态或性质' if root else 'n. 状态或性质',
+            'ity': f'n. {root}的性质或状态' if root else 'n. 性质或状态',
+            'able': f'adj. 可{root}的' if root else 'adj. 可...的',
+            'ible': f'adj. 可{root}的' if root else 'adj. 可...的',
+            'ful': f'adj. 充满{root}的' if root else 'adj. 充满...的',
+            'less': f'adj. 没有{root}的' if root else 'adj. 无...的',
+            'ous': f'adj. 具有{root}的' if root else 'adj. 具有...的',
+            'ive': f'adj. 有{root}倾向的' if root else 'adj. 有...倾向的',
+            'al': f'adj. 与{root}相关的' if root else 'adj. ...的',
+            'ly': f'adv. {root}地' if root else 'adv. ...地',
+            'y': f'adj. 有{root}特性的' if root else 'adj. 有...特性的',
+            'ize': f'v. 使{root}化' if root else 'v. 使...化',
+            'ise': f'v. 使{root}化' if root else 'v. 使...化',
+            'ify': f'v. 使{root}化' if root else 'v. 使...化',
+            'en': f'v. 使变成{root}' if root else 'v. 使变成',
+            'ship': f'n. {root}的关系或状态' if root else 'n. 关系或状态',
+            'hood': f'n. {root}的时期或状态' if root else 'n. 时期或状态',
+            'dom': f'n. {root}的领域或状态' if root else 'n. 领域或状态',
+        }
+        # 前缀推断含义
+        prefix_meaning_map = {
+            'un': '否定/相反',
+            're': '重新/再次',
+            'pre': '在...之前',
+            'dis': '否定/相反',
+            'mis': '错误',
+            'over': '过度',
+            'under': '不足/在下',
+            'out': '超过/外面',
+            'in': '进入/内',
+            'im': '进入/内',
+            'ir': '进入/内',
+            'il': '进入/内',
+            'en': '使成为',
+            'non': '非',
+            'anti': '反对',
+            'auto': '自动',
+            'bi': '双',
+            'tri': '三',
+            'multi': '多',
+            'super': '超级',
+            'sub': '在下面/次',
+            'inter': '在...之间',
+            'trans': '横过/转变',
+        }
+
+        parts = []
+        if prefix and prefix in prefix_meaning_map and root:
+            parts.append(prefix_meaning_map[prefix])
+        if suffix and suffix in suffix_meaning_map:
+            parts.append(suffix_meaning_map[suffix])
+
+        if parts:
+            return '，'.join(parts) + f'（词根: {root}，建议手动确认完整释义）' if root else '，'.join(parts)
+        # 完全无法推断时给出提示
+        return f'{word}（暂无释义，建议点击编辑手动补充）'
+
+    def _build_derivative_split(self, word, prefix, suffix, root):
+        """
+        为派生词构建 split 拆解数据（词根 + 前缀/后缀）
+        """
+        split = []
+        if prefix:
+            split.append({
+                'part': prefix,
+                'meaning': self.PREFIXES.get(prefix, '前缀'),
+                'original': prefix,
+                'original_meaning': self.PREFIXES.get(prefix, '前缀'),
+                'transform': '本身是前缀，无变形',
+                'explain': '前缀',
+            })
+        if root:
+            split.append({
+                'part': root,
+                'meaning': '词根',
+                'original': root,
+                'original_meaning': '词根',
+                'transform': '原形不变',
+                'explain': '词根',
+            })
+        if suffix:
+            split.append({
+                'part': '-' + suffix,
+                'meaning': self.SUFFIXES.get(suffix, '后缀'),
+                'original': '-' + suffix,
+                'original_meaning': self.SUFFIXES.get(suffix, '后缀'),
+                'transform': '本身是后缀，无变形',
+                'explain': '后缀',
+            })
+        return split
+
+    def _lookup_tenses(self, word, suffix, root):
+        """
+        查找动词时态数据，处理多种变形情况
+        包括双写辅音变形（running→run, swimming→swim, getting→get）
+        """
+        # 1. 原词直接命中
+        if word in self.VERB_TENSES:
+            return self.VERB_TENSES[word]
+        # 2. 词根直接命中
+        if root and root in self.VERB_TENSES:
+            return self.VERB_TENSES[root]
+        # 3. 处理 -ing/-ed 后缀的双写辅音变形
+        #    running→runn→run, swimming→swimm→swim, getting→gett→get
+        if suffix in ('ing', 'ed') and len(word) > 4:
+            strip_len = len(suffix)
+            candidate = word[:-strip_len]
+            # 双写辅音结尾：去掉重复的最后一个字母
+            if len(candidate) >= 2 and candidate[-1] == candidate[-2]:
+                shorter = candidate[:-1]
+                if shorter in self.VERB_TENSES:
+                    return self.VERB_TENSES[shorter]
+            # 以 e 结尾的动词加 ing 时去掉 e（making→mak→make）
+            if candidate and candidate + 'e' in self.VERB_TENSES:
+                return self.VERB_TENSES[candidate + 'e']
+            # 以 ie 结尾的动词加 ing 变成 ying（lying→ly→lie）
+            if word.endswith('ying') and len(word) > 4:
+                base = word[:-4] + 'ie'
+                if base in self.VERB_TENSES:
+                    return self.VERB_TENSES[base]
+        # 4. 处理 -ed 后缀的 e 结尾动词（liked→lik→like）
+        if suffix == 'ed' and len(word) > 3:
+            candidate = word[:-2]
+            if candidate + 'e' in self.VERB_TENSES:
+                return self.VERB_TENSES[candidate + 'e']
+        return None
 
     def get_demo_words(self):
         """
