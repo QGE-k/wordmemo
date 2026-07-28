@@ -1168,64 +1168,147 @@ async function handleDocImport() {
 
 // 扫描录入：选择图片
 function handleScanPick() {
+  // 如果已有识别结果，先清空
+  if (scanRecognizedWords.length > 0) {
+    if (!confirm('已有识别结果，确定要重新拍照吗？')) return;
+    resetScan();
+  }
   $('#scanInput').click();
 }
 
 // 预览选择的图片
 function handleScanChange(e) {
-  const file = e.target.files[0];
-  if (!file) return;
-  // 生成预览
-  const reader = new FileReader();
-  reader.onload = (ev) => {
-    const img = $('#scanPreview');
-    img.src = ev.target.result;
-    img.style.display = 'block';
-    $('.scan-placeholder').style.display = 'none';
-  };
-  reader.readAsDataURL(file);
-  // 缓存文件对象
-  scanFile = file;
+  const files = Array.from(e.target.files || []);
+  if (files.length === 0) return;
+  // 添加到图片数组（累加，支持多张）
+  scanFiles = scanFiles.concat(files);
+  // 更新预览区域：显示所有图片缩略图
+  updateScanPreview();
   // 清除上一次的识别结果
   scanRecognizedWords = [];
   $('#scanConfirm').style.display = 'none';
   $('#scanResult').style.display = 'none';
+  // 重置 input value 允许重复选同一文件
+  e.target.value = '';
 }
 
-let scanFile = null; // 当前选择的图片文件
+function updateScanPreview() {
+  const placeholder = $('.scan-placeholder');
+  const preview = $('#scanPreview');
+  if (scanFiles.length === 0) {
+    placeholder.style.display = '';
+    preview.style.display = 'none';
+    return;
+  }
+  placeholder.style.display = 'none';
+  // 只显示第一张作为主预览，加数量标记
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    preview.src = ev.target.result;
+    preview.style.display = 'block';
+  };
+  reader.readAsDataURL(scanFiles[0]);
+  // 如果有多张，在扫描区显示数量提示
+  let countBadge = $('#scanCountBadge');
+  if (!countBadge) {
+    countBadge = document.createElement('div');
+    countBadge.id = 'scanCountBadge';
+    countBadge.style.cssText = 'position:absolute;top:8px;right:8px;background:rgba(79,70,229,0.9);color:#fff;border-radius:12px;padding:2px 10px;font-size:13px;font-weight:600';
+    $('#scanArea').style.position = 'relative';
+    $('#scanArea').appendChild(countBadge);
+  }
+  countBadge.textContent = scanFiles.length + '张图片';
+  countBadge.style.display = scanFiles.length > 1 ? 'block' : 'none';
+}
+
+function resetScan() {
+  scanFiles = [];
+  scanRecognizedWords = [];
+  $('#scanPreview').style.display = 'none';
+  $('.scan-placeholder').style.display = '';
+  $('#scanConfirm').style.display = 'none';
+  $('#scanResult').style.display = 'none';
+  const badge = $('#scanCountBadge');
+  if (badge) badge.style.display = 'none';
+}
+
+let scanFiles = []; // 多张图片文件数组
 let scanRecognizedWords = []; // AI识别到的单词列表 [{word, meaning, checked}]
 
 // AI识别图片中的单词
 async function handleScanRecognize() {
-  if (!scanFile) {
+  if (scanFiles.length === 0) {
     showToast('请先选择图片', 'warning');
     return;
   }
   try {
     showLoading('AI识别中...');
-    const res = await api.aiRecognizeImage(scanFile);
-    hideLoading();
-    if (!res.success) {
-      showToast(res.error || '识别失败', 'error');
-      return;
+    // 逐张识别，合并结果
+    let allWords = [];
+    for (let i = 0; i < scanFiles.length; i++) {
+      showLoading(`AI识别中... (${i + 1}/${scanFiles.length})`);
+      const res = await api.aiRecognizeImage(scanFiles[i]);
+      if (res.success && res.words) {
+        allWords = allWords.concat(res.words);
+      }
     }
+    hideLoading();
+    
     // 处理识别结果：支持 / 分隔的多词组拆分
-    const rawWords = res.words || [];
     const expandedWords = [];
-    rawWords.forEach(w => {
+    allWords.forEach(w => {
       const wordStr = (w.word || '').trim();
       const meaningStr = (w.meaning || '').trim();
-      // 如果单词中包含 /，拆分为多个独立词组
       if (wordStr.includes('/')) {
-        const parts = wordStr.split('/').map(s => s.trim().toLowerCase()).filter(s => s);
-        parts.forEach(part => {
-          expandedWords.push({ word: part, meaning: meaningStr, checked: true });
-        });
+        // 拆分斜杠分隔的词组
+        // 处理 call on/upon sb -> call on sb + call upon sb
+        const parts = wordStr.split('/').map(s => s.trim()).filter(s => s);
+        if (parts.length >= 2) {
+          // 检查是否是 call on/upon sb 这种模式：前半部分有完整词组，后半部分是替换词
+          const firstPart = parts[0];
+          const lastPart = parts[parts.length - 1];
+          // 尝试找到共同前缀和后缀
+          // 模式1: "call on/upon sb" -> "call on sb" + "call upon sb"
+          const firstWords = firstPart.split(' ');
+          if (firstWords.length >= 2) {
+            const prefix = firstWords.slice(0, -1).join(' '); // "call"
+            const suffix = firstWords[firstWords.length - 1]; // "on"
+            const altWord = lastPart; // "upon sb" or just "upon"
+            // 生成两个词组
+            const word1 = (prefix + ' ' + suffix + ' ' + firstPart.replace(prefix + ' ' + suffix, '').trim()).trim().replace(/\s+/g, ' ');
+            // 更简单的方式：直接用 parts 组合
+            // call on/upon sb -> parts = ["call on", "upon sb"]
+            // 需要组合成 "call on sb" 和 "call upon sb"
+            const lastWordOfFirst = firstWords[firstWords.length - 1]; // "on"
+            const remainingAfterSlash = lastPart.split(' ').slice(1).join(' '); // "sb"
+            const combined1 = firstPart + (remainingAfterSlash ? ' ' + remainingAfterSlash : ''); // "call on sb"
+            const combined2 = prefix + ' ' + lastPart; // "call upon sb"
+            expandedWords.push({ word: combined1.toLowerCase(), meaning: meaningStr, checked: true });
+            expandedWords.push({ word: combined2.toLowerCase(), meaning: meaningStr, checked: true });
+          } else {
+            // 简单拆分
+            parts.forEach(part => {
+              expandedWords.push({ word: part.toLowerCase(), meaning: meaningStr, checked: true });
+            });
+          }
+        } else {
+          parts.forEach(part => {
+            expandedWords.push({ word: part.toLowerCase(), meaning: meaningStr, checked: true });
+          });
+        }
       } else {
         expandedWords.push({ word: wordStr.toLowerCase(), meaning: meaningStr, checked: true });
       }
     });
-    scanRecognizedWords = expandedWords;
+    
+    // 去重（同名的词组只保留一个）
+    const seen = new Set();
+    scanRecognizedWords = expandedWords.filter(w => {
+      if (seen.has(w.word)) return false;
+      seen.add(w.word);
+      return true;
+    });
+    
     renderScanWords();
   } catch (err) {
     hideLoading();
@@ -1270,6 +1353,19 @@ function renderScanWords() {
   });
 
   updateScanCheckAllState();
+  // 添加"重新识别"按钮（如果不存在）
+  const actionsDiv = document.querySelector('.scan-confirm-actions');
+  if (actionsDiv && !$('#btnScanReset')) {
+    const resetBtn = document.createElement('button');
+    resetBtn.className = 'btn-secondary btn-sm';
+    resetBtn.id = 'btnScanReset';
+    resetBtn.textContent = '重新识别';
+    resetBtn.style.marginRight = '8px';
+    resetBtn.addEventListener('click', () => {
+      resetScan();
+    });
+    actionsDiv.insertBefore(resetBtn, actionsDiv.firstChild);
+  }
   $('#scanResult').style.display = 'none';
 }
 
@@ -1297,11 +1393,7 @@ async function handleScanAddSelected() {
     return;
   }
 
-  // 获取选择的单词本
   const scanWordbookId = ($('#scanWordbookSelect') || {}).value || null;
-
-  // 所有单词都走批量接口，后端会自动用AI/词典分析每个单词
-  // 图片识别的meaning仅用于确认列表展示，不直接入库（后端分析更全面）
   const wordsToAdd = selected.map(w => w.word);
 
   try {
@@ -1316,6 +1408,8 @@ async function handleScanAddSelected() {
       skippedWords: res.skipped || [],
       words: selected,
     });
+    // 添加成功后清空图片和识别结果
+    resetScan();
   } catch (err) {
     hideLoading();
     handleError(err);
@@ -1405,6 +1499,129 @@ function sortLibraryData(data) {
   return sorted;
 }
 
+// ====== 词库多选模式 ======
+let multiSelectIds = new Set();
+
+function enterMultiSelectMode(firstId) {
+  multiSelectIds.clear();
+  multiSelectIds.add(firstId);
+  // 标记第一个为选中
+  const firstItem = document.querySelector(`.word-item[data-id="${firstId}"]`);
+  if (firstItem) firstItem.classList.add('multi-selected');
+  // 显示多选操作栏
+  showMultiSelectBar();
+}
+
+function showMultiSelectBar() {
+  let bar = $('#multiSelectBar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'multiSelectBar';
+    bar.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:#fff;box-shadow:0 -2px 10px rgba(0,0,0,0.1);padding:12px 16px;display:flex;align-items:center;gap:12px;z-index:500;max-width:480px;margin:0 auto;';
+    bar.innerHTML = `
+      <span id="multiSelectCount" style="font-size:14px;color:#333;flex:1;">已选 1 个</span>
+      <button class="btn-secondary btn-sm" id="multiSelectCancel">取消</button>
+      <button class="btn-primary btn-sm" id="multiSelectMove">移动到词本</button>
+      <button class="btn-secondary btn-sm" id="multiSelectDelete" style="color:#ef4444;border-color:#ef4444">删除</button>
+    `;
+    document.body.appendChild(bar);
+    // 绑定事件
+    $('#multiSelectCancel').addEventListener('click', exitMultiSelectMode);
+    $('#multiSelectMove').addEventListener('click', openMultiMoveModal);
+    $('#multiSelectDelete').addEventListener('click', handleMultiDelete);
+  }
+  bar.style.display = 'flex';
+  updateMultiSelectCount();
+}
+
+function exitMultiSelectMode() {
+  multiSelectIds.clear();
+  document.querySelectorAll('.word-item.multi-selected').forEach(el => el.classList.remove('multi-selected'));
+  const bar = $('#multiSelectBar');
+  if (bar) bar.style.display = 'none';
+}
+
+function toggleMultiSelect(id, item) {
+  if (multiSelectIds.has(id)) {
+    multiSelectIds.delete(id);
+    item.classList.remove('multi-selected');
+  } else {
+    multiSelectIds.add(id);
+    item.classList.add('multi-selected');
+  }
+  updateMultiSelectCount();
+  // 如果取消选了所有，退出多选
+  if (multiSelectIds.size === 0) exitMultiSelectMode();
+}
+
+function updateMultiSelectCount() {
+  const el = $('#multiSelectCount');
+  if (el) el.textContent = `已选 ${multiSelectIds.size} 个`;
+}
+
+async function openMultiMoveModal() {
+  if (multiSelectIds.size === 0) return;
+  const select = $('#moveWordbookSelect');
+  // 填充词本列表
+  let html = '<option value="">未归类</option>';
+  wordbooks.forEach(b => {
+    html += `<option value="${b.id}">${escapeHtml(b.name)}（${b.word_count || 0}词）</option>`;
+  });
+  select.innerHTML = html;
+  // 修改确认按钮行为
+  $('#moveConfirmBtn').onclick = handleMultiMove;
+  $('#moveWordbookModal').classList.add('active');
+}
+
+async function handleMultiMove() {
+  if (multiSelectIds.size === 0) return;
+  const targetWordbookId = $('#moveWordbookSelect').value;
+  const wbId = targetWordbookId ? parseInt(targetWordbookId) : null;
+  try {
+    showLoading(`正在移动 ${multiSelectIds.size} 个单词...`);
+    let success = 0, fail = 0;
+    for (const id of multiSelectIds) {
+      try {
+        await api.updateWord(id, { wordbook_id: wbId });
+        success++;
+      } catch (e) {
+        fail++;
+      }
+    }
+    hideLoading();
+    showToast(`成功移动 ${success} 个单词${fail > 0 ? `，${fail}个失败` : ''}`, 'success');
+    closeMoveWordbookModal();
+    exitMultiSelectMode();
+    // 恢复确认按钮行为
+    $('#moveConfirmBtn').onclick = handleMoveWordbook;
+    // 刷新
+    await loadWordbooks();
+    if ($('#page-library').classList.contains('active')) renderLibrary();
+  } catch (err) {
+    hideLoading();
+    handleError(err);
+  }
+}
+
+async function handleMultiDelete() {
+  if (multiSelectIds.size === 0) return;
+  if (!confirm(`确定删除选中的 ${multiSelectIds.size} 个单词吗？`)) return;
+  try {
+    showLoading('删除中...');
+    for (const id of multiSelectIds) {
+      await api.deleteWord(id);
+    }
+    hideLoading();
+    showToast('批量删除成功', 'success');
+    exitMultiSelectMode();
+    if ($('#page-library').classList.contains('active')) renderLibrary();
+    if ($('#page-home').classList.contains('active')) renderHome();
+  } catch (err) {
+    hideLoading();
+    handleError(err);
+  }
+}
+
 async function renderLibrary() {
   try {
     showLoading();
@@ -1429,8 +1646,37 @@ async function renderLibrary() {
 
     list.innerHTML = libraryData.map((word, i) => wordItemHtml(word, i + 1)).join('');
     // 绑定点击查看详情
+    let multiSelectMode = false;
+    let selectedIds = new Set();
+    
     list.querySelectorAll('.word-item').forEach(item => {
-      item.addEventListener('click', () => openWordDetail(item.dataset.id));
+      // 长按进入多选模式
+      let pressTimer = null;
+      item.addEventListener('touchstart', (e) => {
+        pressTimer = setTimeout(() => {
+          e.preventDefault();
+          enterMultiSelectMode(item.dataset.id);
+        }, 600);
+      });
+      item.addEventListener('touchend', () => { if (pressTimer) clearTimeout(pressTimer); });
+      item.addEventListener('touchmove', () => { if (pressTimer) clearTimeout(pressTimer); });
+      
+      // 桌面端右键进入多选
+      item.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        enterMultiSelectMode(item.dataset.id);
+      });
+      
+      // 点击事件
+      item.addEventListener('click', (e) => {
+        // 检查是否在多选模式
+        if ($('#multiSelectBar') && $('#multiSelectBar').style.display === 'flex') {
+          e.stopPropagation();
+          toggleMultiSelect(item.dataset.id, item);
+        } else {
+          openWordDetail(item.dataset.id);
+        }
+      });
     });
   } catch (err) {
     handleError(err);

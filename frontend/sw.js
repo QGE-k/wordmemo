@@ -3,7 +3,7 @@
    作用：缓存前端静态资源，支持离线打开；API请求始终走网络
    策略：网络优先（确保更新立即生效），缓存作为离线兜底
    ==================================================== */
-const CACHE_NAME = 'wordmemo-v8';
+const CACHE_NAME = 'wordmemo-v9';
 const CORE_ASSETS = [
   '/',
   '/index.html',

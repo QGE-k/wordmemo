@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#4a7fff">
   <title>背单词</title>
-  <link rel="stylesheet" href="assets/style.css?v=20260728j">
+  <link rel="stylesheet" href="assets/style.css?v=20260728k">
   <!-- PWA 支持：允许"添加到桌面"当App用 -->
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" type="image/png" href="/icons/icon-192.png">
@@ -228,8 +228,8 @@
           </div>
           <img class="scan-preview" id="scanPreview" alt="预览" style="display:none">
         </div>
-        <!-- capture=camera 支持手机直接拍照 -->
-        <input type="file" accept="image/*" capture="camera" id="scanInput" style="display:none">
+        <!-- multiple 支持多选，capture 支持拍照 -->
+        <input type="file" accept="image/*" multiple id="scanInput" style="display:none">
         <div class="scan-actions">
           <button class="btn-primary" id="btnScanRecognize">识别单词</button>
         </div>
