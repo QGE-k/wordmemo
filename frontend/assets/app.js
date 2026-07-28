@@ -690,14 +690,28 @@ function escapeHtml(str) {
 }
 
 /**
- * 单词发音（使用浏览器内置 TTS，免费零成本）
+ * 单词发音
+ * 优先使用 Android 原生 TTS（WebView 不支持 Web Speech API）
+ * 回退到浏览器 Web Speech API
  * @param {string} word - 要发音的单词
  * @param {HTMLElement} [btn] - 触发按钮，用于播放动画
  */
 function speakWord(word, btn) {
   if (!word) return;
+
+  // 优先使用 Android 原生 TTS 引擎
+  if (window.AndroidTTS && typeof window.AndroidTTS.isAvailable === 'function' && window.AndroidTTS.isAvailable()) {
+    window.AndroidTTS.speak(word);
+    if (btn) {
+      btn.classList.add('speaking');
+      setTimeout(() => btn.classList.remove('speaking'), 1500);
+    }
+    return;
+  }
+
+  // 回退到浏览器 Web Speech API
   if (!('speechSynthesis' in window)) {
-    showToast('浏览器不支持语音播放', 'error');
+    showToast('当前环境不支持语音播放', 'error');
     return;
   }
   // 停止正在播放的语音
