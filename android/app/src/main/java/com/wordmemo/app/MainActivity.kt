@@ -189,14 +189,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
-                // 注入CSS隐藏登录表单，防止未登录时闪烁
-                view?.evaluateJavascript(
-                    """(function(){
-                        var style = document.createElement('style');
-                        style.textContent = '#loginModal{display:none!important;}';
-                        document.head.appendChild(style);
-                    })();""", null
-                )
+                // loginModal 在 HTML 中已有 style="display:none;" 防止闪烁
+                // 不再注入 !important CSS，避免阻止 showLoginModal() 正常显示登录弹窗
                 loadingView.visibility = View.GONE
             }
 
