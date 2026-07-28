@@ -5,6 +5,7 @@ import android.content.Intent
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
+import android.provider.MediaStore
 import android.speech.tts.TextToSpeech
 import android.view.Gravity
 import android.view.KeyEvent
@@ -57,36 +58,56 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             FrameLayout.LayoutParams.MATCH_PARENT
         )
 
-        // ===== 加载页 =====
+        // ===== 加载页 - 居中布局防止偏移 =====
         loadingView = LinearLayout(this)
         loadingView.orientation = LinearLayout.VERTICAL
-        loadingView.gravity = Gravity.CENTER
+        loadingView.gravity = Gravity.CENTER_HORIZONTAL or Gravity.CENTER_VERTICAL
         loadingView.layoutParams = FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.MATCH_PARENT
         )
         loadingView.setBackgroundColor(Color.parseColor("#4f46e5"))
 
-        // 圆形进度条 - 固定大小防止变形
-        val progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleLarge)
-        val sizeInPx = (40 * resources.displayMetrics.density).toInt()
-        progressBar.layoutParams = LinearLayout.LayoutParams(sizeInPx, sizeInPx)
-        progressBar.indeterminateTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
-
+        // 应用标题
         val appName = TextView(this)
         appName.text = "背单词"
         appName.setTextColor(Color.WHITE)
-        appName.textSize = 32f
-        appName.setPadding(0, 24, 0, 8)
+        appName.textSize = 36f
+        appName.typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+        appName.setPadding(0, 0, 0, 16)
 
+        // 副标题
+        val subtitle = TextView(this)
+        subtitle.text = "WordMemo"
+        subtitle.setTextColor(Color.parseColor("#A5B4FC"))
+        subtitle.textSize = 14f
+        subtitle.letterSpacing = 0.2f
+        subtitle.setPadding(0, 0, 0, 40)
+
+        // 圆形进度条 - 固定大小 + 居中
+        val progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleLarge)
+        val sizeInPx = (36 * resources.displayMetrics.density).toInt()
+        val pbParams = LinearLayout.LayoutParams(sizeInPx, sizeInPx)
+        pbParams.gravity = Gravity.CENTER_HORIZONTAL
+        progressBar.layoutParams = pbParams
+        progressBar.indeterminateTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#A5B4FC"))
+
+        // 加载文字
         val loadingText = TextView(this)
         loadingText.text = "正在加载..."
         loadingText.setTextColor(Color.parseColor("#A5B4FC"))
-        loadingText.textSize = 14f
-        loadingText.setPadding(0, 16, 0, 0)
+        loadingText.textSize = 13f
+        val ltParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT
+        )
+        ltParams.gravity = Gravity.CENTER_HORIZONTAL
+        ltParams.topMargin = (16 * resources.displayMetrics.density).toInt()
+        loadingText.layoutParams = ltParams
 
-        loadingView.addView(progressBar)
         loadingView.addView(appName)
+        loadingView.addView(subtitle)
+        loadingView.addView(progressBar)
         loadingView.addView(loadingText)
 
         // ===== 错误页 =====
@@ -155,7 +176,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         webView.isVerticalScrollBarEnabled = false
         webView.isHorizontalScrollBarEnabled = false
         webView.isScrollbarFadingEnabled = true
-        // 禁用长按选择文本
         webView.setOnLongClickListener { true }
         webView.isLongClickable = false
         webView.isHapticFeedbackEnabled = false
@@ -169,6 +189,14 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
+                // 注入CSS隐藏登录表单，防止未登录时闪烁
+                view?.evaluateJavascript(
+                    """(function(){
+                        var style = document.createElement('style');
+                        style.textContent = '#loginModal{display:none!important;}';
+                        document.head.appendChild(style);
+                    })();""", null
+                )
                 loadingView.visibility = View.GONE
             }
 
@@ -196,11 +224,22 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 fileChooserCallback?.onReceiveValue(null)
                 fileChooserCallback = filePathCallback
 
-                val intent = fileChooserParams?.createIntent()
-                if (intent == null) {
-                    fileChooserCallback = null
-                    return false
-                }
+                // 创建可拍照 + 选图的选择器
+                val intent = Intent(Intent.ACTION_CHOOSER)
+
+                // 拍照 Intent
+                val cameraIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+
+                // 选图 Intent
+                val galleryIntent = Intent(Intent.ACTION_GET_CONTENT)
+                galleryIntent.type = "image/*"
+                galleryIntent.addCategory(Intent.CATEGORY_OPENABLE)
+
+                // 合并 Intent
+                val intentArray = arrayOf(cameraIntent)
+                intent.putExtra(Intent.EXTRA_INTENT, galleryIntent)
+                intent.putExtra(Intent.EXTRA_INITIAL_INTENTS, intentArray)
+                intent.putExtra(Intent.EXTRA_TITLE, "拍照或选择图片")
 
                 try {
                     @Suppress("DEPRECATION")
