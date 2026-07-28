@@ -1,7 +1,10 @@
 package com.wordmemo.app
 
+import android.Manifest
 import android.annotation.SuppressLint
+import android.app.AlertDialog
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
@@ -24,6 +27,12 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
@@ -36,6 +45,14 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private val appUrl = "https://wordmemo-bbpn.onrender.com/"
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
+    private var cameraImageUri: Uri? = null
+
+    companion object {
+        private const val FILE_CHOOSER_REQUEST = 10001
+        private const val CAMERA_PERMISSION_REQUEST = 10002
+        private const val REQUEST_CAMERA_ONLY = 10003
+        private const val REQUEST_GALLERY_ONLY = 10004
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -58,52 +75,73 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             FrameLayout.LayoutParams.MATCH_PARENT
         )
 
-        // ===== 加载页 - 居中布局防止偏移 =====
+        // ===== 加载页 - 居中布局 =====
         loadingView = LinearLayout(this)
         loadingView.orientation = LinearLayout.VERTICAL
-        loadingView.gravity = Gravity.CENTER_HORIZONTAL or Gravity.CENTER_VERTICAL
-        loadingView.layoutParams = FrameLayout.LayoutParams(
+        loadingView.gravity = Gravity.CENTER
+        val loadingParams = FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.MATCH_PARENT
         )
+        loadingView.layoutParams = loadingParams
         loadingView.setBackgroundColor(Color.parseColor("#4f46e5"))
 
-        // 应用标题
-        val appName = TextView(this)
-        appName.text = "背单词"
-        appName.setTextColor(Color.WHITE)
-        appName.textSize = 36f
-        appName.typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
-        appName.setPadding(0, 0, 0, 16)
+        val appName = TextView(this).apply {
+            text = "背单词"
+            setTextColor(Color.WHITE)
+            textSize = 36f
+            typeface = android.graphics.Typeface.create(
+                android.graphics.Typeface.DEFAULT,
+                android.graphics.Typeface.BOLD
+            )
+            gravity = Gravity.CENTER
+            val lp = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            lp.gravity = Gravity.CENTER
+            layoutParams = lp
+            setPadding(0, 0, 0, 16)
+        }
 
-        // 副标题
-        val subtitle = TextView(this)
-        subtitle.text = "WordMemo"
-        subtitle.setTextColor(Color.parseColor("#A5B4FC"))
-        subtitle.textSize = 14f
-        subtitle.letterSpacing = 0.2f
-        subtitle.setPadding(0, 0, 0, 40)
+        val subtitle = TextView(this).apply {
+            text = "WordMemo"
+            setTextColor(Color.parseColor("#A5B4FC"))
+            textSize = 14f
+            letterSpacing = 0.2f
+            gravity = Gravity.CENTER
+            val lp = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            lp.gravity = Gravity.CENTER
+            layoutParams = lp
+            setPadding(0, 0, 0, 48)
+        }
 
-        // 圆形进度条 - 固定大小 + 居中
-        val progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleLarge)
-        val sizeInPx = (36 * resources.displayMetrics.density).toInt()
-        val pbParams = LinearLayout.LayoutParams(sizeInPx, sizeInPx)
-        pbParams.gravity = Gravity.CENTER_HORIZONTAL
-        progressBar.layoutParams = pbParams
-        progressBar.indeterminateTintList = android.content.res.ColorStateList.valueOf(Color.parseColor("#A5B4FC"))
+        val progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleLarge).apply {
+            val sizeInPx = (36 * resources.displayMetrics.density).toInt()
+            val lp = LinearLayout.LayoutParams(sizeInPx, sizeInPx)
+            lp.gravity = Gravity.CENTER
+            layoutParams = lp
+            indeterminateTintList = android.content.res.ColorStateList.valueOf(
+                Color.parseColor("#A5B4FC")
+            )
+        }
 
-        // 加载文字
-        val loadingText = TextView(this)
-        loadingText.text = "正在加载..."
-        loadingText.setTextColor(Color.parseColor("#A5B4FC"))
-        loadingText.textSize = 13f
-        val ltParams = LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT,
-            LinearLayout.LayoutParams.WRAP_CONTENT
-        )
-        ltParams.gravity = Gravity.CENTER_HORIZONTAL
-        ltParams.topMargin = (16 * resources.displayMetrics.density).toInt()
-        loadingText.layoutParams = ltParams
+        val loadingText = TextView(this).apply {
+            text = "正在加载..."
+            setTextColor(Color.parseColor("#A5B4FC"))
+            textSize = 13f
+            gravity = Gravity.CENTER
+            val lp = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            lp.gravity = Gravity.CENTER
+            lp.topMargin = (16 * resources.displayMetrics.density).toInt()
+            layoutParams = lp
+        }
 
         loadingView.addView(appName)
         loadingView.addView(subtitle)
@@ -111,36 +149,41 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         loadingView.addView(loadingText)
 
         // ===== 错误页 =====
-        errorView = LinearLayout(this)
-        errorView.orientation = LinearLayout.VERTICAL
-        errorView.gravity = Gravity.CENTER
-        errorView.layoutParams = FrameLayout.LayoutParams(
-            FrameLayout.LayoutParams.MATCH_PARENT,
-            FrameLayout.LayoutParams.MATCH_PARENT
-        )
-        errorView.setBackgroundColor(Color.parseColor("#f8fafc"))
-        errorView.visibility = View.GONE
+        errorView = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT
+            )
+            setBackgroundColor(Color.parseColor("#f8fafc"))
+            visibility = View.GONE
+        }
 
-        val errorIcon = TextView(this)
-        errorIcon.text = "📡"
-        errorIcon.textSize = 48f
-
-        val errorTitle = TextView(this)
-        errorTitle.text = "网络连接失败"
-        errorTitle.setTextColor(Color.parseColor("#1e293b"))
-        errorTitle.textSize = 18f
-        errorTitle.setPadding(0, 16, 0, 8)
-
-        val errorDesc = TextView(this)
-        errorDesc.text = "请检查网络连接后点击重试"
-        errorDesc.setTextColor(Color.parseColor("#64748b"))
-        errorDesc.textSize = 14f
-
-        val retryBtn = Button(this)
-        retryBtn.text = "重新加载"
-        retryBtn.setBackgroundColor(Color.parseColor("#4f46e5"))
-        retryBtn.setTextColor(Color.WHITE)
-        retryBtn.setOnClickListener { loadApp() }
+        val errorIcon = TextView(this).apply {
+            text = "📡"
+            textSize = 48f
+            gravity = Gravity.CENTER
+        }
+        val errorTitle = TextView(this).apply {
+            text = "网络连接失败"
+            setTextColor(Color.parseColor("#1e293b"))
+            textSize = 18f
+            gravity = Gravity.CENTER
+            setPadding(0, 16, 0, 8)
+        }
+        val errorDesc = TextView(this).apply {
+            text = "请检查网络连接后点击重试"
+            setTextColor(Color.parseColor("#64748b"))
+            textSize = 14f
+            gravity = Gravity.CENTER
+        }
+        val retryBtn = Button(this).apply {
+            text = "重新加载"
+            setBackgroundColor(Color.parseColor("#4f46e5"))
+            setTextColor(Color.WHITE)
+            setOnClickListener { loadApp() }
+        }
 
         errorView.addView(errorIcon)
         errorView.addView(errorTitle)
@@ -167,12 +210,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         settings.allowContentAccess = true
         settings.mediaPlaybackRequiresUserGesture = false
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-        settings.useWideViewPort = true
-        settings.loadWithOverviewMode = true
+        // 关闭 wideViewPort 和 overviewMode，防止触发桌面端 CSS 媒体查询导致标题偏移
+        settings.useWideViewPort = false
+        settings.loadWithOverviewMode = false
         settings.javaScriptCanOpenWindowsAutomatically = true
         settings.userAgentString = settings.userAgentString + " WordMemoApp/1.0"
 
-        // ===== 禁用浏览器特征，让 WebView 更像原生应用 =====
+        // ===== 禁用浏览器特征 =====
         webView.isVerticalScrollBarEnabled = false
         webView.isHorizontalScrollBarEnabled = false
         webView.isScrollbarFadingEnabled = true
@@ -180,7 +224,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         webView.isLongClickable = false
         webView.isHapticFeedbackEnabled = false
 
-        // 添加原生 TTS 接口供 JavaScript 调用
+        // 添加原生 TTS 接口
         webView.addJavascriptInterface(TTSBridge(), "AndroidTTS")
 
         webView.webViewClient = object : WebViewClient() {
@@ -189,8 +233,14 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
-                // loginModal 在 HTML 中已有 style="display:none;" 防止闪烁
-                // 不再注入 !important CSS，避免阻止 showLoginModal() 正常显示登录弹窗
+                // 注入 CSS 强制移动端布局，防止桌面端媒体查询导致标题偏移
+                view?.evaluateJavascript(
+                    """(function(){
+                        var style = document.createElement('style');
+                        style.textContent = '@media (min-width:768px){.status-bar{left:0!important;right:0!important;max-width:480px!important;margin:0 auto!important;}}';
+                        document.head.appendChild(style);
+                    })();""", null
+                )
                 loadingView.visibility = View.GONE
             }
 
@@ -205,7 +255,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         webView.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                if (newProgress >= 80) {
+                // 等页面加载到 90% 再隐藏加载页，确保 CSS 已应用
+                if (newProgress >= 90) {
                     loadingView.visibility = View.GONE
                 }
             }
@@ -218,39 +269,111 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 fileChooserCallback?.onReceiveValue(null)
                 fileChooserCallback = filePathCallback
 
-                // 创建可拍照 + 选图的选择器
-                val intent = Intent(Intent.ACTION_CHOOSER)
-
-                // 拍照 Intent
-                val cameraIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
-
-                // 选图 Intent
-                val galleryIntent = Intent(Intent.ACTION_GET_CONTENT)
-                galleryIntent.type = "image/*"
-                galleryIntent.addCategory(Intent.CATEGORY_OPENABLE)
-
-                // 合并 Intent
-                val intentArray = arrayOf(cameraIntent)
-                intent.putExtra(Intent.EXTRA_INTENT, galleryIntent)
-                intent.putExtra(Intent.EXTRA_INITIAL_INTENTS, intentArray)
-                intent.putExtra(Intent.EXTRA_TITLE, "拍照或选择图片")
-
-                try {
-                    @Suppress("DEPRECATION")
-                    startActivityForResult(intent, FILE_CHOOSER_REQUEST)
-                } catch (e: Exception) {
-                    fileChooserCallback = null
-                    return false
-                }
+                // 弹出选择框：拍照 / 从相册选择
+                val dialog = AlertDialog.Builder(this@MainActivity)
+                    .setTitle("选择图片")
+                    .setItems(arrayOf("📷 拍照", "🖼️ 从相册选择")) { _, which ->
+                        when (which) {
+                            0 -> startCamera()
+                            1 -> startGallery()
+                        }
+                    }
+                    .setOnCancelListener {
+                        fileChooserCallback?.onReceiveValue(null)
+                        fileChooserCallback = null
+                    }
+                    .create()
+                dialog.show()
                 return true
             }
         }
+    }
+
+    /**
+     * 启动相机拍照
+     * 需要 CAMERA 运行时权限
+     */
+    private fun startCamera() {
+        // 检查相机权限
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            // 请求权限
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.CAMERA),
+                CAMERA_PERMISSION_REQUEST
+            )
+        } else {
+            launchCameraIntent()
+        }
+    }
+
+    /**
+     * 创建临时文件并启动相机 Intent
+     */
+    private fun launchCameraIntent() {
+        try {
+            // 创建临时文件存储拍照结果
+            val imageDir = File(cacheDir, "images")
+            if (!imageDir.exists()) imageDir.mkdirs()
+            val timeStamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+            val imageFile = File(imageDir, "IMG_$timeStamp.jpg")
+
+            // 通过 FileProvider 获取 content URI
+            cameraImageUri = FileProvider.getUriForFile(
+                this,
+                "${packageName}.fileprovider",
+                imageFile
+            )
+
+            val cameraIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
+                putExtra(MediaStore.EXTRA_OUTPUT, cameraImageUri)
+                addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            }
+
+            startActivityForResult(cameraIntent, REQUEST_CAMERA_ONLY)
+        } catch (e: Exception) {
+            fileChooserCallback?.onReceiveValue(null)
+            fileChooserCallback = null
+        }
+    }
+
+    /**
+     * 启动图库选择图片
+     */
+    private fun startGallery() {
+        val galleryIntent = Intent(Intent.ACTION_GET_CONTENT).apply {
+            type = "image/*"
+            addCategory(Intent.CATEGORY_OPENABLE)
+        }
+        startActivityForResult(galleryIntent, REQUEST_GALLERY_ONLY)
     }
 
     private fun loadApp() {
         errorView.visibility = View.GONE
         loadingView.visibility = View.VISIBLE
         webView.loadUrl(appUrl)
+    }
+
+    // ===== 运行时权限回调 =====
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        when (requestCode) {
+            CAMERA_PERMISSION_REQUEST -> {
+                if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    launchCameraIntent()
+                } else {
+                    // 权限被拒绝，通知 WebView
+                    fileChooserCallback?.onReceiveValue(null)
+                    fileChooserCallback = null
+                }
+            }
+        }
     }
 
     // ===== TTS 初始化回调 =====
@@ -262,7 +385,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
     }
 
-    // ===== TTS 接口 - 供 JavaScript 调用 =====
+    // ===== TTS 接口 =====
     inner class TTSBridge {
         @JavascriptInterface
         fun speak(text: String) {
@@ -285,19 +408,28 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         return super.onKeyDown(keyCode, event)
     }
 
-    @Suppress("DEPRECATION")
+    @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == FILE_CHOOSER_REQUEST) {
-            val results: Array<Uri>? = if (resultCode == RESULT_OK) {
-                val uri = data?.data
-                if (uri != null) arrayOf(uri) else null
-            } else {
-                null
+
+        var results: Array<Uri>? = null
+
+        if (resultCode == RESULT_OK) {
+            when (requestCode) {
+                REQUEST_CAMERA_ONLY -> {
+                    // 拍照返回：使用创建的临时文件 URI
+                    results = cameraImageUri?.let { arrayOf(it) }
+                }
+                REQUEST_GALLERY_ONLY -> {
+                    // 选图返回：使用返回的 data URI
+                    results = data?.data?.let { arrayOf(it) }
+                }
             }
-            fileChooserCallback?.onReceiveValue(results)
-            fileChooserCallback = null
         }
+
+        fileChooserCallback?.onReceiveValue(results)
+        fileChooserCallback = null
+        cameraImageUri = null
     }
 
     override fun onDestroy() {
@@ -308,9 +440,5 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         webView.clearHistory()
         webView.destroy()
         super.onDestroy()
-    }
-
-    companion object {
-        private const val FILE_CHOOSER_REQUEST = 10001
     }
 }
