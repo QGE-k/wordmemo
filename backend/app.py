@@ -1297,52 +1297,62 @@ def get_stats():
 def get_today_review():
     """
     获取今日待复习单词列表
-    返回 next_review 时间已到期的单词（状态不为mastered）
+    返回 next_review 时间已到期的单词
     防遗忘开启时，已掌握(mastered)单词到期也会进入复习队列
+    
+    优先级逻辑：先返回昨天及更早学过的单词（last_review < today），
+    如果没有则返回今天学过的单词
+    
     可通过 ?limit= 控制数量；不传则使用设置的每日复习上限（daily_review_goal，0=不限）
+    可通过 ?random=1 随机排序（默认按时间排序，昨天先于更早）
     """
     now = datetime.utcnow()
     setting = get_setting()
     anti_forget = setting.anti_forget if setting.anti_forget is not None else True
     user_id = get_current_user_id()
-    # 支持按词书过滤（在函数开头统一获取，两个分支共用）
     wordbook_id = request.args.get('wordbook_id', '').strip()
+    random_mode = request.args.get('random', '').strip() == '1'
+    
+    # 今天的 UTC 零点（用于区分"今天学过"和"之前学过"）
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
 
-    if anti_forget:
-        # 防遗忘开启：所有到期单词都进入队列（含mastered）
-        query = Word.query.filter(
+    def build_query(include_mastered):
+        q = Word.query.filter(
             Word.next_review.isnot(None),
             Word.next_review <= now,
         )
+        if not include_mastered:
+            q = q.filter(Word.status != 'mastered')
         if user_id:
-            query = query.filter_by(user_id=user_id)
-        # 支持按词书过滤
+            q = q.filter_by(user_id=user_id)
         if wordbook_id and wordbook_id != '0':
             try:
-                query = query.filter_by(wordbook_id=int(wordbook_id))
+                q = q.filter_by(wordbook_id=int(wordbook_id))
             except ValueError:
                 pass
         elif wordbook_id == '0':
-            query = query.filter_by(wordbook_id=None)
-        words = query.order_by(Word.next_review).all()
+            q = q.filter_by(wordbook_id=None)
+        return q
+
+    base_query = build_query(anti_forget)
+
+    # 优先：昨天及更早学过的单词（last_review < today_start）
+    before_today_q = base_query.filter(Word.last_review < today_start)
+    if random_mode:
+        before_today_words = before_today_q.order_by(db.func.random()).all()
     else:
-        # 防遗忘关闭：仅未掌握的到期单词
-        query = Word.query.filter(
-            Word.next_review.isnot(None),
-            Word.next_review <= now,
-            Word.status != 'mastered',
-        )
-        if user_id:
-            query = query.filter_by(user_id=user_id)
-        # 支持按词书过滤
-        if wordbook_id and wordbook_id != '0':
-            try:
-                query = query.filter_by(wordbook_id=int(wordbook_id))
-            except ValueError:
-                pass
-        elif wordbook_id == '0':
-            query = query.filter_by(wordbook_id=None)
-        words = query.order_by(Word.next_review).all()
+        # 按最后复习时间降序：昨天先于更早
+        before_today_words = before_today_q.order_by(Word.last_review.desc()).all()
+
+    if before_today_words:
+        words = before_today_words
+    else:
+        # 没有昨天及更早的单词，返回今天学过的到期单词
+        today_q = base_query.filter(Word.last_review >= today_start)
+        if random_mode:
+            words = today_q.order_by(db.func.random()).all()
+        else:
+            words = today_q.order_by(Word.last_review.asc()).all()
 
     # 每日复习上限
     limit = request.args.get('limit', None, type=int)
@@ -1411,6 +1421,7 @@ def submit_review(word_id):
 
     now = datetime.utcnow()
     was_mastered = (word.status == 'mastered')
+    was_new = (word.status == 'new')
 
     # 记录本次复习
     word.last_review = now
@@ -1457,6 +1468,10 @@ def submit_review(word_id):
                     word.next_review = None
             else:
                 word.status = 'review'
+
+    # 如果单词从 new 变为 review（首次学习），更新今日学习历史
+    if was_new and word.status != 'new':
+        update_learn_history(1)
 
     db.session.commit()
 
@@ -1529,6 +1544,50 @@ def get_today_learn():
         'success': True,
         'data': [w.to_dict() for w in words],
         'total': len(words),
+    })
+
+
+@app.route('/api/learn/today-words', methods=['GET'])
+def get_today_learned_words():
+    """
+    获取今天学过的所有单词（今天首次学习的，即 last_review 在今天且 status != 'new'）
+    可通过 ?wordbook_id= 按词书过滤
+    """
+    user_id = get_current_user_id()
+    wordbook_id = request.args.get('wordbook_id', '').strip()
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+
+    query = Word.query.filter(
+        Word.last_review.isnot(None),
+        Word.last_review >= today_start,
+        Word.status != 'new',
+    )
+    if user_id:
+        query = query.filter_by(user_id=user_id)
+    if wordbook_id and wordbook_id != '0':
+        try:
+            query = query.filter_by(wordbook_id=int(wordbook_id))
+        except ValueError:
+            pass
+    elif wordbook_id == '0':
+        query = query.filter_by(wordbook_id=None)
+
+    words = query.order_by(Word.last_review.desc()).all()
+
+    return jsonify({
+        'success': True,
+        'data': [w.to_dict() for w in words],
+        'total': len(words),
+    })
+
+
+@app.route('/api/stats/calendar', methods=['GET'])
+def get_calendar_stats():
+    """获取日历统计数据：返回所有学习历史记录，用于日历视图"""
+    all_history = LearnHistory.query.order_by(LearnHistory.date).all()
+    return jsonify({
+        'success': True,
+        'data': [{'date': h.date.isoformat(), 'count': h.count} for h in all_history],
     })
 
 

@@ -9,7 +9,7 @@
   <!-- 预连接：提前建立TCP/TLS连接，减少首字节时间 -->
   <link rel="preconnect" href="/" crossorigin>
   <link rel="dns-prefetch" href="/">
-  <link rel="stylesheet" href="assets/style.css?v=20260729b">
+  <link rel="stylesheet" href="assets/style.css?v=20260729c">
   <!-- PWA 支持：允许"添加到桌面"当App用 -->
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" type="image/png" href="/icons/icon-192.png">
@@ -349,8 +349,8 @@
       <!-- 学习卡片容器 -->
       <div class="flip-card-stage" id="learnStage">
         <div class="empty-state" id="learnEmpty" style="display:none">
-          <p>本批新词已学完</p>
-          <p class="empty-sub">继续学习更多新词</p>
+          <p>当前词书没有新词了</p>
+          <p class="empty-sub">选择其他词书或加入更多新词</p>
           <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:16px;">
             <button class="btn-primary" id="learnAddMoreBtn">加入新词</button>
             <button class="btn-secondary" id="learnReviewTodayBtn">翻今天所有</button>
@@ -523,6 +523,12 @@
         <div class="pie-legend" id="pieLegend"></div>
       </div>
 
+      <!-- 日历统计 -->
+      <div class="chart-block">
+        <h3 class="block-title">学习日历</h3>
+        <div id="statsCalendar" class="calendar-container"></div>
+      </div>
+
       <!-- 设置区 -->
       <div class="chart-block settings-block">
         <h3 class="block-title">学习计划</h3>
@@ -545,6 +551,15 @@
           <div class="setting-control">
             <select id="learnOrderSelect" class="setting-input setting-select">
               <option value="sequential">顺序（按添加时间）</option>
+              <option value="random">随机</option>
+            </select>
+          </div>
+        </div>
+        <div class="setting-row">
+          <label class="setting-label" for="reviewOrderSelect">复习顺序</label>
+          <div class="setting-control">
+            <select id="reviewOrderSelect" class="setting-input setting-select">
+              <option value="sequential">按时间（昨天先于更早）</option>
               <option value="random">随机</option>
             </select>
           </div>
@@ -856,7 +871,7 @@
     </div>
   </div>
 
-  <script src="assets/app.js?v=20260729b"></script>
+  <script src="assets/app.js?v=20260729c"></script>
   <!-- PWA service worker 注册：仅在 HTTPS/localhost 生效 -->
   <script>
     if ('serviceWorker' in navigator) {

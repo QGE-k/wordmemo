@@ -205,9 +205,13 @@ class WordAPI {
 
   // 获取今日待复习单词
   // 返回值：单词数组
-  async getReviewToday(wordbookId) {
-    const params = wordbookId !== '' && wordbookId !== undefined ? `?wordbook_id=${wordbookId}` : '';
-    const res = await this.request('/review/today' + params);
+  // options.random: 随机排序
+  async getReviewToday(wordbookId, options = {}) {
+    let params = [];
+    if (wordbookId !== '' && wordbookId !== undefined) params.push(`wordbook_id=${wordbookId}`);
+    if (options.random) params.push('random=1');
+    const qs = params.length > 0 ? '?' + params.join('&') : '';
+    const res = await this.request('/review/today' + qs);
     return res && res.data ? res.data : (Array.isArray(res) ? res : []);
   }
 
@@ -232,6 +236,19 @@ class WordAPI {
     const qs = params.length > 0 ? '?' + params.join('&') : '';
     const res = await this.request('/learn/today' + qs);
     return res && res.data ? res.data : (Array.isArray(res) ? res : []);
+  }
+
+  // 获取今天学过的所有单词
+  async getTodayLearnedWords(wordbookId) {
+    const qs = wordbookId !== '' && wordbookId !== undefined ? `?wordbook_id=${wordbookId}` : '';
+    const res = await this.request('/learn/today-words' + qs);
+    return res && res.data ? res.data : [];
+  }
+
+  // 获取日历统计数据
+  async getCalendarStats() {
+    const res = await this.request('/stats/calendar');
+    return res && res.data ? res.data : [];
   }
 
   // 获取设置
@@ -1929,11 +1946,13 @@ let quizAnswered = false; // 测验题是否已作答（防止重复点击）
 let learnedIds = new Set(); // 已标记为"已学会"的单词 ID，避免返回上一题后重复 submitReview
 let autoNextTimer = null;   // 自动下一题的定时器（用于取消）
 let learnRandomMode = false; // 学习随机模式：false=按顺序，true=随机（从设置页读取）
+let reviewRandomMode = false; // 复习随机模式：false=按时间排序（昨天先于更早），true=随机
 let allLearnedIds = new Set(); // 本次学习会话中所有已学的单词ID（用于继续学习时排除）
 let learnSessionMode = 'new'; // 学习会话模式：new=新词学习 / review_today=翻今天所有
 
 // 加载今日新词队列
-async function loadLearnQueue(append = false) {
+// append=true 时为"加入新词"模式，addCount 指定加入数量
+async function loadLearnQueue(append = false, addCount = null) {
   try {
     showLoading();
     learnSessionMode = 'new';
@@ -1941,20 +1960,26 @@ async function loadLearnQueue(append = false) {
       random: learnRandomMode,
       exclude: Array.from(allLearnedIds),
     };
+    if (append && addCount) {
+      options.limit = addCount;
+    }
     const res = await api.getLearnToday(learnWordbookId, options);
     const newWords = Array.isArray(res) ? res : (res.words || res.data || []);
-    if (append) {
-      // 加入新词：追加到队列（已学会的已从队列移除）
-      learnQueue = learnQueue.concat(newWords);
-    } else {
-      learnQueue = newWords;
-      learnIndex = 0;
-      learnedIds = new Set();
-    }
+    // 无论首次加载还是加入新词，都替换队列为新词
+    // 用户要求：加入新词后只翻新加入的词，不混合旧词
+    learnQueue = newWords;
+    learnIndex = 0;
+    learnedIds = new Set();
     if (autoNextTimer) { clearTimeout(autoNextTimer); autoNextTimer = null; }
     hideLoading();
-    if (learnQueue.length === 0 || (append && newWords.length === 0)) {
-      showToast('没有更多新词了', 'info');
+    if (learnQueue.length === 0) {
+      if (append) {
+        showToast('没有更多新词了，已学完这本词书的所有单词', 'info');
+      } else {
+        showToast('当前词书没有新词了', 'info');
+      }
+    } else if (append) {
+      showToast(`已加入 ${newWords.length} 个新词，开始学习新词`, 'success');
     }
     renderLearnCard();
   } catch (err) {
@@ -1963,15 +1988,15 @@ async function loadLearnQueue(append = false) {
 }
 
 /**
- * 翻今天所有单词：加载今天学过的所有单词（状态为 review 的）
+ * 翻今天所有单词：加载今天学过的所有单词
+ * 使用 /api/learn/today-words API，按当前词书过滤
  */
 async function loadTodayAllWords() {
   try {
     showLoading();
     learnSessionMode = 'review_today';
-    // 获取今天学过的单词（status=review，即已经从 new 变成 review 的）
-    const res = await api.getWords('?status=review&sort=review_desc');
-    const words = Array.isArray(res) ? res : (res.words || res.data || []);
+    const res = await api.getTodayLearnedWords(learnWordbookId);
+    const words = Array.isArray(res) ? res : (res.data || []);
     learnQueue = words;
     learnIndex = 0;
     learnedIds = new Set();
@@ -2005,23 +2030,9 @@ function renderLearnCard() {
     return;
   }
 
-  // 翻卡模式：循环翻卡，翻完从头再来
+  // 所有模式都循环：翻完从头再来
   if (learnIndex >= total) {
-    // 翻卡模式：循环回到开头，继续翻
-    if (learnMode === 'flip') {
-      learnIndex = 0;
-    } else {
-      // 测验模式：显示完成状态
-      $('#learnCard').style.display = 'none';
-      $('#learnChoiceCard').style.display = 'none';
-      $('#learnSpellCard').style.display = 'none';
-      $('#learnActions').style.display = 'none';
-      $('#learnExtraActions').style.display = 'none';
-      $('#quizActions').style.display = 'none';
-      $('#learnEmpty').style.display = 'block';
-      $('#learnProgress').textContent = `${total} / ${total}`;
-      return;
-    }
+    learnIndex = 0;
   }
 
   const word = learnQueue[learnIndex];
@@ -2042,7 +2053,7 @@ function renderLearnCard() {
     $('#learnChoiceCard').style.display = 'flex';
     $('#learnSpellCard').style.display = 'none';
     $('#learnActions').style.display = 'none';
-    $('#learnExtraActions').style.display = 'none';
+    $('#learnExtraActions').style.display = 'flex';
     $('#quizActions').style.display = 'flex';
     renderChoiceCard(word);
   } else if (learnMode === 'spell') {
@@ -2050,7 +2061,7 @@ function renderLearnCard() {
     $('#learnChoiceCard').style.display = 'none';
     $('#learnSpellCard').style.display = 'flex';
     $('#learnActions').style.display = 'none';
-    $('#learnExtraActions').style.display = 'none';
+    $('#learnExtraActions').style.display = 'flex';
     $('#quizActions').style.display = 'flex';
     renderSpellCard(word);
   }
@@ -2265,7 +2276,7 @@ function switchLearnMode(mode) {
 }
 
 /**
- * 测验模式"下一题"：标记已学会并从队列移除
+ * 测验模式"下一题"：标记已学会并跳到下一个（循环）
  * 使用 learnedIds 防止返回上一题后重复 submitReview
  */
 async function handleQuizNext() {
@@ -2277,26 +2288,21 @@ async function handleQuizNext() {
     learnedIds.add(currentWord.id);
     allLearnedIds.add(currentWord.id);
   }
-  // 从队列中移除
-  learnQueue.splice(learnIndex, 1);
+  // 跳到下一个，翻完循环
+  learnIndex++;
   renderLearnCard();
 }
 
 /**
- * 返回上一题（测验模式与翻卡模式共用）
- * 翻卡模式：循环翻卡，第一题再往前则跳到最后一题
+ * 返回上一题（所有模式循环）
  * 不重新 submitReview，只回看
  */
 function handleLearnPrev() {
   if (learnQueue.length === 0) return;
   if (learnIndex === 0) {
-    // 翻卡模式循环：第一题往前跳到最后一题
-    if (learnMode === 'flip') {
-      learnIndex = learnQueue.length - 1;
-      renderLearnCard();
-    } else {
-      showToast('已经是第一题了', 'info');
-    }
+    // 循环：第一题往前跳到最后一题
+    learnIndex = learnQueue.length - 1;
+    renderLearnCard();
     return;
   }
   learnIndex--;
@@ -2349,8 +2355,8 @@ function flipLearnCard() {
   $('#learnCard').classList.toggle('flipped', learnFlipped);
 }
 
-// 学习：已学会，从当前队列移除并进入下一个
-// 学会的单词自动提交复习，状态变为 review
+// 学习：已学会，标记单词并跳到下一个（不从队列移除，保持循环翻卡）
+// 学会的单词自动提交复习，状态变为 review，明天进入复习
 async function handleLearnKnown() {
   const word = learnQueue[learnIndex];
   if (!word) return;
@@ -2361,15 +2367,13 @@ async function handleLearnKnown() {
       learnedIds.add(word.id);
       allLearnedIds.add(word.id); // 记录到全局已学集合
     }
-    // 从队列中移除已学会的单词
-    learnQueue.splice(learnIndex, 1);
-    // 不增加 learnIndex，因为 splice 后下一个单词自动补位
-    // 如果移除的是最后一个，learnIndex 会等于 length，renderLearnCard 会处理循环
+    // 跳到下一个，翻完循环
+    learnIndex++;
     renderLearnCard();
   } catch (err) {
-    // 即使提交失败也继续，避免卡住
+    // 即使提交失败也继续
     console.error(err);
-    learnQueue.splice(learnIndex, 1);
+    learnIndex++;
     renderLearnCard();
   }
 }
@@ -2392,7 +2396,7 @@ let reviewFlipped = false; // 当前卡片是否翻转
 async function loadReviewQueue() {
   try {
     showLoading();
-    const res = await api.getReviewToday(reviewWordbookId);
+    const res = await api.getReviewToday(reviewWordbookId, { random: reviewRandomMode });
     reviewQueue = Array.isArray(res) ? res : (res.words || res.data || []);
     reviewIndex = 0;
     hideLoading();
@@ -2405,13 +2409,20 @@ async function loadReviewQueue() {
 // 渲染当前复习卡片
 function renderReviewCard() {
   const total = reviewQueue.length;
-  if (reviewIndex >= total) {
+  // 队列为空：显示空状态
+  if (total === 0) {
     $('#reviewCard').style.display = 'none';
     $('#ratingActions').style.display = 'none';
     $('#reviewEmpty').style.display = 'block';
-    $('#reviewProgress').textContent = `${total} / ${total}`;
-    if (total > 0) showToast('今日复习已完成', 'success');
+    $('#reviewProgress').textContent = `0 / 0`;
     return;
+  }
+  // 循环：翻完从头再来
+  if (reviewIndex >= total) {
+    reviewIndex = 0;
+  }
+  if (reviewIndex < 0) {
+    reviewIndex = total - 1;
   }
 
   const word = reviewQueue[reviewIndex];
@@ -2476,6 +2487,83 @@ async function handleReviewRating(rating) {
    九、统计页渲染
    ==================================================== */
 
+/**
+ * 渲染日历统计：显示当前月份每天的单词学习数量
+ * 从 /api/stats/calendar 获取所有学习历史，在日历网格中标注
+ */
+async function renderCalendar() {
+  const container = $('#statsCalendar');
+  if (!container) return;
+
+  try {
+    const history = await api.getCalendarStats();
+    // 将历史数据转为 { '2026-07-28': 5 } 的映射
+    const historyMap = {};
+    (history || []).forEach(h => {
+      historyMap[h.date] = h.count;
+    });
+
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = today.getMonth(); // 0-based
+
+    // 月份名称
+    const monthNames = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
+
+    // 当月天数
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    // 当月第一天是星期几（0=周日）
+    const firstDayOfWeek = new Date(year, month, 1).getDay();
+
+    // 构建日历HTML
+    let html = `<div class="calendar-header">${year}年${monthNames[month]}</div>`;
+    html += '<div class="calendar-grid">';
+    // 星期表头
+    const weekDays = ['日', '一', '二', '三', '四', '五', '六'];
+    weekDays.forEach(d => {
+      html += `<div class="calendar-weekday">${d}</div>`;
+    });
+    // 空白格（月前的空位）
+    for (let i = 0; i < firstDayOfWeek; i++) {
+      html += '<div class="calendar-day calendar-day-empty"></div>';
+    }
+    // 每一天
+    let monthTotal = 0;
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const count = historyMap[dateStr] || 0;
+      monthTotal += count;
+      const isToday = (day === today.getDate());
+      let dayClass = 'calendar-day';
+      if (isToday) dayClass += ' calendar-day-today';
+      if (count > 0) dayClass += ' calendar-day-active';
+
+      // 根据学习数量设置背景色深浅
+      let bgStyle = '';
+      if (count > 0) {
+        if (count >= 30) bgStyle = 'background:#4CAF50;color:#fff;';
+        else if (count >= 15) bgStyle = 'background:#81C784;color:#fff;';
+        else if (count >= 5) bgStyle = 'background:#C8E6C9;color:#333;';
+        else bgStyle = 'background:#E8F5E9;color:#333;';
+      }
+
+      html += `<div class="${dayClass}" style="${bgStyle}" title="${dateStr}: ${count}个单词">`;
+      html += `<span class="calendar-day-num">${day}</span>`;
+      if (count > 0) {
+        html += `<span class="calendar-day-count">${count}</span>`;
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+    html += `<div class="calendar-summary">本月共学习 <strong>${monthTotal}</strong> 个单词</div>`;
+
+    container.innerHTML = html;
+  } catch (err) {
+    console.warn('日历统计加载失败', err);
+    container.innerHTML = '<p class="empty-sub">日历数据加载失败</p>';
+  }
+}
+
 async function renderStats() {
   try {
     showLoading();
@@ -2503,6 +2591,9 @@ async function renderStats() {
       review: stats.review || 0,
       mastered: stats.mastered || 0
     });
+
+    // 日历统计：显示每天学习单词数
+    renderCalendar();
 
     // 热力图已移除
   } catch (err) {
@@ -3410,6 +3501,20 @@ function bindEvents() {
       showToast(learnRandomMode ? '已切换为随机取词' : '已切换为顺序取词', 'success');
     });
   }
+  // 设置：复习顺序（本地保存，不存后端）
+  const reviewOrderSel = $('#reviewOrderSelect');
+  if (reviewOrderSel) {
+    const savedReviewOrder = localStorage.getItem('wordmemo_review_order');
+    if (savedReviewOrder === 'random') {
+      reviewRandomMode = true;
+      reviewOrderSel.value = 'random';
+    }
+    reviewOrderSel.addEventListener('change', (e) => {
+      reviewRandomMode = e.target.value === 'random';
+      localStorage.setItem('wordmemo_review_order', e.target.value);
+      showToast(reviewRandomMode ? '已切换为随机复习' : '已切换为按时间复习', 'success');
+    });
+  }
   // 设置：复习策略与防遗忘
   $('#reviewStrategySelect').addEventListener('change', handleSaveReviewStrategy);
   $('#antiForgetToggle').addEventListener('change', handleSaveReviewStrategy);
@@ -3465,12 +3570,19 @@ function bindEvents() {
       loadLearnQueue();
     });
   }
-  // 翻卡模式：加入新词按钮（卡片中）
+  // 翻卡模式：加入新词按钮（卡片中）—— 弹出输入框让用户设置加入数量
   const addMoreBtn = $('#btnLearnAddMore');
   if (addMoreBtn) {
     addMoreBtn.addEventListener('click', () => {
-      // 从后端加载新词追加到队列
-      loadLearnQueue(true);
+      const countStr = prompt('要加入多少个新词？', '10');
+      if (countStr !== null) {
+        const count = parseInt(countStr, 10);
+        if (!isNaN(count) && count > 0) {
+          loadLearnQueue(true, count);
+        } else if (countStr.trim() !== '') {
+          showToast('请输入有效的数字', 'error');
+        }
+      }
     });
   }
   // 翻卡模式：翻今天所有按钮（卡片中）
@@ -3484,7 +3596,15 @@ function bindEvents() {
   const learnAddMoreBtn = $('#learnAddMoreBtn');
   if (learnAddMoreBtn) {
     learnAddMoreBtn.addEventListener('click', () => {
-      loadLearnQueue(true);
+      const countStr = prompt('要加入多少个新词？', '10');
+      if (countStr !== null) {
+        const count = parseInt(countStr, 10);
+        if (!isNaN(count) && count > 0) {
+          loadLearnQueue(true, count);
+        } else if (countStr.trim() !== '') {
+          showToast('请输入有效的数字', 'error');
+        }
+      }
     });
   }
   // 空状态：翻今天所有按钮
@@ -3558,7 +3678,11 @@ function bindEvents() {
   $$('.rating-btn').forEach(btn => {
     btn.addEventListener('click', () => handleReviewRating(btn.dataset.rating));
   });
-  $('#reviewClose').addEventListener('click', () => switchPage('home'));
+  $('#reviewClose').addEventListener('click', () => {
+    reviewQueue = [];
+    reviewIndex = 0;
+    switchPage('home');
+  });
   // 复习卡发音
   $('#reviewSpeakBtn').addEventListener('click', (e) => {
     e.stopPropagation();

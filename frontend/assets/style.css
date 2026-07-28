@@ -531,6 +531,84 @@ input, textarea, select {
   display: block;
 }
 
+/* ===== 学习日历 ===== */
+.calendar-container {
+  margin-top: 8px;
+}
+
+.calendar-header {
+  font-size: 16px;
+  font-weight: 600;
+  text-align: center;
+  margin-bottom: 12px;
+  color: var(--text-primary);
+}
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.calendar-weekday {
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding: 4px 0;
+}
+
+.calendar-day {
+  aspect-ratio: 1;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  position: relative;
+  background: var(--bg-page);
+  min-height: 40px;
+  transition: transform 0.15s;
+}
+
+.calendar-day:active {
+  transform: scale(0.95);
+}
+
+.calendar-day-empty {
+  background: transparent;
+}
+
+.calendar-day-today {
+  border: 2px solid var(--primary);
+  font-weight: 700;
+}
+
+.calendar-day-num {
+  line-height: 1;
+}
+
+.calendar-day-count {
+  font-size: 10px;
+  margin-top: 2px;
+  opacity: 0.85;
+}
+
+.calendar-summary {
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.calendar-summary strong {
+  color: var(--primary);
+  font-size: 15px;
+}
+
 /* ===== 单词列表 ===== */
 .word-list {
   display: flex;
