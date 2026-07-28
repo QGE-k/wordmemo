@@ -11,6 +11,8 @@ from flask import Flask, request, jsonify, send_from_directory, session
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 
+from sqlalchemy import case
+
 from config import Config
 from models import db, Word, LearnHistory, Setting, Wordbook, User
 from services.ocr_service import OCRService
@@ -176,6 +178,31 @@ def admin_user_words(user_id):
             'recent_words': [w.to_dict() for w in words[:50]],
         },
     })
+
+
+@app.route('/api/admin/users/<int:user_id>', methods=['DELETE'])
+def admin_delete_user(user_id):
+    """管理员：删除用户及其所有数据"""
+    err = require_admin()
+    if err:
+        return err
+
+    target_user = User.query.get(user_id)
+    if not target_user:
+        return jsonify({'success': False, 'error': '用户不存在'}), 404
+
+    # 不能删除自己
+    current = get_current_user_id()
+    if current == user_id:
+        return jsonify({'success': False, 'error': '不能删除当前登录的管理员账号'}), 400
+
+    # 删除用户的所有单词、词书
+    Word.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    Wordbook.query.filter_by(user_id=user_id).delete(synchronize_session=False)
+    db.session.delete(target_user)
+    db.session.commit()
+
+    return jsonify({'success': True, 'message': f'已删除用户 {target_user.username}'})
 
 
 def analyze_word_with_fallback(word):
@@ -750,6 +777,44 @@ def delete_word(word_id):
     return jsonify({'success': True, 'message': '单词已删除'})
 
 
+@app.route('/api/words/distractors', methods=['GET'])
+def get_distractors():
+    """获取随机干扰项释义（用于看词选义模式）
+    可通过 ?wordbook_id= 按词书过滤
+    可通过 ?exclude=1,2,3 排除指定ID
+    可通过 ?limit= 控制数量（默认3）
+    """
+    user_id = get_current_user_id()
+    wordbook_id = request.args.get('wordbook_id', '').strip()
+    limit = request.args.get('limit', 3, type=int)
+
+    query = Word.query.filter(Word.meaning.isnot(None), Word.meaning != '')
+    if user_id:
+        query = query.filter_by(user_id=user_id)
+    if wordbook_id and wordbook_id != '0':
+        try:
+            query = query.filter_by(wordbook_id=int(wordbook_id))
+        except ValueError:
+            pass
+    elif wordbook_id == '0':
+        query = query.filter_by(wordbook_id=None)
+
+    exclude_ids = request.args.get('exclude', '').strip()
+    if exclude_ids:
+        try:
+            id_list = [int(x) for x in exclude_ids.split(',') if x.strip()]
+            if id_list:
+                query = query.filter(~Word.id.in_(id_list))
+        except ValueError:
+            pass
+
+    words = query.order_by(db.func.random()).limit(limit).all()
+    return jsonify({
+        'success': True,
+        'data': [{'word': w.word, 'meaning': w.meaning} for w in words],
+    })
+
+
 # ==================== 文档导入API ====================
 
 ALLOWED_DOC_EXT = {'txt', 'docx', 'xlsx', 'xls', 'pdf'}
@@ -766,9 +831,16 @@ def list_wordbooks():
     if user_id:
         query = query.filter_by(user_id=user_id)
     books = query.order_by(Wordbook.created_at.desc()).all()
+    result = []
+    for b in books:
+        d = b.to_dict(include_count=True)
+        words = Word.query.filter_by(wordbook_id=b.id).all()
+        d['learned_count'] = sum(1 for w in words if w.status != 'new')
+        d['new_count'] = sum(1 for w in words if w.status == 'new')
+        result.append(d)
     return jsonify({
         'success': True,
-        'data': [b.to_dict(include_count=True) for b in books]
+        'data': result
     })
 
 
@@ -1284,6 +1356,7 @@ def get_stats():
             'mastered': mastered_count,
             'today_review': today_review,
             'today_learned': today_learned,
+            'daily_goal': get_setting().daily_goal or 20,
             'history': history_data,
             'streak_days': streak_days,
             'learn_history': heatmap_data,
@@ -1491,12 +1564,12 @@ def get_setting():
 @app.route('/api/learn/today', methods=['GET'])
 def get_today_learn():
     """
-    获取学习队列：返回词书内所有单词（不限状态），按添加顺序分批加载
-    用户要求：学习就是学词书里的所有词，不只是新词。学完从头再来。
+    获取学习队列：返回词书内所有单词，按添加顺序分批加载
     可通过 ?limit= 参数控制返回数量；不传则使用设置的 daily_goal
     可通过 ?wordbook_id= 按词书过滤（必须指定词书）
     可通过 ?random=1 随机取词（默认按添加顺序）
     可通过 ?exclude=1,2,3 排除指定 ID 的单词（用于"加入新词"时跳过已加载的）
+    可通过 ?new_only=1 仅返回未学过（status='new'）的单词（用于"加入新词"按钮）
     """
     limit = request.args.get('limit', None, type=int)
     if limit is None:
@@ -1529,34 +1602,24 @@ def get_today_learn():
         except ValueError:
             pass
 
-    # 随机模式 vs 顺序模式
+    # new_only 模式：仅返回未学过（status='new'）的单词
+    new_only = request.args.get('new_only', '').strip() == '1'
+    if new_only:
+        query = query.filter_by(status='new')
+
+    # 排序：随机模式 / new_only 按 added_at / 默认按状态优先级(new>review>mastered)再 added_at
     random_mode = request.args.get('random', '').strip() == '1'
     if random_mode:
         words = query.order_by(db.func.random()).limit(limit).all()
-    else:
+    elif new_only:
         words = query.order_by(Word.added_at.asc()).limit(limit).all()
-
-    # 如果排除后没有词了，说明词书里所有词都已加载过，从头再来（不排除）
-    if not words and exclude_ids:
-        try:
-            id_list = [int(x) for x in exclude_ids.split(',') if x.strip()]
-        except ValueError:
-            id_list = []
-        # 重新查询不排除的，取前 limit 个（从头再来）
-        query2 = Word.query
-        if user_id:
-            query2 = query2.filter_by(user_id=user_id)
-        if wordbook_id and wordbook_id != '0':
-            try:
-                query2 = query2.filter_by(wordbook_id=int(wordbook_id))
-            except ValueError:
-                pass
-        elif wordbook_id == '0':
-            query2 = query2.filter_by(wordbook_id=None)
-        if random_mode:
-            words = query2.order_by(db.func.random()).limit(limit).all()
-        else:
-            words = query2.order_by(Word.added_at.asc()).limit(limit).all()
+    else:
+        status_order = case(
+            {'new': 0, 'review': 1, 'mastered': 2},
+            value=Word.status,
+            else_=3
+        )
+        words = query.order_by(status_order, Word.added_at.asc()).limit(limit).all()
 
     return jsonify({
         'success': True,

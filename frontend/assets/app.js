@@ -233,9 +233,21 @@ class WordAPI {
     if (options.random) params.push('random=1');
     if (options.exclude && options.exclude.length > 0) params.push(`exclude=${options.exclude.join(',')}`);
     if (options.limit) params.push(`limit=${options.limit}`);
+    if (options.new_only) params.push('new_only=1');
     const qs = params.length > 0 ? '?' + params.join('&') : '';
     const res = await this.request('/learn/today' + qs);
     return res && res.data ? res.data : (Array.isArray(res) ? res : []);
+  }
+
+  // 获取随机干扰项（用于看词选义模式）
+  async getDistractors(wordbookId, excludeIds = [], limit = 3) {
+    let params = [];
+    if (wordbookId !== '' && wordbookId !== undefined) params.push(`wordbook_id=${wordbookId}`);
+    if (excludeIds.length > 0) params.push(`exclude=${excludeIds.join(',')}`);
+    params.push(`limit=${limit}`);
+    const qs = '?' + params.join('&');
+    const res = await this.request('/words/distractors' + qs);
+    return res && res.data ? res.data : [];
   }
 
   // 获取今天学过的所有单词
@@ -347,6 +359,10 @@ class WordAPI {
 
   async adminGetUserWords(userId) {
     return this.request(`/admin/users/${userId}/words`);
+  }
+
+  async adminDeleteUser(userId) {
+    return this.request(`/admin/users/${userId}`, { method: 'DELETE' });
   }
 }
 
@@ -575,6 +591,7 @@ async function renderAdminPage() {
         <div class="admin-user-date">注册时间：${user.created_at ? user.created_at.substring(0, 10) : '未知'}</div>
         <div class="admin-user-actions">
           <button class="btn-secondary btn-sm admin-detail-btn" data-user-id="${user.id}">查看详情</button>
+          ${user.role !== 'admin' ? `<button class="btn-danger btn-sm admin-delete-btn" data-user-id="${user.id}" data-username="${escapeHtml(user.username)}">删除账号</button>` : ''}
         </div>
         <div class="admin-user-detail" id="adminDetail_${user.id}"></div>
       </div>
@@ -585,6 +602,26 @@ async function renderAdminPage() {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         loadUserDetail(parseInt(btn.dataset.userId));
+      });
+    });
+    // 绑定删除账号按钮
+    listEl.querySelectorAll('.admin-delete-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const userId = parseInt(btn.dataset.userId);
+        const username = btn.dataset.username;
+        if (!confirm(`确定要删除用户「${username}」吗？\n该用户的所有单词、词书数据将被永久删除，不可恢复。`)) return;
+        try {
+          btn.disabled = true;
+          btn.textContent = '删除中...';
+          await api.adminDeleteUser(userId);
+          showToast(`已删除用户 ${username}`, 'success');
+          renderAdminPage();
+        } catch (err) {
+          btn.disabled = false;
+          btn.textContent = '删除账号';
+          handleError(err);
+        }
       });
     });
   } catch (err) {
@@ -902,8 +939,9 @@ async function renderHome() {
     // today_new 后端用 new 字段（新单词总数）代替
     $('#todayNewCount').textContent = stats.new || 0;
 
-    // 操作按钮描述
-    $('#learnDesc').textContent = `${stats.new || 0}个新词待学`;
+    // 操作按钮描述：显示每天计划学多少 + 还有多少待学/待复习
+    const dailyGoal = stats.daily_goal || 20;
+    $('#learnDesc').textContent = `每天学${dailyGoal}个，还有${stats.new || 0}个待学`;
     $('#reviewDesc').textContent = `${stats.today_review || 0}个单词待复习`;
 
     // 统计卡片
@@ -1750,10 +1788,12 @@ function initLearnWordbookSelector() {
   if (!select) return;
   let html = '<option value="">请选择词书</option>';
   wordbooks.forEach(b => {
-    html += `<option value="${b.id}" ${learnWordbookId === String(b.id) ? 'selected' : ''}>${escapeHtml(b.name)}（${b.word_count || 0}词）</option>`;
+    const total = b.word_count || 0;
+    const learned = b.learned_count || 0;
+    const newCnt = b.new_count !== undefined ? b.new_count : (total - learned);
+    html += `<option value="${b.id}" ${learnWordbookId === String(b.id) ? 'selected' : ''}>${escapeHtml(b.name)}（已学${learned}/${total}）</option>`;
   });
   select.innerHTML = html;
-  // 保持当前选中值
   if (learnWordbookId !== '') {
     select.value = learnWordbookId;
   }
@@ -1765,10 +1805,11 @@ function initReviewWordbookSelector() {
   if (!select) return;
   let html = '<option value="">请选择词书</option>';
   wordbooks.forEach(b => {
-    html += `<option value="${b.id}" ${reviewWordbookId === String(b.id) ? 'selected' : ''}>${escapeHtml(b.name)}（${b.word_count || 0}词）</option>`;
+    const total = b.word_count || 0;
+    const learned = b.learned_count || 0;
+    html += `<option value="${b.id}" ${reviewWordbookId === String(b.id) ? 'selected' : ''}>${escapeHtml(b.name)}（已学${learned}/${total}）</option>`;
   });
   select.innerHTML = html;
-  // 保持当前选中值
   if (reviewWordbookId !== '') {
     select.value = reviewWordbookId;
   }
@@ -1961,8 +2002,8 @@ let allLearnedIds = new Set(); // 本次学习会话中所有已学的单词ID�
 let loadedWordIds = new Set(); // 当前会话中已加载到队列的单词ID（用于"加入新词"排除）
 let learnSessionMode = 'new'; // 学习会话模式：new=新词学习 / review_today=翻今天所有
 
-// 加载学习队列：返回词书内所有单词（不限状态），按添加顺序分批
-// append=true 时为"加入新词"模式，addCount 指定加入数量
+// 加载学习队列：返回词书内所有单词（新词优先），按添加顺序分批
+// append=true 时为"加入新词"模式，只加载没学过的词(new状态)
 async function loadLearnQueue(append = false, addCount = null) {
   // 必须选择词书才能学习
   if (!learnWordbookId && learnWordbookId !== '0') {
@@ -1976,7 +2017,8 @@ async function loadLearnQueue(append = false, addCount = null) {
       random: learnRandomMode,
     };
     if (append) {
-      // 加入新词：排除已加载的单词，加载下一批
+      // 加入新词：只加载没学过的词(new状态)，排除已加载的
+      options.new_only = true;
       options.exclude = Array.from(loadedWordIds);
       if (addCount) {
         options.limit = addCount;
@@ -1984,8 +2026,7 @@ async function loadLearnQueue(append = false, addCount = null) {
     }
     const res = await api.getLearnToday(learnWordbookId, options);
     const newWords = Array.isArray(res) ? res : (res.words || res.data || []);
-    // 无论首次加载还是加入新词，都替换队列为新词
-    // 用户要求：加入新词后只翻新加入的词，不混合旧词
+    // 无论首次加载还是加入新词，都替换队列
     learnQueue = newWords;
     learnIndex = 0;
     learnedIds = new Set();
@@ -1997,9 +2038,13 @@ async function loadLearnQueue(append = false, addCount = null) {
     if (autoNextTimer) { clearTimeout(autoNextTimer); autoNextTimer = null; }
     hideLoading();
     if (learnQueue.length === 0) {
-      showToast('当前词书没有单词', 'info');
+      if (append) {
+        showToast('没有更多新词了，这本词书已全部学完', 'info');
+      } else {
+        showToast('当前词书没有单词', 'info');
+      }
     } else if (append) {
-      showToast(`已加入 ${newWords.length} 个单词`, 'success');
+      showToast(`已加入 ${newWords.length} 个新词`, 'success');
     }
     renderLearnCard();
   } catch (err) {
@@ -2149,27 +2194,43 @@ function renderFlipCard(word) {
  * 渲染看词选义模式
  * 从所有已学单词中随机抽 3 个作为干扰项
  */
-function renderChoiceCard(word) {
+/**
+ * 渲染看词选义卡片
+ * 从词书范围内随机抽取干扰项（不再只用当前队列的词）
+ */
+async function renderChoiceCard(word) {
   quizAnswered = false;
   $('#choiceWord').textContent = word.word;
   $('#choicePhonetic').textContent = word.phonetic || '';
   $('#choiceFeedback').textContent = '';
   $('#choiceFeedback').className = 'quiz-feedback';
 
-  // 从队列中随机抽 3 个干扰项的释义（包含当前词共 4 个）
-  const otherWords = learnQueue.filter(w => w.word !== word.word);
-  const distractors = [];
-  while (distractors.length < 3 && otherWords.length > 0) {
-    const idx = Math.floor(Math.random() * otherWords.length);
-    distractors.push(otherWords[idx]);
-    otherWords.splice(idx, 1);
+  // 从后端获取同词书的随机干扰项释义
+  let distractors = [];
+  try {
+    const excludeIds = learnQueue.map(w => w.id);
+    const result = await api.getDistractors(learnWordbookId, excludeIds, 3);
+    distractors = result || [];
+  } catch (e) {
+    console.warn('获取干扰项失败，使用队列内词', e);
   }
-  // 如果队列不够 4 个，补充演示词释义
+
+  // 如果后端干扰项不够3个，从当前队列补充
+  if (distractors.length < 3) {
+    const otherWords = learnQueue.filter(w => w.word !== word.word && w.id !== word.id);
+    while (distractors.length < 3 && otherWords.length > 0) {
+      const idx = Math.floor(Math.random() * otherWords.length);
+      const w = otherWords[idx];
+      distractors.push({ word: w.word, meaning: w.meaning });
+      otherWords.splice(idx, 1);
+    }
+  }
+  // 还不够，补占位
   while (distractors.length < 3) {
     distractors.push({ meaning: '（无）', word: '_dummy' + distractors.length });
   }
 
-  const options = [word, ...distractors];
+  const options = [{ word: word.word, meaning: word.meaning }, ...distractors];
   // 打乱顺序
   options.sort(() => Math.random() - 0.5);
 
@@ -3657,6 +3718,25 @@ function bindEvents() {
       learnWordbookId = reviewWordbookId;
       const learnWbSel = $('#learnWordbookSelect');
       if (learnWbSel) learnWbSel.value = reviewWordbookId;
+      reviewQueue = [];
+      reviewIndex = 0;
+      loadReviewQueue();
+    });
+  }
+  // 复习页：随机/顺序切换按钮
+  const reviewOrderBtn = $('#btnReviewOrder');
+  if (reviewOrderBtn) {
+    // 初始化按钮文字
+    reviewOrderBtn.textContent = reviewRandomMode ? '随机复习' : '顺序复习';
+    reviewOrderBtn.addEventListener('click', () => {
+      reviewRandomMode = !reviewRandomMode;
+      localStorage.setItem('wordmemo_review_order', reviewRandomMode ? 'random' : 'sequential');
+      reviewOrderBtn.textContent = reviewRandomMode ? '随机复习' : '顺序复习';
+      // 同步设置页的下拉
+      const reviewOrderSel = $('#reviewOrderSelect');
+      if (reviewOrderSel) reviewOrderSel.value = reviewRandomMode ? 'random' : 'sequential';
+      showToast(reviewRandomMode ? '已切换为随机复习' : '已切换为顺序复习（优先最近的）', 'success');
+      // 重新加载复习队列
       reviewQueue = [];
       reviewIndex = 0;
       loadReviewQueue();

@@ -9,7 +9,7 @@
   <!-- 预连接：提前建立TCP/TLS连接，减少首字节时间 -->
   <link rel="preconnect" href="/" crossorigin>
   <link rel="dns-prefetch" href="/">
-  <link rel="stylesheet" href="assets/style.css?v=20260729d">
+  <link rel="stylesheet" href="assets/style.css?v=20260729e">
   <!-- PWA 支持：允许"添加到桌面"当App用 -->
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" type="image/png" href="/icons/icon-192.png">
@@ -432,12 +432,13 @@
         <span class="card-progress" id="reviewProgress">0 / 0</span>
         <span class="card-close" id="reviewClose">退出</span>
       </div>
-      <!-- 词书选择器 -->
-      <div class="wordbook-selector" id="reviewWordbookSelector" style="display:flex;align-items:center;gap:8px;padding:8px 16px;background:var(--bg-card);border-radius:var(--radius-md);margin-bottom:12px;">
+      <!-- 词书选择器 + 复习顺序切换 -->
+      <div class="wordbook-selector" id="reviewWordbookSelector" style="display:flex;align-items:center;gap:8px;padding:8px 16px;background:var(--bg-card);border-radius:var(--radius-md);margin-bottom:12px;flex-wrap:wrap;">
         <label style="font-size:13px;color:var(--text-secondary);white-space:nowrap;">词书：</label>
-        <select id="reviewWordbookSelect" style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;">
+        <select id="reviewWordbookSelect" style="flex:1;min-width:120px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;">
           <option value="">请选择词书</option>
         </select>
+        <button class="btn-secondary btn-sm" id="btnReviewOrder" style="white-space:nowrap;">顺序复习</button>
       </div>
       <div class="flip-card-stage" id="reviewStage">
         <div class="empty-state" id="reviewEmpty">
@@ -871,7 +872,7 @@
     </div>
   </div>
 
-  <script src="assets/app.js?v=20260729d"></script>
+  <script src="assets/app.js?v=20260729e"></script>
   <!-- PWA service worker 注册：仅在 HTTPS/localhost 生效 -->
   <script>
     if ('serviceWorker' in navigator) {
