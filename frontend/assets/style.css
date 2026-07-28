@@ -544,13 +544,27 @@ input, textarea, select {
   padding: 14px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 8px;
   box-shadow: var(--shadow-sm);
   transition: transform 0.15s;
 }
 
 .word-item:active {
   transform: scale(0.98);
+}
+
+.word-num {
+  flex-shrink: 0;
+  min-width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--bg-tag, #eef2ff);
+  color: var(--primary, #4f46e5);
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .word-info {

@@ -46,6 +46,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private val appUrl = "https://wordmemo-bbpn.onrender.com/"
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
     private var cameraImageUri: Uri? = null
+    private var backPressedTime: Long = 0
 
     companion object {
         private const val FILE_CHOOSER_REQUEST = 10001
@@ -401,8 +402,19 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        if (keyCode == KeyEvent.KEYCODE_BACK && webView.canGoBack()) {
-            webView.goBack()
+        if (keyCode == KeyEvent.KEYCODE_BACK) {
+            if (webView.canGoBack()) {
+                webView.goBack()
+                return true
+            }
+            // 双击退出
+            val now = System.currentTimeMillis()
+            if (now - backPressedTime < 2000) {
+                finish()
+            } else {
+                backPressedTime = now
+                android.widget.Toast.makeText(this, "再按一次返回键退出", android.widget.Toast.LENGTH_SHORT).show()
+            }
             return true
         }
         return super.onKeyDown(keyCode, event)

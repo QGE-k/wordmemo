@@ -695,10 +695,24 @@ def update_word(word_id):
 
     # 更新允许修改的字段
     updatable_fields = ['word', 'phonetic', 'meaning', 'status',
-                        'split_data', 'morph_data', 'examples', 'word_type']
+                        'split_data', 'morph_data', 'examples', 'word_type',
+                        'wordbook_id']
     for field in updatable_fields:
         if field in data:
-            setattr(word, field, data[field])
+            val = data[field]
+            if field == 'wordbook_id':
+                # 允许设为 None（移出单词本）或指定单词本 ID
+                if val is None or val == '' or val == 0:
+                    word.wordbook_id = None
+                else:
+                    # 验证单词本存在且属于当前用户
+                    book = Wordbook.query.get(val)
+                    if book and (not user_id or not book.user_id or book.user_id == user_id):
+                        word.wordbook_id = book.id
+                    else:
+                        return jsonify({'success': False, 'error': '单词本不存在或无权访问'}), 400
+            else:
+                setattr(word, field, val)
 
     db.session.commit()
     return jsonify({'success': True, 'data': word.to_dict()})

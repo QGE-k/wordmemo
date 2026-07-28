@@ -736,12 +736,14 @@ function speakWord(word, btn) {
 /**
  * 生成单词卡片 HTML
  */
-function wordItemHtml(word) {
+function wordItemHtml(word, index) {
   // 查找所属单词本
   const book = word.wordbook_id ? wordbooks.find(b => b.id === word.wordbook_id) : null;
   const bookTag = book ? `<span class="word-book-tag" style="border-color:${book.color}40;color:${book.color}">${escapeHtml(book.name)}</span>` : '';
+  const num = index !== undefined ? `<span class="word-num">${index}</span>` : '';
   return `
     <div class="word-item" data-id="${word.id}">
+      ${num}
       <div class="word-info">
         <div class="word-text">
           ${word.phonetic ? `<span class="word-phonetic-sm">${escapeHtml(word.phonetic)}</span>` : ''}
@@ -1207,11 +1209,23 @@ async function handleScanRecognize() {
       showToast(res.error || '识别失败', 'error');
       return;
     }
-    scanRecognizedWords = (res.words || []).map(w => ({
-      word: (w.word || '').trim().toLowerCase(),
-      meaning: (w.meaning || '').trim(),
-      checked: true, // 默认全选
-    }));
+    // 处理识别结果：支持 / 分隔的多词组拆分
+    const rawWords = res.words || [];
+    const expandedWords = [];
+    rawWords.forEach(w => {
+      const wordStr = (w.word || '').trim();
+      const meaningStr = (w.meaning || '').trim();
+      // 如果单词中包含 /，拆分为多个独立词组
+      if (wordStr.includes('/')) {
+        const parts = wordStr.split('/').map(s => s.trim().toLowerCase()).filter(s => s);
+        parts.forEach(part => {
+          expandedWords.push({ word: part, meaning: meaningStr, checked: true });
+        });
+      } else {
+        expandedWords.push({ word: wordStr.toLowerCase(), meaning: meaningStr, checked: true });
+      }
+    });
+    scanRecognizedWords = expandedWords;
     renderScanWords();
   } catch (err) {
     hideLoading();
@@ -1413,7 +1427,7 @@ async function renderLibrary() {
       return;
     }
 
-    list.innerHTML = libraryData.map(wordItemHtml).join('');
+    list.innerHTML = libraryData.map((word, i) => wordItemHtml(word, i + 1)).join('');
     // 绑定点击查看详情
     list.querySelectorAll('.word-item').forEach(item => {
       item.addEventListener('click', () => openWordDetail(item.dataset.id));
@@ -2584,6 +2598,54 @@ async function handleSaveEdit() {
 }
 
 /* ====================================================
+   移动单词到其他词本
+   ==================================================== */
+
+// 打开移动到词本弹窗
+function openMoveWordbookModal() {
+  if (!currentDetailWord) return;
+  const select = $('#moveWordbookSelect');
+  // 填充词本列表
+  let html = '<option value="">未归类</option>';
+  wordbooks.forEach(b => {
+    const selected = currentDetailWord.wordbook_id === b.id ? 'selected' : '';
+    html += `<option value="${b.id}" ${selected}>${escapeHtml(b.name)}（${b.word_count || 0}词）</option>`;
+  });
+  select.innerHTML = html;
+  $('#moveWordbookModal').classList.add('active');
+}
+
+function closeMoveWordbookModal() {
+  $('#moveWordbookModal').classList.remove('active');
+}
+
+// 确认移动单词到词本
+async function handleMoveWordbook() {
+  if (!currentDetailWord) return;
+  const targetWordbookId = $('#moveWordbookSelect').value;
+  try {
+    showLoading('移动中...');
+    const data = { wordbook_id: targetWordbookId ? parseInt(targetWordbookId) : null };
+    const updated = await api.updateWord(currentDetailWord.id, data);
+    hideLoading();
+    showToast('已移动到新词本', 'success');
+    closeMoveWordbookModal();
+    // 刷新详情
+    if (updated) {
+      currentDetailWord = updated;
+      fillDetailModal(updated);
+    }
+    // 刷新列表和词本条
+    await loadWordbooks();
+    if ($('#page-library').classList.contains('active')) renderLibrary();
+    if ($('#page-home').classList.contains('active')) renderHome();
+  } catch (err) {
+    hideLoading();
+    handleError(err);
+  }
+}
+
+/* ====================================================
    十一、Canvas 图表绘制
    ==================================================== */
 
@@ -3098,6 +3160,14 @@ function bindEvents() {
   });
   $('#modalDeleteBtn').addEventListener('click', handleDeleteWord);
   $('#modalEditBtn').addEventListener('click', openEditModal);
+  // 移动到词本
+  $('#modalMoveBtn').addEventListener('click', openMoveWordbookModal);
+  $('#moveCloseBtn').addEventListener('click', closeMoveWordbookModal);
+  $('#moveCancelBtn').addEventListener('click', closeMoveWordbookModal);
+  $('#moveWordbookModal').addEventListener('click', (e) => {
+    if (e.target.id === 'moveWordbookModal') closeMoveWordbookModal();
+  });
+  $('#moveConfirmBtn').addEventListener('click', handleMoveWordbook);
   // 详情弹窗发音
   $('#modalSpeakBtn').addEventListener('click', (e) => {
     const wordText = $('#modalWord').textContent;

@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#4a7fff">
   <title>背单词</title>
-  <link rel="stylesheet" href="assets/style.css?v=20260728i">
+  <link rel="stylesheet" href="assets/style.css?v=20260728j">
   <!-- PWA 支持：允许"添加到桌面"当App用 -->
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" type="image/png" href="/icons/icon-192.png">
@@ -668,6 +668,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn-secondary" id="modalDeleteBtn">删除</button>
+        <button class="btn-secondary" id="modalMoveBtn">移动到词本</button>
         <button class="btn-primary" id="modalEditBtn">编辑</button>
       </div>
     </div>
@@ -706,6 +707,30 @@
       <div class="modal-footer">
         <button class="btn-secondary" id="editCancelBtn">取消</button>
         <button class="btn-primary" id="editSaveBtn">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 移动到词本弹窗 -->
+  <div class="modal-overlay" id="moveWordbookModal">
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-header">
+        <h3 class="modal-word">移动到词本</h3>
+        <button class="modal-close" id="moveCloseBtn">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">选择目标单词本</label>
+          <select class="form-input" id="moveWordbookSelect">
+            <option value="">未归类</option>
+          </select>
+        </div>
+        <p class="panel-tip" style="margin-top:8px">移动后单词将归属新的单词本，可在任意词本间切换</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" id="moveCancelBtn">取消</button>
+        <button class="btn-primary" id="moveConfirmBtn">确认移动</button>
       </div>
     </div>
   </div>
