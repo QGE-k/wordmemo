@@ -493,12 +493,20 @@ def add_word():
     # 去除多余空格
     word_text = re.sub(r'\s+', ' ', word_text).strip()
 
-    # 检查单词是否已存在（仅检查当前用户的词库）
+    # 检查单词是否已存在（按词本去重）
     user_id = get_current_user_id()
-    if user_id:
-        existing = Word.query.filter_by(word=word_text, user_id=user_id).first()
+    wordbook_id = data.get('wordbook_id')
+    if wordbook_id is not None:
+        book = Wordbook.query.get(wordbook_id)
+        if not book:
+            return jsonify({'success': False, 'error': '指定的单词本不存在'}), 400
+        if user_id and book.user_id and book.user_id != user_id:
+            return jsonify({'success': False, 'error': '无权访问该单词本'}), 403
+    # 按词本去重
+    if wordbook_id:
+        existing = Word.query.filter_by(word=word_text, user_id=user_id, wordbook_id=wordbook_id).first() if user_id else Word.query.filter_by(word=word_text, wordbook_id=wordbook_id).first()
     else:
-        existing = Word.query.filter_by(word=word_text).first()
+        existing = Word.query.filter_by(word=word_text, user_id=user_id, wordbook_id=None).first() if user_id else Word.query.filter_by(word=word_text, wordbook_id=None).first()
     if existing:
         return jsonify({'success': False, 'error': '该单词已存在', 'data': existing.to_dict()}), 409
 
@@ -518,6 +526,7 @@ def add_word():
         tenses=analysis.get('tenses'),
         status='new',
         user_id=user_id,
+        wordbook_id=wordbook_id,
     )
     db.session.add(word)
     db.session.commit()
@@ -577,10 +586,18 @@ def batch_add_words():
             failed.append({'word': word_text, 'error': '非有效英文单词'})
             continue
         word_text = re.sub(r'\s+', ' ', word_text).strip()
-        if user_id:
-            existing = Word.query.filter_by(word=word_text, user_id=user_id).first()
+        # 按词本去重：同一词本内不允许重复，不同词本可以有相同单词
+        if wordbook_id:
+            if user_id:
+                existing = Word.query.filter_by(word=word_text, user_id=user_id, wordbook_id=wordbook_id).first()
+            else:
+                existing = Word.query.filter_by(word=word_text, wordbook_id=wordbook_id).first()
         else:
-            existing = Word.query.filter_by(word=word_text).first()
+            # 未归类：只在未归类中查重
+            if user_id:
+                existing = Word.query.filter_by(word=word_text, user_id=user_id, wordbook_id=None).first()
+            else:
+                existing = Word.query.filter_by(word=word_text, wordbook_id=None).first()
         if existing:
             skipped.append(word_text)
             continue
@@ -1288,6 +1305,8 @@ def get_today_review():
     setting = get_setting()
     anti_forget = setting.anti_forget if setting.anti_forget is not None else True
     user_id = get_current_user_id()
+    # 支持按词书过滤（在函数开头统一获取，两个分支共用）
+    wordbook_id = request.args.get('wordbook_id', '').strip()
 
     if anti_forget:
         # 防遗忘开启：所有到期单词都进入队列（含mastered）
@@ -1297,6 +1316,14 @@ def get_today_review():
         )
         if user_id:
             query = query.filter_by(user_id=user_id)
+        # 支持按词书过滤
+        if wordbook_id and wordbook_id != '0':
+            try:
+                query = query.filter_by(wordbook_id=int(wordbook_id))
+            except ValueError:
+                pass
+        elif wordbook_id == '0':
+            query = query.filter_by(wordbook_id=None)
         words = query.order_by(Word.next_review).all()
     else:
         # 防遗忘关闭：仅未掌握的到期单词
@@ -1307,6 +1334,14 @@ def get_today_review():
         )
         if user_id:
             query = query.filter_by(user_id=user_id)
+        # 支持按词书过滤
+        if wordbook_id and wordbook_id != '0':
+            try:
+                query = query.filter_by(wordbook_id=int(wordbook_id))
+            except ValueError:
+                pass
+        elif wordbook_id == '0':
+            query = query.filter_by(wordbook_id=None)
         words = query.order_by(Word.next_review).all()
 
     # 每日复习上限
@@ -1450,6 +1485,9 @@ def get_today_learn():
     获取今日新词学习队列
     返回状态为new的单词（按添加时间正序）
     可通过 ?limit= 参数控制返回数量；不传则使用设置的 daily_goal
+    可通过 ?wordbook_id= 按词书过滤
+    可通过 ?random=1 随机取词（默认按添加顺序）
+    可通过 ?exclude=1,2,3 排除指定 ID 的单词（用于继续学习时跳过已学的）
     """
     limit = request.args.get('limit', None, type=int)
     if limit is None:
@@ -1460,9 +1498,32 @@ def get_today_learn():
     user_id = get_current_user_id()
     if user_id:
         query = query.filter_by(user_id=user_id)
-    words = query.order_by(
-        Word.added_at.asc()
-    ).limit(limit).all()
+    # 支持按词书过滤
+    wordbook_id = request.args.get('wordbook_id', '').strip()
+    if wordbook_id and wordbook_id != '0':
+        try:
+            query = query.filter_by(wordbook_id=int(wordbook_id))
+        except ValueError:
+            pass
+    elif wordbook_id == '0':
+        query = query.filter_by(wordbook_id=None)
+    
+    # 排除指定 ID 的单词（继续学习时跳过已学的）
+    exclude_ids = request.args.get('exclude', '').strip()
+    if exclude_ids:
+        try:
+            id_list = [int(x) for x in exclude_ids.split(',') if x.strip()]
+            if id_list:
+                query = query.filter(~Word.id.in_(id_list))
+        except ValueError:
+            pass
+    
+    # 随机模式 vs 顺序模式
+    random_mode = request.args.get('random', '').strip() == '1'
+    if random_mode:
+        words = query.order_by(db.func.random()).limit(limit).all()
+    else:
+        words = query.order_by(Word.added_at.asc()).limit(limit).all()
 
     return jsonify({
         'success': True,

@@ -6,7 +6,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="theme-color" content="#4a7fff">
   <title>背单词</title>
-  <link rel="stylesheet" href="assets/style.css?v=20260728k">
+  <!-- 预连接：提前建立TCP/TLS连接，减少首字节时间 -->
+  <link rel="preconnect" href="/" crossorigin>
+  <link rel="dns-prefetch" href="/">
+  <link rel="stylesheet" href="assets/style.css?v=20260729b">
   <!-- PWA 支持：允许"添加到桌面"当App用 -->
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" type="image/png" href="/icons/icon-192.png">
@@ -330,6 +333,13 @@
         <span class="card-progress" id="learnProgress">0 / 0</span>
         <span class="card-close" id="learnClose">退出</span>
       </div>
+      <!-- 词书选择器 -->
+      <div class="wordbook-selector" id="learnWordbookSelector" style="display:flex;align-items:center;gap:8px;padding:8px 16px;background:var(--bg-card);border-radius:var(--radius-md);margin-bottom:12px;flex-wrap:wrap;">
+        <label style="font-size:13px;color:var(--text-secondary);white-space:nowrap;">词书：</label>
+        <select id="learnWordbookSelect" style="flex:1;min-width:120px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;">
+          <option value="">全部词书</option>
+        </select>
+      </div>
       <!-- 学习模式切换 -->
       <div class="mode-tabs" id="learnModeTabs">
         <button class="mode-tab active" data-mode="flip">翻卡模式</button>
@@ -338,9 +348,13 @@
       </div>
       <!-- 学习卡片容器 -->
       <div class="flip-card-stage" id="learnStage">
-        <div class="empty-state" id="learnEmpty">
-          <p>今日新词已学完</p>
-          <p class="empty-sub">明天继续加油</p>
+        <div class="empty-state" id="learnEmpty" style="display:none">
+          <p>本批新词已学完</p>
+          <p class="empty-sub">继续学习更多新词</p>
+          <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:16px;">
+            <button class="btn-primary" id="learnAddMoreBtn">加入新词</button>
+            <button class="btn-secondary" id="learnReviewTodayBtn">翻今天所有</button>
+          </div>
         </div>
         <!-- 翻卡元素 -->
         <div class="flip-card" id="learnCard" style="display:none">
@@ -399,6 +413,11 @@
         <button class="btn-secondary" id="btnLearnDetail">详情</button>
         <button class="btn-primary" id="btnLearnKnown">已学会</button>
       </div>
+      <!-- 翻卡模式额外按钮：加入新词 / 翻今天所有 -->
+      <div class="card-actions card-actions-extra" id="learnExtraActions" style="display:none">
+        <button class="btn-secondary btn-sm" id="btnLearnAddMore">加入新词</button>
+        <button class="btn-secondary btn-sm" id="btnLearnReviewToday">翻今天所有</button>
+      </div>
       <!-- 测验模式操作按钮 -->
       <div class="card-actions" id="quizActions" style="display:none">
         <button class="btn-secondary" id="btnQuizPrev">上一题</button>
@@ -412,6 +431,13 @@
       <div class="card-header">
         <span class="card-progress" id="reviewProgress">0 / 0</span>
         <span class="card-close" id="reviewClose">退出</span>
+      </div>
+      <!-- 词书选择器 -->
+      <div class="wordbook-selector" id="reviewWordbookSelector" style="display:flex;align-items:center;gap:8px;padding:8px 16px;background:var(--bg-card);border-radius:var(--radius-md);margin-bottom:12px;">
+        <label style="font-size:13px;color:var(--text-secondary);white-space:nowrap;">词书：</label>
+        <select id="reviewWordbookSelect" style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;">
+          <option value="">全部词书</option>
+        </select>
       </div>
       <div class="flip-card-stage" id="reviewStage">
         <div class="empty-state" id="reviewEmpty">
@@ -512,6 +538,15 @@
           <div class="setting-control">
             <input type="number" id="dailyReviewGoalInput" class="setting-input" min="0" max="500" value="50">
             <span class="setting-unit">个（0=不限）</span>
+          </div>
+        </div>
+        <div class="setting-row">
+          <label class="setting-label" for="learnOrderSelect">学习取词顺序</label>
+          <div class="setting-control">
+            <select id="learnOrderSelect" class="setting-input setting-select">
+              <option value="sequential">顺序（按添加时间）</option>
+              <option value="random">随机</option>
+            </select>
           </div>
         </div>
       </div>
@@ -821,7 +856,7 @@
     </div>
   </div>
 
-  <script src="assets/app.js?v=20260728j"></script>
+  <script src="assets/app.js?v=20260729b"></script>
   <!-- PWA service worker 注册：仅在 HTTPS/localhost 生效 -->
   <script>
     if ('serviceWorker' in navigator) {

@@ -206,7 +206,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
         settings.databaseEnabled = true
+        // 缓存策略：优先使用缓存，无缓存时走网络（配合 SW 实现秒开）
         settings.cacheMode = WebSettings.LOAD_DEFAULT
+        // 启用应用缓存（已废弃但旧版本 Android 仍需要）
+        @Suppress("DEPRECATION")
+        settings.setAppCacheEnabled(true)
         settings.allowFileAccess = true
         settings.allowContentAccess = true
         settings.mediaPlaybackRequiresUserGesture = false

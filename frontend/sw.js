@@ -1,9 +1,10 @@
 /* ====================================================
    WordMemo PWA Service Worker
-   作用：缓存前端静态资源，支持离线打开；API请求始终走网络
-   策略：网络优先（确保更新立即生效），缓存作为离线兜底
+   作用：缓存前端静态资源，实现秒开；API请求始终走网络
+   策略：静态资源 stale-while-revalidate（缓存优先，后台更新）
+         API 请求网络优先，缓存兜底
    ==================================================== */
-const CACHE_NAME = 'wordmemo-v9';
+const CACHE_NAME = 'wordmemo-v13';
 const CORE_ASSETS = [
   '/',
   '/index.html',
@@ -20,7 +21,7 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
-// 激活：清理所有旧缓存（包括 v1），立即接管页面
+// 激活：清理所有旧缓存，立即接管页面
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
@@ -30,31 +31,38 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// 请求拦截：网络优先，缓存兜底
+// 请求拦截
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
-  // API 请求、跨站请求：不缓存，直接走网络
-  if (url.pathname.startsWith('/api') || url.origin !== self.location.origin) {
+  // API 请求：网络优先，不缓存
+  if (url.pathname.startsWith('/api')) {
     return;
   }
 
-  // 同源静态资源：网络优先，失败时用缓存（离线可用）
+  // 跨站请求：不处理
+  if (url.origin !== self.location.origin) {
+    return;
+  }
+
+  // 同源静态资源：stale-while-revalidate 策略
+  // 1. 先从缓存返回（秒开）
+  // 2. 后台从网络更新缓存（下次用新版）
   event.respondWith(
-    fetch(event.request)
-      .then((resp) => {
-        // 网络成功：更新缓存并返回
-        if (resp && resp.ok) {
-          const respClone = resp.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, respClone));
-        }
-        return resp;
-      })
-      .catch(() => {
-        // 网络失败：用缓存兜底
-        return caches.match(event.request).then((cached) => {
-          return cached || caches.match('/index.html');
-        });
-      })
+    caches.match(event.request).then((cached) => {
+      // 后台更新：无论是否有缓存，都从网络拉取最新版本更新缓存
+      const fetchPromise = fetch(event.request)
+        .then((resp) => {
+          if (resp && resp.ok) {
+            const respClone = resp.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, respClone));
+          }
+          return resp;
+        })
+        .catch(() => cached); // 网络失败时返回缓存
+
+      // 有缓存就先返回缓存（秒开），没有就走网络
+      return cached || fetchPromise;
+    })
   );
 });
