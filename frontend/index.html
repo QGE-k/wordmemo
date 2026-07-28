@@ -9,7 +9,7 @@
   <!-- 预连接：提前建立TCP/TLS连接，减少首字节时间 -->
   <link rel="preconnect" href="/" crossorigin>
   <link rel="dns-prefetch" href="/">
-  <link rel="stylesheet" href="assets/style.css?v=20260729c">
+  <link rel="stylesheet" href="assets/style.css?v=20260729d">
   <!-- PWA 支持：允许"添加到桌面"当App用 -->
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" type="image/png" href="/icons/icon-192.png">
@@ -337,7 +337,7 @@
       <div class="wordbook-selector" id="learnWordbookSelector" style="display:flex;align-items:center;gap:8px;padding:8px 16px;background:var(--bg-card);border-radius:var(--radius-md);margin-bottom:12px;flex-wrap:wrap;">
         <label style="font-size:13px;color:var(--text-secondary);white-space:nowrap;">词书：</label>
         <select id="learnWordbookSelect" style="flex:1;min-width:120px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;">
-          <option value="">全部词书</option>
+          <option value="">请选择词书</option>
         </select>
       </div>
       <!-- 学习模式切换 -->
@@ -349,8 +349,8 @@
       <!-- 学习卡片容器 -->
       <div class="flip-card-stage" id="learnStage">
         <div class="empty-state" id="learnEmpty" style="display:none">
-          <p>当前词书没有新词了</p>
-          <p class="empty-sub">选择其他词书或加入更多新词</p>
+          <p>请选择一本词书</p>
+          <p class="empty-sub">选择词书后开始学习</p>
           <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:16px;">
             <button class="btn-primary" id="learnAddMoreBtn">加入新词</button>
             <button class="btn-secondary" id="learnReviewTodayBtn">翻今天所有</button>
@@ -436,13 +436,13 @@
       <div class="wordbook-selector" id="reviewWordbookSelector" style="display:flex;align-items:center;gap:8px;padding:8px 16px;background:var(--bg-card);border-radius:var(--radius-md);margin-bottom:12px;">
         <label style="font-size:13px;color:var(--text-secondary);white-space:nowrap;">词书：</label>
         <select id="reviewWordbookSelect" style="flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;">
-          <option value="">全部词书</option>
+          <option value="">请选择词书</option>
         </select>
       </div>
       <div class="flip-card-stage" id="reviewStage">
         <div class="empty-state" id="reviewEmpty">
-          <p>今日复习已完成</p>
-          <p class="empty-sub">没有需要复习的单词</p>
+          <p>暂无复习单词</p>
+          <p class="empty-sub">请先选择词书并学习单词</p>
         </div>
         <div class="flip-card" id="reviewCard" style="display:none">
           <div class="flip-card-inner">
@@ -871,7 +871,7 @@
     </div>
   </div>
 
-  <script src="assets/app.js?v=20260729c"></script>
+  <script src="assets/app.js?v=20260729d"></script>
   <!-- PWA service worker 注册：仅在 HTTPS/localhost 生效 -->
   <script>
     if ('serviceWorker' in navigator) {

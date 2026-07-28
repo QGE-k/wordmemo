@@ -1296,45 +1296,39 @@ def get_stats():
 @app.route('/api/review/today', methods=['GET'])
 def get_today_review():
     """
-    获取今日待复习单词列表
-    返回 next_review 时间已到期的单词
-    防遗忘开启时，已掌握(mastered)单词到期也会进入复习队列
+    获取复习队列：返回词书内所有已学过的单词（review + mastered 状态）
+    不再限制 next_review <= now，只要是学过的词都能复习
     
     优先级逻辑：先返回昨天及更早学过的单词（last_review < today），
     如果没有则返回今天学过的单词
     
-    可通过 ?limit= 控制数量；不传则使用设置的每日复习上限（daily_review_goal，0=不限）
+    可通过 ?wordbook_id= 按词书过滤（必须与学习词书一致）
     可通过 ?random=1 随机排序（默认按时间排序，昨天先于更早）
+    可通过 ?limit= 控制数量
     """
-    now = datetime.utcnow()
     setting = get_setting()
-    anti_forget = setting.anti_forget if setting.anti_forget is not None else True
     user_id = get_current_user_id()
     wordbook_id = request.args.get('wordbook_id', '').strip()
     random_mode = request.args.get('random', '').strip() == '1'
-    
+
     # 今天的 UTC 零点（用于区分"今天学过"和"之前学过"）
     today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
 
-    def build_query(include_mastered):
-        q = Word.query.filter(
-            Word.next_review.isnot(None),
-            Word.next_review <= now,
-        )
-        if not include_mastered:
-            q = q.filter(Word.status != 'mastered')
-        if user_id:
-            q = q.filter_by(user_id=user_id)
-        if wordbook_id and wordbook_id != '0':
-            try:
-                q = q.filter_by(wordbook_id=int(wordbook_id))
-            except ValueError:
-                pass
-        elif wordbook_id == '0':
-            q = q.filter_by(wordbook_id=None)
-        return q
-
-    base_query = build_query(anti_forget)
+    # 构建基础查询：已学过的单词（status 为 review 或 mastered）
+    # 不再限制 next_review <= now
+    base_query = Word.query.filter(
+        Word.last_review.isnot(None),
+        Word.status.in_(['review', 'mastered']),
+    )
+    if user_id:
+        base_query = base_query.filter_by(user_id=user_id)
+    if wordbook_id and wordbook_id != '0':
+        try:
+            base_query = base_query.filter_by(wordbook_id=int(wordbook_id))
+        except ValueError:
+            pass
+    elif wordbook_id == '0':
+        base_query = base_query.filter_by(wordbook_id=None)
 
     # 优先：昨天及更早学过的单词（last_review < today_start）
     before_today_q = base_query.filter(Word.last_review < today_start)
@@ -1347,7 +1341,7 @@ def get_today_review():
     if before_today_words:
         words = before_today_words
     else:
-        # 没有昨天及更早的单词，返回今天学过的到期单词
+        # 没有昨天及更早的单词，返回今天学过的单词
         today_q = base_query.filter(Word.last_review >= today_start)
         if random_mode:
             words = today_q.order_by(db.func.random()).all()
@@ -1497,23 +1491,25 @@ def get_setting():
 @app.route('/api/learn/today', methods=['GET'])
 def get_today_learn():
     """
-    获取今日新词学习队列
-    返回状态为new的单词（按添加时间正序）
+    获取学习队列：返回词书内所有单词（不限状态），按添加顺序分批加载
+    用户要求：学习就是学词书里的所有词，不只是新词。学完从头再来。
     可通过 ?limit= 参数控制返回数量；不传则使用设置的 daily_goal
-    可通过 ?wordbook_id= 按词书过滤
+    可通过 ?wordbook_id= 按词书过滤（必须指定词书）
     可通过 ?random=1 随机取词（默认按添加顺序）
-    可通过 ?exclude=1,2,3 排除指定 ID 的单词（用于继续学习时跳过已学的）
+    可通过 ?exclude=1,2,3 排除指定 ID 的单词（用于"加入新词"时跳过已加载的）
     """
     limit = request.args.get('limit', None, type=int)
     if limit is None:
         limit = get_setting().daily_goal
 
-    # 获取状态为new的单词
-    query = Word.query.filter_by(status='new')
     user_id = get_current_user_id()
+
+    # 返回词书内所有单词（不限状态：new/review/mastered 都可以学习）
+    query = Word.query
     if user_id:
         query = query.filter_by(user_id=user_id)
-    # 支持按词书过滤
+
+    # 按词书过滤
     wordbook_id = request.args.get('wordbook_id', '').strip()
     if wordbook_id and wordbook_id != '0':
         try:
@@ -1522,8 +1518,8 @@ def get_today_learn():
             pass
     elif wordbook_id == '0':
         query = query.filter_by(wordbook_id=None)
-    
-    # 排除指定 ID 的单词（继续学习时跳过已学的）
+
+    # 排除指定 ID 的单词（"加入新词"时跳过已加载的）
     exclude_ids = request.args.get('exclude', '').strip()
     if exclude_ids:
         try:
@@ -1532,13 +1528,35 @@ def get_today_learn():
                 query = query.filter(~Word.id.in_(id_list))
         except ValueError:
             pass
-    
+
     # 随机模式 vs 顺序模式
     random_mode = request.args.get('random', '').strip() == '1'
     if random_mode:
         words = query.order_by(db.func.random()).limit(limit).all()
     else:
         words = query.order_by(Word.added_at.asc()).limit(limit).all()
+
+    # 如果排除后没有词了，说明词书里所有词都已加载过，从头再来（不排除）
+    if not words and exclude_ids:
+        try:
+            id_list = [int(x) for x in exclude_ids.split(',') if x.strip()]
+        except ValueError:
+            id_list = []
+        # 重新查询不排除的，取前 limit 个（从头再来）
+        query2 = Word.query
+        if user_id:
+            query2 = query2.filter_by(user_id=user_id)
+        if wordbook_id and wordbook_id != '0':
+            try:
+                query2 = query2.filter_by(wordbook_id=int(wordbook_id))
+            except ValueError:
+                pass
+        elif wordbook_id == '0':
+            query2 = query2.filter_by(wordbook_id=None)
+        if random_mode:
+            words = query2.order_by(db.func.random()).limit(limit).all()
+        else:
+            words = query2.order_by(Word.added_at.asc()).limit(limit).all()
 
     return jsonify({
         'success': True,

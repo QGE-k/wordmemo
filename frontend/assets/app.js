@@ -852,10 +852,12 @@ function onPageEnter(pageName) {
       break;
     case 'learn':
       initLearnWordbookSelector();
-      // 进入学习页时自动加载今日新词
-      if (learnQueue.length === 0) loadLearnQueue();
+      // 进入学习页时自动加载（必须已选词书）
+      if (learnQueue.length === 0 && learnWordbookId !== '') loadLearnQueue();
       break;
     case 'review':
+      // 复习词书自动同步为学习词书
+      reviewWordbookId = learnWordbookId;
       initReviewWordbookSelector();
       if (reviewQueue.length === 0) loadReviewQueue();
       break;
@@ -1746,22 +1748,30 @@ async function loadWordbooks() {
 function initLearnWordbookSelector() {
   const select = $('#learnWordbookSelect');
   if (!select) return;
-  let html = '<option value="">全部词书</option><option value="0">未归类</option>';
+  let html = '<option value="">请选择词书</option>';
   wordbooks.forEach(b => {
     html += `<option value="${b.id}" ${learnWordbookId === String(b.id) ? 'selected' : ''}>${escapeHtml(b.name)}（${b.word_count || 0}词）</option>`;
   });
   select.innerHTML = html;
+  // 保持当前选中值
+  if (learnWordbookId !== '') {
+    select.value = learnWordbookId;
+  }
 }
 
 // 初始化复习页词书选择器
 function initReviewWordbookSelector() {
   const select = $('#reviewWordbookSelect');
   if (!select) return;
-  let html = '<option value="">全部词书</option><option value="0">未归类</option>';
+  let html = '<option value="">请选择词书</option>';
   wordbooks.forEach(b => {
     html += `<option value="${b.id}" ${reviewWordbookId === String(b.id) ? 'selected' : ''}>${escapeHtml(b.name)}（${b.word_count || 0}词）</option>`;
   });
   select.innerHTML = html;
+  // 保持当前选中值
+  if (reviewWordbookId !== '') {
+    select.value = reviewWordbookId;
+  }
 }
 
 /**
@@ -1937,8 +1947,8 @@ async function handleSaveWordbook() {
    ==================================================== */
 
 let learnWordbookId = '';  // 学习选中的词书ID，空=全部，0=未归类，具体数字=词本ID
-let reviewWordbookId = ''; // 复习选中的词书ID
-let learnQueue = [];      // 今日新词队列
+let reviewWordbookId = ''; // 复习选中的词书ID（自动同步为学习词书）
+let learnQueue = [];      // 今日学习队列
 let learnIndex = 0;       // 当前索引
 let learnFlipped = false; // 当前卡片是否翻转
 let learnMode = 'flip';   // 学习模式：flip 翻卡 / choice 看词选义 / spell 拼写默写
@@ -1947,21 +1957,30 @@ let learnedIds = new Set(); // 已标记为"已学会"的单词 ID，避免返�
 let autoNextTimer = null;   // 自动下一题的定时器（用于取消）
 let learnRandomMode = false; // 学习随机模式：false=按顺序，true=随机（从设置页读取）
 let reviewRandomMode = false; // 复习随机模式：false=按时间排序（昨天先于更早），true=随机
-let allLearnedIds = new Set(); // 本次学习会话中所有已学的单词ID（用于继续学习时排除）
+let allLearnedIds = new Set(); // 本次学习会话中所有已学的单词ID（用于"已学会"标记）
+let loadedWordIds = new Set(); // 当前会话中已加载到队列的单词ID（用于"加入新词"排除）
 let learnSessionMode = 'new'; // 学习会话模式：new=新词学习 / review_today=翻今天所有
 
-// 加载今日新词队列
+// 加载学习队列：返回词书内所有单词（不限状态），按添加顺序分批
 // append=true 时为"加入新词"模式，addCount 指定加入数量
 async function loadLearnQueue(append = false, addCount = null) {
+  // 必须选择词书才能学习
+  if (!learnWordbookId && learnWordbookId !== '0') {
+    showToast('请先选择一本词书再开始学习', 'error');
+    return;
+  }
   try {
     showLoading();
     learnSessionMode = 'new';
     const options = {
       random: learnRandomMode,
-      exclude: Array.from(allLearnedIds),
     };
-    if (append && addCount) {
-      options.limit = addCount;
+    if (append) {
+      // 加入新词：排除已加载的单词，加载下一批
+      options.exclude = Array.from(loadedWordIds);
+      if (addCount) {
+        options.limit = addCount;
+      }
     }
     const res = await api.getLearnToday(learnWordbookId, options);
     const newWords = Array.isArray(res) ? res : (res.words || res.data || []);
@@ -1970,16 +1989,17 @@ async function loadLearnQueue(append = false, addCount = null) {
     learnQueue = newWords;
     learnIndex = 0;
     learnedIds = new Set();
+    // 记录已加载的单词ID
+    if (!append) {
+      loadedWordIds = new Set();
+    }
+    newWords.forEach(w => loadedWordIds.add(w.id));
     if (autoNextTimer) { clearTimeout(autoNextTimer); autoNextTimer = null; }
     hideLoading();
     if (learnQueue.length === 0) {
-      if (append) {
-        showToast('没有更多新词了，已学完这本词书的所有单词', 'info');
-      } else {
-        showToast('当前词书没有新词了', 'info');
-      }
+      showToast('当前词书没有单词', 'info');
     } else if (append) {
-      showToast(`已加入 ${newWords.length} 个新词，开始学习新词`, 'success');
+      showToast(`已加入 ${newWords.length} 个单词`, 'success');
     }
     renderLearnCard();
   } catch (err) {
@@ -3556,18 +3576,32 @@ function bindEvents() {
   $('#learnClose').addEventListener('click', () => {
     // 退出学习时重置会话
     allLearnedIds = new Set();
+    loadedWordIds = new Set();
     learnQueue = [];
     learnIndex = 0;
     switchPage('home');
   });
-  // 学习页词书选择
+  // 学习页词书选择（必须选择词书才能学习）
   const learnWbSelect = $('#learnWordbookSelect');
   if (learnWbSelect) {
     learnWbSelect.addEventListener('change', (e) => {
       learnWordbookId = e.target.value;
+      // 同步到复习词书
+      reviewWordbookId = learnWordbookId;
+      const reviewWbSel = $('#reviewWordbookSelect');
+      if (reviewWbSel) reviewWbSel.value = learnWordbookId;
+      // 重置队列
       allLearnedIds = new Set();
+      loadedWordIds = new Set();
       learnQueue = [];
-      loadLearnQueue();
+      learnIndex = 0;
+      if (learnWordbookId !== '') {
+        loadLearnQueue();
+      } else {
+        // 未选词书时显示空状态
+        renderLearnCard();
+        showToast('请选择一本词书', 'info');
+      }
     });
   }
   // 翻卡模式：加入新词按钮（卡片中）—— 弹出输入框让用户设置加入数量
@@ -3614,12 +3648,17 @@ function bindEvents() {
       loadTodayAllWords();
     });
   }
-  // 复习页词书选择
+  // 复习页词书选择（同步回学习词书）
   const reviewWbSelect = $('#reviewWordbookSelect');
   if (reviewWbSelect) {
     reviewWbSelect.addEventListener('change', (e) => {
       reviewWordbookId = e.target.value;
+      // 同步到学习词书
+      learnWordbookId = reviewWordbookId;
+      const learnWbSel = $('#learnWordbookSelect');
+      if (learnWbSel) learnWbSel.value = reviewWordbookId;
       reviewQueue = [];
+      reviewIndex = 0;
       loadReviewQueue();
     });
   }
