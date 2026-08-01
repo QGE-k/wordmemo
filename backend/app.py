@@ -815,6 +815,152 @@ def get_distractors():
     })
 
 
+def _levenshtein(s1, s2):
+    """计算两个字符串的编辑距离（Levenshtein distance）"""
+    if len(s1) < len(s2):
+        return _levenshtein(s2, s1)
+    if len(s2) == 0:
+        return len(s1)
+    previous_row = range(len(s2) + 1)
+    for i, c1 in enumerate(s1):
+        current_row = [i + 1]
+        for j, c2 in enumerate(s2):
+            insertions = previous_row[j + 1] + 1
+            deletions = current_row[j] + 1
+            substitutions = previous_row[j] + (c1 != c2)
+            current_row.append(min(insertions, deletions, substitutions))
+        previous_row = current_row
+    return previous_row[-1]
+
+
+def _word_similarity(target, candidate):
+    """
+    计算两个单词的相似度分数（0~1，越高越相似）
+    综合考虑：编辑距离、共同前缀、共同后缀、长度比
+    """
+    target = target.lower().strip()
+    candidate = candidate.lower().strip()
+    if target == candidate:
+        return 0.0  # 完全相同不计
+
+    # 编辑距离
+    dist = _levenshtein(target, candidate)
+    max_len = max(len(target), len(candidate))
+    if max_len == 0:
+        return 0.0
+
+    # 基础相似度：1 - 编辑距离/最大长度
+    base_sim = 1.0 - (dist / max_len)
+
+    # 共同前缀长度
+    prefix_len = 0
+    for i in range(min(len(target), len(candidate))):
+        if target[i] == candidate[i]:
+            prefix_len += 1
+        else:
+            break
+
+    # 共同后缀长度
+    suffix_len = 0
+    for i in range(1, min(len(target), len(candidate)) + 1):
+        if target[-i] == candidate[-i]:
+            suffix_len += 1
+        else:
+            break
+
+    # 前缀和后缀加权（长前缀/后缀说明词形很像）
+    prefix_bonus = prefix_len / max_len * 0.3
+    suffix_bonus = suffix_len / max_len * 0.2
+
+    # 长度接近加分
+    len_ratio = min(len(target), len(candidate)) / max_len
+    len_bonus = len_ratio * 0.1
+
+    score = base_sim + prefix_bonus + suffix_bonus + len_bonus
+
+    # 编辑距离为1-2的词优先（如 suppose/propose/oppose）
+    if dist <= 2:
+        score += 0.3
+    elif dist <= 3:
+        score += 0.15
+
+    return score
+
+
+@app.route('/api/words/similar-distractors', methods=['GET'])
+def get_similar_distractors():
+    """获取形近词干扰项（用于看词选义模式）
+    根据目标单词的拼写相似度，从词书中找出最容易混淆的词作为干扰项
+    可通过 ?word= 指定目标单词
+    可通过 ?wordbook_id= 按词书过滤
+    可通过 ?exclude=1,2,3 排除指定ID
+    可通过 ?limit= 控制数量（默认3）
+    """
+    user_id = get_current_user_id()
+    target_word = request.args.get('word', '').strip()
+    wordbook_id = request.args.get('wordbook_id', '').strip()
+    limit = request.args.get('limit', 3, type=int)
+
+    if not target_word:
+        return jsonify({'success': False, 'error': '缺少 word 参数'}), 400
+
+    # 查询词书内所有有释义的词（排除目标词本身）
+    query = Word.query.filter(
+        Word.meaning.isnot(None),
+        Word.meaning != '',
+        Word.word != target_word,
+    )
+    if user_id:
+        query = query.filter_by(user_id=user_id)
+    if wordbook_id and wordbook_id != '0':
+        try:
+            query = query.filter_by(wordbook_id=int(wordbook_id))
+        except ValueError:
+            pass
+    elif wordbook_id == '0':
+        query = query.filter_by(wordbook_id=None)
+
+    exclude_ids = request.args.get('exclude', '').strip()
+    if exclude_ids:
+        try:
+            id_list = [int(x) for x in exclude_ids.split(',') if x.strip()]
+            if id_list:
+                query = query.filter(~Word.id.in_(id_list))
+        except ValueError:
+            pass
+
+    all_words = query.all()
+
+    if not all_words:
+        return jsonify({'success': True, 'data': []})
+
+    # 计算每个词与目标词的相似度，排序取最相似的
+    scored = []
+    for w in all_words:
+        score = _word_similarity(target_word, w.word)
+        scored.append((w, score))
+
+    # 按相似度降序排序
+    scored.sort(key=lambda x: x[1], reverse=True)
+
+    # 取前 limit 个最相似的词
+    similar_words = scored[:limit]
+
+    # 如果相似词不够，用随机词补充
+    if len(similar_words) < limit:
+        used_ids = {w.id for w, _ in similar_words}
+        remaining = [w for w in all_words if w.id not in used_ids]
+        import random as _random
+        _random.shuffle(remaining)
+        for w in remaining[:limit - len(similar_words)]:
+            similar_words.append((w, 0.0))
+
+    return jsonify({
+        'success': True,
+        'data': [{'word': w.word, 'meaning': w.meaning} for w, _ in similar_words],
+    })
+
+
 # ==================== 文档导入API ====================
 
 ALLOWED_DOC_EXT = {'txt', 'docx', 'xlsx', 'xls', 'pdf'}
