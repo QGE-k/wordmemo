@@ -2411,20 +2411,18 @@ async function renderChoiceCard(word) {
       otherWords.splice(idx, 1);
     }
   }
-  // 还不够，补占位
-  while (distractors.length < 3) {
-    distractors.push({ meaning: '（无）', word: '_dummy' + distractors.length });
-  }
 
-  const options = [{ word: word.word, meaning: word.meaning }, ...distractors];
+  // 组合选项并过滤掉单词或释义为空的
+  let options = [{ word: word.word, meaning: word.meaning }, ...distractors];
+  options = options.filter(opt => opt.word && opt.word.trim() && opt.meaning && opt.meaning.trim());
   // 打乱顺序
   options.sort(() => Math.random() - 0.5);
 
   const optionsEl = $('#choiceOptions');
+  // 默认只显示释义，不显示单词
   optionsEl.innerHTML = options.map(opt => `
     <button class="quiz-option" data-word="${escapeHtml(opt.word)}">
-      <span class="quiz-option-word">${escapeHtml(opt.word)}</span>
-      <span class="quiz-option-meaning">${escapeHtml(opt.meaning || '（无释义）')}</span>
+      <span class="quiz-option-meaning">${escapeHtml(opt.meaning)}</span>
     </button>
   `).join('');
 
@@ -2472,19 +2470,15 @@ function handleChoiceAnswer(btn, currentWord) {
   } else {
     btn.classList.add('wrong');
     playWrongSound();
-    // 标出正确答案
+    // 选错后：所有选项显示单词+释义
     optionsEl.querySelectorAll('.quiz-option').forEach(b => {
+      const w = b.dataset.word;
+      const m = b.querySelector('.quiz-option-meaning') ? b.querySelector('.quiz-option-meaning').textContent : '';
+      b.innerHTML = `<span class="quiz-option-word">${escapeHtml(w)}</span><span class="quiz-option-meaning">${escapeHtml(m)}</span>`;
       if (b.dataset.word === currentWord.word) b.classList.add('correct');
     });
-    // 找到用户选错的选项对应的单词和释义
-    let wrongMeaning = '';
-    optionsEl.querySelectorAll('.quiz-option').forEach(b => {
-      if (b.dataset.word === selectedWord) {
-        wrongMeaning = b.textContent;
-      }
-    });
     feedback.className = 'quiz-feedback wrong';
-    feedback.innerHTML = `回答错误<span class="feedback-meaning">你选的是「${escapeHtml(selectedWord)}」的意思：${escapeHtml(wrongMeaning)}<br>正确答案：${escapeHtml(currentWord.word)} - ${escapeHtml(currentWord.meaning || '')}</span><span class="quiz-accuracy">正确率：${accuracy}%（${learnTotalWords}词，错${learnWrongCount}个）</span>`;
+    feedback.innerHTML = `回答错误<span class="feedback-meaning">正确答案：${escapeHtml(currentWord.word)} - ${escapeHtml(currentWord.meaning || '')}</span><span class="quiz-accuracy">正确率：${accuracy}%（${learnTotalWords}词，错${learnWrongCount}个）</span>`;
     // 答错不自动跳，让用户看清楚正确答案，手动点"下一题"
   }
 }
@@ -2824,18 +2818,17 @@ async function renderReviewChoiceCard(word) {
       otherWords.splice(idx, 1);
     }
   }
-  while (distractors.length < 3) {
-    distractors.push({ meaning: '（无）', word: '_dummy' + distractors.length });
-  }
 
-  const options = [{ word: word.word, meaning: word.meaning }, ...distractors];
+  // 组合选项并过滤掉单词或释义为空的
+  let options = [{ word: word.word, meaning: word.meaning }, ...distractors];
+  options = options.filter(opt => opt.word && opt.word.trim() && opt.meaning && opt.meaning.trim());
   options.sort(() => Math.random() - 0.5);
 
   const optionsEl = $('#reviewChoiceOptions');
+  // 默认只显示释义，不显示单词
   optionsEl.innerHTML = options.map(opt => `
     <button class="quiz-option" data-word="${escapeHtml(opt.word)}">
-      <span class="quiz-option-word">${escapeHtml(opt.word)}</span>
-      <span class="quiz-option-meaning">${escapeHtml(opt.meaning || '（无释义）')}</span>
+      <span class="quiz-option-meaning">${escapeHtml(opt.meaning)}</span>
     </button>
   `).join('');
 
@@ -2879,18 +2872,15 @@ function handleReviewChoiceAnswer(btn, currentWord) {
   } else {
     btn.classList.add('wrong');
     playWrongSound();
+    // 选错后：所有选项显示单词+释义
     optionsEl.querySelectorAll('.quiz-option').forEach(b => {
+      const w = b.dataset.word;
+      const m = b.querySelector('.quiz-option-meaning') ? b.querySelector('.quiz-option-meaning').textContent : '';
+      b.innerHTML = `<span class="quiz-option-word">${escapeHtml(w)}</span><span class="quiz-option-meaning">${escapeHtml(m)}</span>`;
       if (b.dataset.word === currentWord.word) b.classList.add('correct');
     });
-    // 找到用户选错的选项对应的单词和释义
-    let wrongMeaning = '';
-    optionsEl.querySelectorAll('.quiz-option').forEach(b => {
-      if (b.dataset.word === selectedWord) {
-        wrongMeaning = b.textContent;
-      }
-    });
     feedback.className = 'quiz-feedback wrong';
-    feedback.innerHTML = `回答错误<span class="feedback-meaning">你选的是「${escapeHtml(selectedWord)}」的意思：${escapeHtml(wrongMeaning)}<br>正确答案：${escapeHtml(currentWord.word)} - ${escapeHtml(currentWord.meaning || '')}</span><span class="quiz-accuracy">正确率：${accuracy}%（${reviewTotalWords}词，错${reviewWrongCount}个）</span>`;
+    feedback.innerHTML = `回答错误<span class="feedback-meaning">正确答案：${escapeHtml(currentWord.word)} - ${escapeHtml(currentWord.meaning || '')}</span><span class="quiz-accuracy">正确率：${accuracy}%（${reviewTotalWords}词，错${reviewWrongCount}个）</span>`;
   }
 }
 
@@ -4593,14 +4583,14 @@ function bindEvents() {
   });
   $('#modalDeleteBtn').addEventListener('click', handleDeleteWord);
   $('#modalEditBtn').addEventListener('click', openEditModal);
-  // 移动到词本
+  // 移动到词本（统一用 onclick 避免与多选模式的 onclick 冲突）
   $('#modalMoveBtn').addEventListener('click', openMoveWordbookModal);
   $('#moveCloseBtn').addEventListener('click', closeMoveWordbookModal);
   $('#moveCancelBtn').addEventListener('click', closeMoveWordbookModal);
   $('#moveWordbookModal').addEventListener('click', (e) => {
     if (e.target.id === 'moveWordbookModal') closeMoveWordbookModal();
   });
-  $('#moveConfirmBtn').addEventListener('click', handleMoveWordbook);
+  $('#moveConfirmBtn').onclick = handleMoveWordbook;
   // 详情弹窗发音
   $('#modalSpeakBtn').addEventListener('click', (e) => {
     const wordText = $('#modalWord').textContent;
