@@ -75,8 +75,13 @@ class WordAPI {
       headers['Content-Type'] = 'application/json';
     }
 
+    // 超时控制：15秒后自动中断，避免 Neon 休眠时页面永久卡住
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
     try {
-      const res = await fetch(url, { ...options, headers, credentials: 'include' });
+      const res = await fetch(url, { ...options, headers, credentials: 'include', signal: controller.signal });
+      clearTimeout(timeoutId);
 
       // 处理 HTTP 错误状态码
       if (!res.ok) {
@@ -92,6 +97,11 @@ class WordAPI {
       const text = await res.text();
       return text ? JSON.parse(text) : null;
     } catch (err) {
+      clearTimeout(timeoutId);
+      // 超时中断
+      if (err.name === 'AbortError') {
+        throw new Error('请求超时，请稍后重试');
+      }
       // 网络错误（无法连接服务器）
       if (err instanceof TypeError && err.message.includes('Failed to fetch')) {
         throw new Error('无法连接服务器，请确认后端已启动');
