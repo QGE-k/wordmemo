@@ -624,7 +624,10 @@ input, textarea, select {
   align-items: center;
   gap: 8px;
   box-shadow: var(--shadow-sm);
-  transition: transform 0.15s;
+  transition: transform 0.15s, background 0.15s;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .word-item:active {
@@ -3268,4 +3271,44 @@ input, textarea, select {
 
 .tab-item.active .tab-icon-admin {
   opacity: 1;
+}
+
+/* ===== 可拖动浮动按钮：加入新词 ===== */
+.float-add-btn {
+  position: fixed;
+  right: 20px;
+  bottom: 90px;
+  z-index: 400;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #4f46e5, #6366f1);
+  color: #fff;
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 16px rgba(79, 70, 229, 0.4);
+  cursor: pointer;
+  transition: box-shadow 0.2s, transform 0.2s;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.float-add-btn:active {
+  transform: scale(0.92);
+  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.3);
+}
+
+.float-add-icon {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.float-add-text {
+  font-size: 10px;
+  margin-top: 2px;
+  opacity: 0.9;
 }
