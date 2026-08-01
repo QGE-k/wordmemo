@@ -580,16 +580,19 @@ def update_review_accuracy(is_correct):
 
 
 def get_checkin_status():
-    """获取今日签到状态和连续签到天数"""
+    """获取今日签到状态和连续签到天数
+    签到状态基于 checked_in 字段（用户手动点击签到），而非学习记录
+    连续天数：从今天往前数，连续有签到记录的天数
+    """
     today = date.today()
     today_history = LearnHistory.query.filter_by(date=today).first()
-    checked_in = today_history is not None and today_history.count > 0
+    checked_in = today_history is not None and today_history.checked_in == True
 
-    # 计算连续签到天数：从今天往前数，连续有学习记录的天数
-    all_history = LearnHistory.query.filter(LearnHistory.count > 0).order_by(LearnHistory.date.desc()).all()
+    # 计算连续签到天数：从今天往前数，连续有签到记录的天数
+    all_checkins = LearnHistory.query.filter(LearnHistory.checked_in == True).order_by(LearnHistory.date.desc()).all()
     streak_days = 0
     check_date = today
-    for h in all_history:
+    for h in all_checkins:
         if h.date == check_date:
             streak_days += 1
             check_date = check_date - timedelta(days=1)
@@ -2392,7 +2395,8 @@ def get_calendar_stats():
 
 @app.route('/api/checkin', methods=['POST'])
 def checkin():
-    """每日签到：签到后算作今日已学习，连续天数基于签到记录"""
+    """每日签到：用户手动点击签到，设置 checked_in=True
+    连续天数基于签到记录，与学习记录无关"""
     err = require_login()
     if err:
         return err
@@ -2401,7 +2405,7 @@ def checkin():
     history = LearnHistory.query.filter_by(date=today).first()
 
     if history:
-        if history.count > 0:
+        if history.checked_in:
             # 已签到
             _, streak = get_checkin_status()
             return jsonify({
@@ -2414,9 +2418,11 @@ def checkin():
                 'message': '今天已经签到过了',
             })
         else:
-            history.count = 1
+            # 有学习记录但未签到，设置签到标志
+            history.checked_in = True
     else:
-        history = LearnHistory(date=today, count=1)
+        # 今天没有任何记录，创建一条签到记录
+        history = LearnHistory(date=today, count=0, checked_in=True)
         db.session.add(history)
 
     db.session.commit()
@@ -2867,6 +2873,22 @@ def ensure_learn_history_accuracy_columns():
             print(f"[迁移] learn_history.{col_name} 列添加完成")
 
 
+def ensure_learn_history_checkin_column():
+    """
+    数据库迁移：为 learn_history 表添加 checked_in 列（如果不存在）
+    用于独立的签到状态标记，与学习记录分离
+    """
+    from sqlalchemy import text, inspect
+    inspector = inspect(db.engine)
+    columns = [col['name'] for col in inspector.get_columns('learn_history')]
+    if 'checked_in' not in columns:
+        print("[迁移] 检测到 learn_history 表缺少 checked_in 列，正在添加...")
+        with db.engine.connect() as conn:
+            conn.execute(text("ALTER TABLE learn_history ADD COLUMN checked_in BOOLEAN DEFAULT FALSE"))
+            conn.commit()
+        print("[迁移] learn_history.checked_in 列添加完成")
+
+
 with app.app_context():
     # 创建数据库表（含新的 wordbooks 表）
     db.create_all()
@@ -2892,6 +2914,8 @@ with app.app_context():
     ensure_word_starred_column()
     # 迁移：为 learn_history 表添加 correct_count / total_count 列（准确率统计）
     ensure_learn_history_accuracy_columns()
+    # 迁移：为 learn_history 表添加 checked_in 列（独立签到状态）
+    ensure_learn_history_checkin_column()
     # 插入演示数据
     init_demo_data()
     # 升级已有单词的拆解数据和记忆方法到新结构

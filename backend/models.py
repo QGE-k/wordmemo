@@ -180,6 +180,8 @@ class LearnHistory(db.Model):
     correct_count = db.Column(db.Integer, default=0)
     # 当天复习总次数（用于准确率统计）
     total_count = db.Column(db.Integer, default=0)
+    # 是否已签到（独立于学习记录，需用户手动点击签到）
+    checked_in = db.Column(db.Boolean, default=False)
 
     def to_dict(self):
         """转换为字典"""
