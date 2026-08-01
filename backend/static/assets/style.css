@@ -162,11 +162,15 @@ input, textarea, select {
 /* ===== 页面通用 ===== */
 .page {
   display: none;
-  animation: fadeIn 0.3s ease;
 }
 
 .page.active {
   display: block;
+}
+
+/* 仅在页面切换时播放动画，不在首次加载时播放（避免闪烁） */
+.page.page-animating {
+  animation: fadeIn 0.3s ease;
 }
 
 @keyframes fadeIn {

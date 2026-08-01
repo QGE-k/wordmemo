@@ -1251,10 +1251,20 @@ const PAGE_TITLES = {
  */
 function switchPage(pageName) {
   // 隐藏所有页面
-  $$('.page').forEach(p => p.classList.remove('active'));
+  $$('.page').forEach(p => {
+    p.classList.remove('active');
+    // 移除动画类
+    p.classList.remove('page-animating');
+  });
   // 显示目标页面
   const target = $('#page-' + pageName);
-  if (target) target.classList.add('active');
+  if (target) {
+    target.classList.add('active');
+    // 仅在页面切换时添加动画类（不在首次加载时）
+    if (document.body.classList.contains('app-initialized')) {
+      target.classList.add('page-animating');
+    }
+  }
 
   // 更新底部 TabBar 高亮
   $$('.tab-item').forEach(t => t.classList.remove('active'));
@@ -1698,7 +1708,10 @@ async function handleDocUpload(file) {
     showToast(`提取到 ${docPendingWords.length} 个单词`, 'success');
   } catch (err) {
     hideLoading();
-    handleError(err);
+    console.error('[扫描识别] 失败:', err);
+    const msg = err.message || 'AI识别失败';
+    // 显示更详细的错误信息，持续6秒
+    showToast(msg, 'error', 6000);
   }
 }
 
@@ -5583,6 +5596,47 @@ function renderHomeFromCache() {
 }
 
 /**
+ * 静默刷新首页数据：只更新数字，不触发完整重渲染（避免闪烁）
+ * 拉取最新stats后，对比缓存，仅在数据变化时更新DOM文本
+ */
+async function refreshHomeDataSilently() {
+  try {
+    const stats = await api.getStats();
+    if (!stats) return;
+
+    // 保存最新缓存
+    const words = await api.getWords({ status: 'new' }).catch(() => []);
+    saveHomeCache(stats, words);
+
+    // 静默更新首页数字（不触发动画/重绘）
+    const updateText = (id, val) => {
+      const el = $('#' + id);
+      if (el && el.textContent != val) el.textContent = val;
+    };
+    updateText('streakNum', stats.streak_days || 0);
+    updateText('todayLearned', stats.today_learned || 0);
+    updateText('todayReviewCount', stats.today_review || 0);
+    updateText('todayNewCount', stats.new || 0);
+    updateText('statTotal', stats.total || 0);
+    updateText('statNew', stats.new || 0);
+    updateText('statReview', stats.review || 0);
+    updateText('statMastered', stats.mastered || 0);
+
+    // 更新签到状态
+    updateCheckinUI(stats.checked_in, stats.streak_days);
+
+    // 更新操作按钮描述
+    const dailyGoal = stats.daily_goal || 20;
+    const learnDesc = $('#learnDesc');
+    if (learnDesc) learnDesc.textContent = `${stats.new || 0}个待学`;
+    const reviewDesc = $('#reviewDesc');
+    if (reviewDesc) reviewDesc.textContent = `${stats.today_review || 0}个单词待复习`;
+  } catch (e) {
+    console.log('Silent refresh failed:', e);
+  }
+}
+
+/**
  * 应用初始化
  */
 async function init() {
@@ -5606,8 +5660,19 @@ async function init() {
   // 后台检查登录状态并拉取最新数据
   const loggedIn = await checkAuthStatus();
   if (loggedIn) {
-    renderHome();
+    // 只在缓存为空或数据变化时才重新渲染，避免闪烁
+    const cached = loadHomeCache();
+    if (!cached || !cached.stats) {
+      // 没有缓存数据，必须从网络渲染
+      renderHome();
+    } else {
+      // 有缓存数据，后台静默更新（不触发完整重渲染）
+      refreshHomeDataSilently();
+    }
   }
+
+  // 标记应用已初始化，之后页面切换才播放动画
+  document.body.classList.add('app-initialized');
 }
 
 /** 绑定认证相关事件 */

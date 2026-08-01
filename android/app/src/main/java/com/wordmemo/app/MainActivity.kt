@@ -206,8 +206,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
         settings.databaseEnabled = true
-        // 缓存策略：每次从网络加载最新 HTML（SW 负责静态资源缓存）
-        settings.cacheMode = WebSettings.LOAD_NO_CACHE
+        // 缓存策略：优先使用缓存（秒开），网络在后台更新
+        // LOAD_CACHE_ELSE_NETWORK：有缓存就直接显示，避免 Render 冷启动时白屏等待30秒
+        // Service Worker 负责后台更新静态资源，API 走网络
+        settings.cacheMode = WebSettings.LOAD_CACHE_ELSE_NETWORK
         // setAppCacheEnabled 已在 API 34 移除，使用 domStorage 替代
         settings.allowFileAccess = true
         settings.allowContentAccess = true
@@ -230,9 +232,18 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         // 添加原生 TTS 接口
         webView.addJavascriptInterface(TTSBridge(), "AndroidTTS")
 
+        // 设置 WebView 背景为白色，避免加载时出现黑底闪烁
+        webView.setBackgroundColor(Color.WHITE)
+
         webView.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 return false
+            }
+
+            override fun onPageCommitVisible(view: WebView?, url: String?) {
+                super.onPageCommitVisible(view, url)
+                // 页面内容可见时才隐藏加载页，避免白屏闪烁
+                loadingView.visibility = View.GONE
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
@@ -244,6 +255,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                         document.head.appendChild(style);
                     })();""", null
                 )
+                // 确保加载页已隐藏
                 loadingView.visibility = View.GONE
             }
 
@@ -258,10 +270,35 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         webView.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                // 页面加载到 40% 即隐藏加载页，避免闪烁
-                if (newProgress >= 40) {
+                // 页面加载到 80% 才隐藏加载页，确保内容已渲染（避免看到空白页闪烁）
+                if (newProgress >= 80) {
                     loadingView.visibility = View.GONE
                 }
+            }
+
+            // 支持 JS confirm() 对话框，避免 WebView 中 confirm 不弹窗导致逻辑卡死
+            override fun onJsConfirm(
+                view: WebView?, url: String?, message: String?, result: android.webkit.JsResult?
+            ): Boolean {
+                AlertDialog.Builder(this@MainActivity)
+                    .setMessage(message ?: "")
+                    .setPositiveButton("确定") { _, _ -> result?.confirm() }
+                    .setNegativeButton("取消") { _, _ -> result?.cancel() }
+                    .setOnCancelListener { result?.cancel() }
+                    .show()
+                return true
+            }
+
+            // 支持 JS alert() 对话框
+            override fun onJsAlert(
+                view: WebView?, url: String?, message: String?, result: android.webkit.JsResult?
+            ): Boolean {
+                AlertDialog.Builder(this@MainActivity)
+                    .setMessage(message ?: "")
+                    .setPositiveButton("确定") { _, _ -> result?.confirm() }
+                    .setOnCancelListener { result?.cancel() }
+                    .show()
+                return true
             }
 
             override fun onShowFileChooser(

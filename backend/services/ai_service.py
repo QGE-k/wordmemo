@@ -3,6 +3,8 @@ Agnes AI 单词分析服务
 兼容OpenAI接口，调用AI对单词进行词法分析、拆解
 """
 import json
+import base64
+import io
 import requests
 from config import Config
 
@@ -299,6 +301,131 @@ class AIService:
 
         raise ValueError("文本中未找到有效的JSON内容")
 
+    def _extract_response_content(self, result):
+        """
+        从AI响应中提取实际内容，兼容推理模型的多种返回格式
+
+        推理模型（如 agnes-2.0-flash、DeepSeek-R1 等）可能：
+        1. content 字段为空，实际回答在 reasoning_content 中
+        2. content 包含 <think>...</think> 推理过程，实际答案在标签外
+        3. content 直接是正常文本
+
+        参数:
+            result: API返回的完整JSON响应
+
+        返回:
+            str: 提取出的实际内容（可能为空字符串）
+        """
+        try:
+            message = result['choices'][0]['message']
+        except (KeyError, IndexError, TypeError):
+            return ''
+
+        # 优先取 content，如果为空则取 reasoning_content
+        content = message.get('content') or ''
+        if not content.strip():
+            # content 为空，尝试 reasoning_content
+            reasoning = message.get('reasoning_content') or ''
+            if reasoning.strip():
+                print(f"[AI] content为空，使用reasoning_content，长度: {len(reasoning)}")
+                return reasoning
+            # 两者都为空
+            return ''
+
+        return content
+
+    def _clean_model_output(self, content):
+        """
+        清理模型输出文本，去除推理标签和markdown包裹
+
+        参数:
+            content: 原始内容
+
+        返回:
+            str: 清理后的内容
+        """
+        import re
+        cleaned = content.strip()
+
+        # 去除 <think>...</think> 标签及内容（推理模型的思考过程）
+        cleaned = re.sub(r'<think>.*?</think>', '', cleaned, flags=re.DOTALL)
+        # 去除残留的 <think> 或 </think> 标签
+        cleaned = cleaned.replace('<think>', '').replace('</think>', '')
+        cleaned = cleaned.strip()
+
+        # 去除 markdown 代码块包裹（```json ... ``` 或 ``` ... ```）
+        if cleaned.startswith('```'):
+            lines = cleaned.split('\n')
+            if len(lines) > 1:
+                lines = lines[1:]  # 去掉第一行 ```json 或 ```
+            # 去掉最后的 ```
+            if lines and lines[-1].strip() == '```':
+                lines = lines[:-1]
+            cleaned = '\n'.join(lines).strip()
+
+        return cleaned
+
+    def _compress_image_base64(self, image_base64, max_size=1568):
+        """
+        压缩图片base64数据，确保不超过API限制
+        使用Pillow进行压缩：限制最长边为max_size像素，JPEG质量85
+
+        参数:
+            image_base64: 原始base64编码（可含data:image前缀）
+            max_size: 最长边像素上限（OpenAI建议1568px）
+
+        返回:
+            str: 压缩后的data URL
+        """
+        try:
+            from PIL import Image
+        except ImportError:
+            # 没装Pillow，直接返回原始数据
+            if ',' in image_base64 and image_base64.startswith('data:'):
+                return image_base64
+            return f'data:image/jpeg;base64,{image_base64}'
+
+        # 提取纯base64数据
+        if ',' in image_base64 and image_base64.startswith('data:'):
+            header, raw_b64 = image_base64.split(',', 1)
+        else:
+            raw_b64 = image_base64
+
+        try:
+            raw_bytes = base64.b64decode(raw_b64)
+            img = Image.open(io.BytesIO(raw_bytes))
+
+            # 转为RGB（去除alpha通道）
+            if img.mode in ('RGBA', 'P'):
+                img = img.convert('RGB')
+
+            # 按比例缩小，最长边不超过max_size
+            w, h = img.size
+            if max(w, h) > max_size:
+                if w >= h:
+                    new_w = max_size
+                    new_h = int(h * max_size / w)
+                else:
+                    new_h = max_size
+                    new_w = int(w * max_size / h)
+                img = img.resize((new_w, new_h), Image.LANCZOS)
+
+            # 保存为JPEG，质量85
+            buf = io.BytesIO()
+            img.save(buf, format='JPEG', quality=85)
+            compressed_b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+
+            original_kb = len(raw_bytes) / 1024
+            compressed_kb = len(buf.getvalue()) / 1024
+            print(f"[AI识别] 图片压缩: {original_kb:.0f}KB -> {compressed_kb:.0f}KB")
+
+            return f'data:image/jpeg;base64,{compressed_b64}'
+        except Exception as e:
+            print(f"[AI识别] 图片压缩失败，使用原始数据: {e}")
+            if ',' in image_base64 and image_base64.startswith('data:'):
+                return image_base64
+            return f'data:image/jpeg;base64,{image_base64}'
+
     def recognize_image(self, image_base64):
         """
         用AI视觉模型识别图片中的英语单词和中文释义
@@ -312,11 +439,8 @@ class AIService:
         if not self.is_available():
             raise RuntimeError('Agnes AI API Key未配置')
 
-        # 处理base64数据，确保格式正确
-        if ',' in image_base64 and image_base64.startswith('data:'):
-            image_data_url = image_base64
-        else:
-            image_data_url = f'data:image/jpeg;base64,{image_base64}'
+        # 压缩图片，减少请求体积
+        image_data_url = self._compress_image_base64(image_base64, max_size=1568)
 
         # 构建提示词
         system_prompt = """你是一个英语单词识别助手。用户会上传英语课本、单词表或练习册的图片，你需要识别图片中所有的英语单词及其对应的中文释义。
@@ -366,29 +490,54 @@ class AIService:
         url = f'{self.base_url.rstrip("/")}/chat/completions'
 
         try:
-            response = requests.post(url, json=payload, headers=headers, timeout=60)
-            response.raise_for_status()
-            result = response.json()
+            print(f"[AI识别] 发送请求到 {url}，模型: {self.model}")
+            response = requests.post(url, json=payload, headers=headers, timeout=120)
+        except requests.Timeout:
+            raise RuntimeError('AI视觉识别请求超时（120秒），请稍后重试')
+        except requests.ConnectionError as e:
+            raise RuntimeError(f'AI视觉识别连接失败: {str(e)}')
         except requests.RequestException as e:
             raise RuntimeError(f"AI视觉识别请求失败: {str(e)}")
 
-        try:
-            content = result['choices'][0]['message']['content']
-        except (KeyError, IndexError, TypeError):
-            raise RuntimeError('AI视觉识别返回数据解析失败：无法获取content')
+        # 检查HTTP状态码，捕获详细的API错误信息
+        if response.status_code != 200:
+            error_detail = ''
+            try:
+                error_data = response.json()
+                if 'error' in error_data:
+                    err_obj = error_data['error']
+                    error_detail = err_obj.get('message', '') if isinstance(err_obj, dict) else str(err_obj)
+                else:
+                    error_detail = response.text[:500]
+            except Exception:
+                error_detail = response.text[:500] if response.text else '无响应内容'
 
-        # 清理内容：去除markdown代码块标记、首尾空白等
-        cleaned = content.strip()
-        # 去除 markdown 代码块包裹（```json ... ``` 或 ``` ... ```）
-        if cleaned.startswith('```'):
-            # 去掉第一行的 ```json 或 ```
-            lines = cleaned.split('\n')
-            if len(lines) > 1:
-                lines = lines[1:]  # 去掉第一行
-            # 去掉最后的 ```
-            if lines and lines[-1].strip() == '```':
-                lines = lines[:-1]
-            cleaned = '\n'.join(lines).strip()
+            print(f"[AI识别] API返回错误 {response.status_code}: {error_detail}")
+            raise RuntimeError(f'AI识别失败(HTTP {response.status_code}): {error_detail}')
+
+        try:
+            result = response.json()
+        except json.JSONDecodeError:
+            print(f"[AI识别] 响应不是有效JSON: {response.text[:500]}")
+            raise RuntimeError('AI视觉识别返回数据格式错误')
+
+        # 检查API是否返回了错误对象
+        if 'error' in result:
+            err_msg = result['error'].get('message', '') if isinstance(result['error'], dict) else str(result['error'])
+            print(f"[AI识别] API返回错误对象: {err_msg}")
+            raise RuntimeError(f'AI识别失败: {err_msg}')
+
+        # 推理模型（如 agnes-2.0-flash）可能将实际回答放在 reasoning_content 中，
+        # 或者 content 为空、包含 <think> 标签。需要兼容多种情况。
+        content = self._extract_response_content(result)
+        if not content:
+            print(f"[AI识别] content和reasoning_content均为空，完整响应: {json.dumps(result, ensure_ascii=False)[:800]}")
+            raise RuntimeError('AI视觉识别返回数据解析失败：AI返回内容为空')
+
+        print(f"[AI识别] 获取到内容，长度: {len(content)}，前100字符: {content[:100]}")
+
+        # 清理内容：去除 <think> 标签、markdown代码块标记、首尾空白等
+        cleaned = self._clean_model_output(content)
 
         # 尝试直接解析JSON数组
         try:

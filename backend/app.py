@@ -582,16 +582,29 @@ def update_review_accuracy(is_correct):
 def get_checkin_status():
     """获取今日签到状态和连续签到天数
     签到状态基于 checked_in 字段（用户手动点击签到），而非学习记录
-    连续天数：从今天往前数，连续有签到记录的天数
+    连续天数逻辑：
+      - 今天已签到：从今天往前数连续签到天数
+      - 今天未签到但昨天签到了：从昨天往前数（显示待延续的streak，签到后+1）
+      - 最后一次签到在2天前或更早：streak=0（已断签）
     """
     today = date.today()
     today_history = LearnHistory.query.filter_by(date=today).first()
     checked_in = today_history is not None and today_history.checked_in == True
 
-    # 计算连续签到天数：从今天往前数，连续有签到记录的天数
+    # 获取所有已签到记录（按日期降序）
     all_checkins = LearnHistory.query.filter(LearnHistory.checked_in == True).order_by(LearnHistory.date.desc()).all()
+
     streak_days = 0
-    check_date = today
+    if checked_in:
+        # 今天已签到：从今天开始往前数
+        check_date = today
+    elif all_checkins and all_checkins[0].date == today - timedelta(days=1):
+        # 今天未签到但昨天签到了：从昨天开始往前数（待延续的streak）
+        check_date = today - timedelta(days=1)
+    else:
+        # 最后一次签到在2天前或更早，或者从未签到：streak=0
+        return checked_in, 0
+
     for h in all_checkins:
         if h.date == check_date:
             streak_days += 1
@@ -2887,6 +2900,13 @@ def ensure_learn_history_checkin_column():
             conn.execute(text("ALTER TABLE learn_history ADD COLUMN checked_in BOOLEAN DEFAULT FALSE"))
             conn.commit()
         print("[迁移] learn_history.checked_in 列添加完成")
+
+    # 清理：将 checked_in 为 NULL 的记录设为 FALSE（确保数据一致性）
+    with db.engine.connect() as conn:
+        result = conn.execute(text("UPDATE learn_history SET checked_in = FALSE WHERE checked_in IS NULL"))
+        if result.rowcount > 0:
+            print(f"[迁移] 已将 {result.rowcount} 条 checked_in=NULL 的记录修正为 FALSE")
+        conn.commit()
 
 
 with app.app_context():

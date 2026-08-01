@@ -9,7 +9,7 @@
   <!-- 预连接：提前建立TCP/TLS连接，减少首字节时间 -->
   <link rel="preconnect" href="/" crossorigin>
   <link rel="dns-prefetch" href="/">
-  <link rel="stylesheet" href="assets/style.css?v=20260802h">
+  <link rel="stylesheet" href="assets/style.css?v=20260802i">
   <!-- PWA 支持：允许"添加到桌面"当App用 -->
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" type="image/png" href="/icons/icon-192.png">
@@ -227,6 +227,7 @@
             <p>点击拍照 / 选择图片</p>
           </div>
           <img class="scan-preview" id="scanPreview" alt="预览" style="display:none">
+          <button class="scan-cancel-btn" id="scanCancelBtn" type="button">×</button>
         </div>
         <!-- multiple 支持多选，capture 支持拍照 -->
         <input type="file" accept="image/*" multiple id="scanInput" style="display:none">

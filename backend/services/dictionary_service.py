@@ -1238,9 +1238,104 @@ class DictionaryService:
                 {'en': 'She is known for her kindness to animals.', 'zh': '她以善待动物而闻名。'},
             ],
         },
+        # ===== 常见基础词（AI可能给非常用释义，本地词典保证准确） =====
+        'key': {
+            'phonetic': '/kiː/',
+            'meaning': 'n. 钥匙；关键；键；答案',
+            'type': '基础词',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'key联想"ki(开)-y"，用来"开"门的东西就是钥匙，引申为"关键"。',
+            'examples': [
+                {'en': 'The key to success is hard work.', 'zh': '成功的关键是努力。'},
+                {'en': 'He lost his car keys.', 'zh': '他丢了车钥匙。'},
+            ],
+        },
+        'value': {
+            'phonetic': '/ˈvæljuː/',
+            'meaning': 'n. 价值；价值观 v. 重视，估价',
+            'type': '基础词',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'value音译"瓦流"，有"价值"的东西才会留下来。',
+            'examples': [
+                {'en': 'This book is of great value to students.', 'zh': '这本书对学生很有价值。'},
+                {'en': 'We should value our friendship.', 'zh': '我们应该重视我们的友谊。'},
+            ],
+        },
+        'change': {
+            'phonetic': '/tʃeɪndʒ/',
+            'meaning': 'n. 变化；零钱 v. 改变，交换',
+            'type': '基础词',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'change联想"常改"，事物经常"改变"。',
+            'examples': [
+                {'en': 'Climate change affects everyone.', 'zh': '气候变化影响每个人。'},
+                {'en': 'I need to change my password.', 'zh': '我需要修改密码。'},
+            ],
+        },
+        'point': {
+            'phonetic': '/pɔɪnt/',
+            'meaning': 'n. 点；观点；分数；要点 v. 指向',
+            'type': '基础词',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'point本意是"尖端"，引申为"指向"和"观点"。',
+            'examples': [
+                {'en': 'What is your point?', 'zh': '你的观点是什么？'},
+                {'en': 'She pointed at the map.', 'zh': '她指向地图。'},
+            ],
+        },
+        'state': {
+            'phonetic': '/steɪt/',
+            'meaning': 'n. 状态；州；国家 v. 陈述',
+            'type': '基础词',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'state联想"stay(停留)+t"，停留的状态就是"状态"。',
+            'examples': [
+                {'en': 'The state of the economy is worrying.', 'zh': '经济状况令人担忧。'},
+                {'en': 'He stated his opinion clearly.', 'zh': '他清楚地陈述了自己的观点。'},
+            ],
+        },
+        'field': {
+            'phonetic': '/fiːld/',
+            'meaning': 'n. 田野；领域；场地',
+            'type': '基础词',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'field联想"filled(填满)"，田地里填满了庄稼。',
+            'examples': [
+                {'en': 'She works in the field of medicine.', 'zh': '她在医学领域工作。'},
+                {'en': 'The children are playing in the field.', 'zh': '孩子们在田野里玩耍。'},
+            ],
+        },
+        'match': {
+            'phonetic': '/mætʃ/',
+            'meaning': 'n. 比赛；匹配；火柴 v. 匹配，相配',
+            'type': '基础词',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'match联想"马齿"，马的牙齿要"匹配"才能吃草。',
+            'examples': [
+                {'en': 'We watched a football match yesterday.', 'zh': '我们昨天看了一场足球比赛。'},
+                {'en': 'The colors match perfectly.', 'zh': '颜色搭配得很完美。'},
+            ],
+        },
+        'sound': {
+            'phonetic': '/saʊnd/',
+            'meaning': 'n. 声音 v. 听起来 adj. 健全的；合理的',
+            'type': '基础词',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'sound本身就是"声音"的意思，也有"听起来"和"健全的"含义。',
+            'examples': [
+                {'en': 'The sound of music filled the room.', 'zh': '音乐声充满了房间。'},
+                {'en': 'That sounds like a good idea.', 'zh': '那听起来是个好主意。'},
+            ],
+        },
     }
-
-    def __init__(self):
         """初始化本地词典服务"""
         pass
 

@@ -162,11 +162,15 @@ input, textarea, select {
 /* ===== 页面通用 ===== */
 .page {
   display: none;
-  animation: fadeIn 0.3s ease;
 }
 
 .page.active {
   display: block;
+}
+
+/* 仅在页面切换时播放动画，不在首次加载时播放（避免闪烁） */
+.page.page-animating {
+  animation: fadeIn 0.3s ease;
 }
 
 @keyframes fadeIn {
@@ -866,6 +870,30 @@ input, textarea, select {
   position: absolute;
   top: 0;
   left: 0;
+  pointer-events: none;
+}
+
+.scan-cancel-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  border: none;
+  font-size: 18px;
+  line-height: 32px;
+  text-align: center;
+  cursor: pointer;
+  z-index: 10;
+  display: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.scan-cancel-btn:active {
+  background: rgba(0, 0, 0, 0.8);
 }
 
 /* ===== 文档导入 ===== */
