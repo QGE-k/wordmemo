@@ -1407,7 +1407,7 @@ async function renderHome() {
     // 今日单词列表（取前 5 个）
     const list = $('#todayWordList');
     if (words && words.length > 0) {
-      list.innerHTML = words.slice(0, 5).map(wordItemHtml).join('');
+      list.innerHTML = words.slice(0, 5).map((word, i) => wordItemHtml(word, i + 1)).join('');
       // 绑定点击事件查看详情
       list.querySelectorAll('.word-item').forEach(item => {
         item.addEventListener('click', () => openWordDetail(item.dataset.id));
@@ -1881,21 +1881,21 @@ async function handleScanRecognize() {
             const remainingAfterSlash = lastPart.split(' ').slice(1).join(' '); // "sb"
             const combined1 = firstPart + (remainingAfterSlash ? ' ' + remainingAfterSlash : ''); // "call on sb"
             const combined2 = prefix + ' ' + lastPart; // "call upon sb"
-            expandedWords.push({ word: combined1.toLowerCase(), meaning: meaningStr, checked: true });
-            expandedWords.push({ word: combined2.toLowerCase(), meaning: meaningStr, checked: true });
+            expandedWords.push({ word: combined1.toLowerCase(), meaning: meaningStr, checked: true, starred: false });
+            expandedWords.push({ word: combined2.toLowerCase(), meaning: meaningStr, checked: true, starred: false });
           } else {
             // 简单拆分
             parts.forEach(part => {
-              expandedWords.push({ word: part.toLowerCase(), meaning: meaningStr, checked: true });
+              expandedWords.push({ word: part.toLowerCase(), meaning: meaningStr, checked: true, starred: false });
             });
           }
         } else {
           parts.forEach(part => {
-            expandedWords.push({ word: part.toLowerCase(), meaning: meaningStr, checked: true });
+            expandedWords.push({ word: part.toLowerCase(), meaning: meaningStr, checked: true, starred: false });
           });
         }
       } else {
-        expandedWords.push({ word: wordStr.toLowerCase(), meaning: meaningStr, checked: true });
+        expandedWords.push({ word: wordStr.toLowerCase(), meaning: meaningStr, checked: true, starred: false });
       }
     });
     
@@ -1914,7 +1914,7 @@ async function handleScanRecognize() {
   }
 }
 
-// 渲染识别到的单词列表（可勾选确认）
+// 渲染识别到的单词列表（可勾选、可编辑、可标记重点）
 function renderScanWords() {
   const box = $('#scanConfirm');
   const list = $('#scanWordList');
@@ -1930,15 +1930,17 @@ function renderScanWords() {
   countEl.textContent = scanRecognizedWords.length;
 
   list.innerHTML = scanRecognizedWords.map((w, i) => `
-    <label class="scan-word-item" data-index="${i}">
+    <div class="scan-word-item" data-index="${i}">
+      <span class="scan-word-num">${i + 1}</span>
       <input type="checkbox" class="scan-word-check" ${w.checked ? 'checked' : ''} data-index="${i}">
+      <span class="scan-word-star ${w.starred ? 'starred' : ''}" data-index="${i}" title="标记为重点">${w.starred ? '★' : '☆'}</span>
       <div class="scan-word-info">
-        <span class="scan-word-text">${escapeHtml(w.word)}</span>
+        <input type="text" class="scan-word-edit" value="${escapeHtml(w.word)}" data-index="${i}" placeholder="单词">
         ${w.meaning
-          ? `<span class="scan-word-meaning">${escapeHtml(w.meaning)}</span>`
-          : '<span class="scan-word-meaning scan-word-meaning-empty">无释义</span>'}
+          ? `<input type="text" class="scan-meaning-edit" value="${escapeHtml(w.meaning)}" data-index="${i}" placeholder="释义">`
+          : '<input type="text" class="scan-meaning-edit scan-word-meaning-empty" value="" data-index="' + i + '" placeholder="无释义（可手动输入）">'}
       </div>
-    </label>
+    </div>
   `).join('');
 
   // 绑定勾选事件
@@ -1947,6 +1949,31 @@ function renderScanWords() {
       const idx = parseInt(e.target.dataset.index);
       scanRecognizedWords[idx].checked = e.target.checked;
       updateScanCheckAllState();
+    });
+  });
+
+  // 绑定重点标记事件
+  $$('.scan-word-star').forEach(star => {
+    star.addEventListener('click', (e) => {
+      const idx = parseInt(e.target.dataset.index);
+      scanRecognizedWords[idx].starred = !scanRecognizedWords[idx].starred;
+      e.target.textContent = scanRecognizedWords[idx].starred ? '★' : '☆';
+      e.target.classList.toggle('starred', scanRecognizedWords[idx].starred);
+    });
+  });
+
+  // 绑定编辑事件
+  $$('.scan-word-edit').forEach(input => {
+    input.addEventListener('change', (e) => {
+      const idx = parseInt(e.target.dataset.index);
+      scanRecognizedWords[idx].word = e.target.value.trim();
+    });
+  });
+  $$('.scan-meaning-edit').forEach(input => {
+    input.addEventListener('change', (e) => {
+      const idx = parseInt(e.target.dataset.index);
+      scanRecognizedWords[idx].meaning = e.target.value.trim();
+      e.target.classList.toggle('scan-word-meaning-empty', !e.target.value.trim());
     });
   });
 
@@ -1992,7 +2019,8 @@ async function handleScanAddSelected() {
   }
 
   const scanWordbookId = ($('#scanWordbookSelect') || {}).value || null;
-  const wordsToAdd = selected.map(w => w.word);
+  // 发送 {word, starred} 对象数组，支持重点标记
+  const wordsToAdd = selected.map(w => ({ word: w.word, starred: w.starred || false }));
 
   try {
     showLoading(`正在添加 ${selected.length} 个单词...`);
@@ -2785,7 +2813,6 @@ function renderLearnCard() {
     $('#learnChoiceCard').style.display = 'none';
     $('#learnReverseCard').style.display = 'none';
     $('#learnSpellCard').style.display = 'none';
-    $('#learnListenCard').style.display = 'none';
     $('#learnActions').style.display = 'none';
     $('#learnExtraActions').style.display = 'none';
     $('#quizActions').style.display = 'none';
@@ -2812,7 +2839,6 @@ function renderLearnCard() {
     $('#learnChoiceCard').style.display = 'none';
     $('#learnReverseCard').style.display = 'none';
     $('#learnSpellCard').style.display = 'none';
-    $('#learnListenCard').style.display = 'none';
     $('#learnActions').style.display = 'flex';
     $('#learnExtraActions').style.display = 'flex';
     $('#quizActions').style.display = 'none';
@@ -2822,7 +2848,6 @@ function renderLearnCard() {
     $('#learnChoiceCard').style.display = 'flex';
     $('#learnReverseCard').style.display = 'none';
     $('#learnSpellCard').style.display = 'none';
-    $('#learnListenCard').style.display = 'none';
     $('#learnActions').style.display = 'none';
     $('#learnExtraActions').style.display = 'flex';
     $('#quizActions').style.display = 'flex';
@@ -2832,7 +2857,6 @@ function renderLearnCard() {
     $('#learnChoiceCard').style.display = 'none';
     $('#learnReverseCard').style.display = 'flex';
     $('#learnSpellCard').style.display = 'none';
-    $('#learnListenCard').style.display = 'none';
     $('#learnActions').style.display = 'none';
     $('#learnExtraActions').style.display = 'flex';
     $('#quizActions').style.display = 'flex';
@@ -2842,21 +2866,10 @@ function renderLearnCard() {
     $('#learnChoiceCard').style.display = 'none';
     $('#learnReverseCard').style.display = 'none';
     $('#learnSpellCard').style.display = 'flex';
-    $('#learnListenCard').style.display = 'none';
     $('#learnActions').style.display = 'none';
     $('#learnExtraActions').style.display = 'flex';
     $('#quizActions').style.display = 'flex';
     renderSpellCard(word);
-  } else if (learnMode === 'listen') {
-    $('#learnCard').style.display = 'none';
-    $('#learnChoiceCard').style.display = 'none';
-    $('#learnReverseCard').style.display = 'none';
-    $('#learnSpellCard').style.display = 'none';
-    $('#learnListenCard').style.display = 'flex';
-    $('#learnActions').style.display = 'none';
-    $('#learnExtraActions').style.display = 'flex';
-    $('#quizActions').style.display = 'flex';
-    renderListenCard(word);
   }
 }
 
@@ -3169,63 +3182,6 @@ function renderSpellCard(word) {
   setTimeout(() => input.focus(), 100);
   // 保存当前词用于校验
   input.dataset.answer = word.word;
-}
-
-/**
- * 渲染听力模式卡片
- * 播放单词发音，用户根据听到的内容拼写
- */
-function renderListenCard(word) {
-  quizAnswered = false;
-  $('#listenFeedback').textContent = '';
-  $('#listenFeedback').className = 'quiz-feedback';
-  const input = $('#listenInput');
-  input.value = '';
-  input.className = 'spell-input';
-  input.disabled = false;
-  input.dataset.answer = word.word;
-  // 自动播放发音
-  setTimeout(() => {
-    speakWord(word.word, $('#listenPlayBtn'));
-  }, 300);
-  // 自动聚焦输入框
-  setTimeout(() => input.focus(), 1000);
-}
-
-/**
- * 处理听力模式提交
- */
-function handleListenSubmit() {
-  if (quizAnswered) return;
-  const input = $('#listenInput');
-  const answer = input.dataset.answer || '';
-  const userAns = input.value.trim().toLowerCase();
-  const correctAns = answer.toLowerCase();
-
-  if (!userAns) {
-    showToast('请输入单词', 'error');
-    return;
-  }
-
-  quizAnswered = true;
-  input.disabled = true;
-  const feedback = $('#listenFeedback');
-
-  if (userAns === correctAns) {
-    input.classList.add('correct');
-    feedback.className = 'quiz-feedback correct';
-    feedback.textContent = '拼写正确！';
-    playCorrectSound();
-    autoNextTimer = setTimeout(() => {
-      autoNextTimer = null;
-      handleQuizNext();
-    }, 900);
-  } else {
-    input.classList.add('wrong');
-    playWrongSound();
-    feedback.className = 'quiz-feedback wrong';
-    feedback.innerHTML = `拼写错误<span class="feedback-meaning">正确答案：${escapeHtml(answer)}</span>`;
-  }
 }
 
 /**
@@ -5230,12 +5186,14 @@ function bindEvents() {
   // 复习页：随机/顺序切换按钮
   const reviewOrderBtn = $('#btnReviewOrder');
   if (reviewOrderBtn) {
-    // 初始化按钮文字
-    reviewOrderBtn.textContent = reviewRandomMode ? '随机复习' : '顺序复习';
+    // 初始化按钮文字和样式（和学习页一致）
+    reviewOrderBtn.textContent = reviewRandomMode ? '随机' : '顺序';
+    if (reviewRandomMode) reviewOrderBtn.classList.add('active');
     reviewOrderBtn.addEventListener('click', () => {
       reviewRandomMode = !reviewRandomMode;
       localStorage.setItem('wordmemo_review_order', reviewRandomMode ? 'random' : 'sequential');
-      reviewOrderBtn.textContent = reviewRandomMode ? '随机复习' : '顺序复习';
+      reviewOrderBtn.textContent = reviewRandomMode ? '随机' : '顺序';
+      reviewOrderBtn.classList.toggle('active', reviewRandomMode);
       // 同步设置页的下拉
       const reviewOrderSel = $('#reviewOrderSelect');
       if (reviewOrderSel) reviewOrderSel.value = reviewRandomMode ? 'random' : 'sequential';
@@ -5314,36 +5272,6 @@ function bindEvents() {
         handleQuizNext();
       } else {
         handleSpellSubmit();
-      }
-    }
-  });
-  // 听力模式
-  $('#listenPlayBtn').addEventListener('click', (e) => {
-    const word = learnQueue[learnIndex];
-    if (word) speakWord(word.word, e.currentTarget);
-  });
-  $('#listenReplayBtn').addEventListener('click', () => {
-    const word = learnQueue[learnIndex];
-    if (word) speakWord(word.word, $('#listenPlayBtn'));
-  });
-  $('#listenSubmitBtn').addEventListener('click', handleListenSubmit);
-  $('#listenSkipBtn').addEventListener('click', () => {
-    if (quizAnswered) return;
-    quizAnswered = true;
-    const input = $('#listenInput');
-    const answer = input.dataset.answer || '';
-    input.disabled = true;
-    const feedback = $('#listenFeedback');
-    feedback.className = 'quiz-feedback wrong';
-    feedback.innerHTML = `已跳过<span class="feedback-meaning">正确答案：${escapeHtml(answer)}</span>`;
-  });
-  $('#listenInput').addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      if (quizAnswered) {
-        handleQuizNext();
-      } else {
-        handleListenSubmit();
       }
     }
   });
@@ -5640,7 +5568,7 @@ function renderHomeFromCache() {
   // 今日单词列表
   const list = $('#todayWordList');
   if (words && words.length > 0) {
-    list.innerHTML = words.slice(0, 5).map(wordItemHtml).join('');
+    list.innerHTML = words.slice(0, 5).map((word, i) => wordItemHtml(word, i + 1)).join('');
     list.querySelectorAll('.word-item').forEach(item => {
       item.addEventListener('click', () => openWordDetail(item.dataset.id));
     });

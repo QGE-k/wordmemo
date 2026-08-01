@@ -849,9 +849,15 @@ def batch_add_words():
     failed = []
 
     # 第一步：过滤已存在的单词，收集待分析的单词
-    pending = []  # [(word_text, analysis_or_None)]
+    pending = []  # [(word_text, analysis_or_None, is_starred)]
     for raw_word in words_list:
-        word_text = str(raw_word).strip().lower()
+        # 支持 string 和 {word, starred} 两种格式
+        if isinstance(raw_word, dict):
+            word_text = str(raw_word.get('word', '')).strip().lower()
+            is_starred = bool(raw_word.get('starred', False))
+        else:
+            word_text = str(raw_word).strip().lower()
+            is_starred = False
         if not word_text:
             continue
         # 校验：只允许英文单词/短语
@@ -877,12 +883,12 @@ def batch_add_words():
         # 先查本地词典（毫秒级，不耗时间）
         dict_result = dictionary_service.lookup(word_text)
         if dict_result:
-            pending.append((word_text, dict_result))
+            pending.append((word_text, dict_result, is_starred))
         else:
-            pending.append((word_text, None))
+            pending.append((word_text, None, is_starred))
 
     # 第二步：对本地词典没有的词，用线程池并发调 AI
-    ai_pending = [(w, None) for w, a in pending if a is None]
+    ai_pending = [(w, None) for w, a, _ in pending if a is None]
     if ai_pending:
         def _analyze(word_text):
             try:
@@ -899,19 +905,19 @@ def batch_add_words():
         for word_text, result in results:
             ai_map[word_text] = result
         new_pending = []
-        for word_text, _ in pending:
+        for word_text, _, starred in pending:
             if word_text in ai_map:
-                new_pending.append((word_text, ai_map[word_text]))
+                new_pending.append((word_text, ai_map[word_text], starred))
             else:
                 # 本地词典命中的，保持原样
-                for w, a in pending:
+                for w, a, s in pending:
                     if w == word_text and a is not None:
-                        new_pending.append((word_text, a))
+                        new_pending.append((word_text, a, s))
                         break
         pending = new_pending
 
     # 第三步：统一写入数据库
-    for word_text, analysis_or_error in pending:
+    for word_text, analysis_or_error, is_starred in pending:
         if isinstance(analysis_or_error, Exception):
             failed.append({'word': word_text, 'error': str(analysis_or_error)})
             continue
@@ -933,6 +939,7 @@ def batch_add_words():
                 status='new',
                 wordbook_id=wordbook_id,
                 user_id=user_id,
+                is_starred=is_starred,
             )
             db.session.add(word)
             added.append(word_text)
@@ -1021,6 +1028,21 @@ def delete_word(word_id):
     db.session.delete(word)
     db.session.commit()
     return jsonify({'success': True, 'message': '单词已删除'})
+
+
+@app.route('/api/words/<int:word_id>/star', methods=['POST'])
+def toggle_word_star(word_id):
+    """切换单词重点标记"""
+    word = Word.query.get(word_id)
+    if not word:
+        return jsonify({'success': False, 'error': '单词不存在'}), 404
+    user_id = get_current_user_id()
+    if user_id and word.user_id and word.user_id != user_id:
+        return jsonify({'success': False, 'error': '无权访问'}), 403
+
+    word.is_starred = not word.is_starred
+    db.session.commit()
+    return jsonify({'success': True, 'is_starred': word.is_starred})
 
 
 @app.route('/api/words/batch-update-status', methods=['POST'])
@@ -2808,6 +2830,22 @@ def ensure_word_wrong_count_column():
         print("[迁移] words.wrong_count 列添加完成")
 
 
+def ensure_word_starred_column():
+    """
+    数据库迁移：为 words 表添加 is_starred 列（如果不存在）
+    用于标记重点单词
+    """
+    from sqlalchemy import text, inspect
+    inspector = inspect(db.engine)
+    columns = [col['name'] for col in inspector.get_columns('words')]
+    if 'is_starred' not in columns:
+        print("[迁移] 检测到 words 表缺少 is_starred 列，正在添加...")
+        with db.engine.connect() as conn:
+            conn.execute(text("ALTER TABLE words ADD COLUMN is_starred BOOLEAN DEFAULT FALSE"))
+            conn.commit()
+        print("[迁移] words.is_starred 列添加完成")
+
+
 def ensure_learn_history_accuracy_columns():
     """
     数据库迁移：为 learn_history 表添加 correct_count 和 total_count 列（如果不存在）
@@ -2850,6 +2888,8 @@ with app.app_context():
     ensure_user_active_column()
     # 迁移：为 words 表添加 wrong_count 列（错题追踪）
     ensure_word_wrong_count_column()
+    # 迁移：为 words 表添加 is_starred 列（重点单词标记）
+    ensure_word_starred_column()
     # 迁移：为 learn_history 表添加 correct_count / total_count 列（准确率统计）
     ensure_learn_history_accuracy_columns()
     # 插入演示数据

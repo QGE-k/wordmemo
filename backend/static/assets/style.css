@@ -1203,6 +1203,15 @@ input, textarea, select {
   transform: scale(0.99);
 }
 
+.scan-word-num {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+  min-width: 24px;
+  text-align: center;
+}
+
 .scan-word-check {
   width: 18px;
   height: 18px;
@@ -1211,28 +1220,67 @@ input, textarea, select {
   cursor: pointer;
 }
 
+.scan-word-star {
+  font-size: 20px;
+  color: #ccc;
+  cursor: pointer;
+  flex-shrink: 0;
+  line-height: 1;
+  user-select: none;
+  transition: color 0.15s;
+}
+
+.scan-word-star.starred {
+  color: #f5a623;
+}
+
+.scan-word-star:active {
+  transform: scale(1.2);
+}
+
 .scan-word-info {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   flex: 1;
   min-width: 0;
 }
 
-.scan-word-text {
+.scan-word-edit {
   font-size: 15px;
   font-weight: 600;
   color: var(--text-primary);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 4px 6px;
+  background: transparent;
+  width: 100%;
   word-break: break-word;
 }
 
-.scan-word-meaning {
-  font-size: 12px;
+.scan-word-edit:focus {
+  outline: none;
+  border-color: var(--primary);
+  background: var(--bg-input);
+}
+
+.scan-meaning-edit {
+  font-size: 13px;
   color: var(--text-secondary);
-  word-break: break-word;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 4px 6px;
+  background: transparent;
+  width: 100%;
 }
 
-.scan-word-meaning-empty {
+.scan-meaning-edit:focus {
+  outline: none;
+  border-color: var(--primary);
+  background: var(--bg-input);
+}
+
+.scan-meaning-edit.scan-word-meaning-empty {
   color: var(--text-tertiary);
   font-style: italic;
 }
@@ -1741,7 +1789,6 @@ input, textarea, select {
 
 .rating-prev {
   background: linear-gradient(135deg, #8e8e93, #aeaeb2);
-  flex: 0.5;
 }
 
 .rating-forgot {
@@ -1758,7 +1805,6 @@ input, textarea, select {
 
 .rating-next {
   background: linear-gradient(135deg, #4a7fff, #6f99ff);
-  flex: 0.5;
 }
 
 .rating-label {

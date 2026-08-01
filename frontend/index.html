@@ -9,7 +9,7 @@
   <!-- 预连接：提前建立TCP/TLS连接，减少首字节时间 -->
   <link rel="preconnect" href="/" crossorigin>
   <link rel="dns-prefetch" href="/">
-  <link rel="stylesheet" href="assets/style.css?v=20260802g">
+  <link rel="stylesheet" href="assets/style.css?v=20260802h">
   <!-- PWA 支持：允许"添加到桌面"当App用 -->
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" type="image/png" href="/icons/icon-192.png">
@@ -354,7 +354,6 @@
         <button class="mode-tab" data-mode="choice">看词选义</button>
         <button class="mode-tab" data-mode="reverse">看义选词</button>
         <button class="mode-tab" data-mode="spell">拼写默写</button>
-        <button class="mode-tab" data-mode="listen">听力模式</button>
         <button class="order-toggle-btn" id="learnOrderToggle" title="切换翻卡顺序">顺序</button>
       </div>
       <!-- 学习卡片容器 -->
@@ -426,18 +425,6 @@
           </div>
           <div class="quiz-feedback" id="spellFeedback"></div>
         </div>
-        <!-- 听力模式 -->
-        <div class="quiz-card listen-card" id="learnListenCard" style="display:none">
-          <button class="listen-play-btn" id="listenPlayBtn">🔊</button>
-          <p class="listen-hint">点击播放，听写单词</p>
-          <button class="listen-replay-btn" id="listenReplayBtn">再听一遍</button>
-          <input type="text" class="spell-input" id="listenInput" placeholder="输入听到的单词..." autocomplete="off" autocapitalize="off" autocorrect="off">
-          <div class="spell-actions">
-            <button class="btn-primary" id="listenSubmitBtn">确认</button>
-            <button class="btn-secondary" id="listenSkipBtn">跳过</button>
-          </div>
-          <div class="quiz-feedback" id="listenFeedback"></div>
-        </div>
       </div>
       <!-- 操作按钮 -->
       <div class="card-actions" id="learnActions" style="display:none">
@@ -465,13 +452,12 @@
         <span class="card-close" id="reviewClose">退出</span>
       </div>
       <div class="review-estimate" id="reviewEstimate" style="display:none"></div>
-      <!-- 词书选择器 + 复习顺序切换 -->
+      <!-- 词书选择器 -->
       <div class="wordbook-selector" id="reviewWordbookSelector" style="display:flex;align-items:center;gap:8px;padding:8px 16px;background:var(--bg-card);border-radius:var(--radius-md);margin-bottom:12px;flex-wrap:wrap;">
         <label style="font-size:13px;color:var(--text-secondary);white-space:nowrap;">词书：</label>
         <select id="reviewWordbookSelect" style="flex:1;min-width:120px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;">
           <option value="">请选择词书</option>
         </select>
-        <button class="btn-secondary btn-sm" id="btnReviewOrder" style="white-space:nowrap;">顺序复习</button>
       </div>
       <!-- 复习模式切换 -->
       <div class="mode-tabs" id="reviewModeTabs">
@@ -479,6 +465,7 @@
         <button class="mode-tab" data-rmode="choice">看词选义</button>
         <button class="mode-tab" data-rmode="reverse">看义选词</button>
         <button class="mode-tab" data-rmode="spell">拼写默写</button>
+        <button class="order-toggle-btn" id="btnReviewOrder" title="切换复习顺序">顺序</button>
       </div>
       <div class="flip-card-stage" id="reviewStage">
         <div class="empty-state" id="reviewEmpty">
@@ -1005,7 +992,7 @@
     </div>
   </div>
 
-  <script src="assets/app.js?v=20260802d"></script>
+  <script src="assets/app.js?v=20260802e"></script>
   <!-- PWA service worker 注册：仅在 HTTPS/localhost 生效 -->
   <script>
     if ('serviceWorker' in navigator) {

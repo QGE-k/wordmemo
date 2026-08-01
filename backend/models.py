@@ -105,6 +105,8 @@ class Word(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
     # 错误次数：评分 again/hard 时累加，用于前端优先复习高频错词
     wrong_count = db.Column(db.Integer, default=0)
+    # 是否标记为重点单词
+    is_starred = db.Column(db.Boolean, default=False)
 
     def to_dict(self):
         """将单词对象转换为字典，用于API响应"""
@@ -127,6 +129,7 @@ class Word(db.Model):
             'tenses': self.tenses or None,
             'wordbook_id': self.wordbook_id,
             'wrong_count': self.wrong_count or 0,
+            'is_starred': self.is_starred if self.is_starred is not None else False,
         }
 
     @staticmethod
