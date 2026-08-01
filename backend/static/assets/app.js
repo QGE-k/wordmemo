@@ -4866,7 +4866,7 @@ function bindEvents() {
   $('#scanArea').addEventListener('click', handleScanPick);
   $('#scanInput').addEventListener('change', handleScanChange);
   $('#btnScanRecognize').addEventListener('click', handleScanRecognize);
-  $('#btnScanCheckAll').addEventListener('click', scanCheckAll);
+  $('#btnScanCheckAll').addEventListener('click', handleScanCheckAll);
   $('#btnScanAddSelected').addEventListener('click', handleScanAddSelected);
 
   // 取消照片按钮：阻止冒泡，避免触发 scanArea 的选图
