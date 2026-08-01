@@ -2412,9 +2412,14 @@ async function renderChoiceCard(word) {
     }
   }
 
-  // 组合选项并过滤掉单词或释义为空的
-  let options = [{ word: word.word, meaning: word.meaning }, ...distractors];
-  options = options.filter(opt => opt.word && opt.word.trim() && opt.meaning && opt.meaning.trim());
+  // 过滤干扰项：单词和释义都不能为空
+  distractors = distractors.filter(opt => opt.word && opt.word.trim() && opt.meaning && opt.meaning.trim());
+  // 去重：干扰项不能和正确答案相同
+  distractors = distractors.filter(opt => opt.word.trim() !== word.word.trim());
+
+  // 正确答案始终包含，如果释义为空则用占位符
+  const correctMeaning = (word.meaning && word.meaning.trim()) ? word.meaning : '（暂无释义）';
+  let options = [{ word: word.word, meaning: correctMeaning }, ...distractors];
   // 打乱顺序
   options.sort(() => Math.random() - 0.5);
 
@@ -2819,9 +2824,11 @@ async function renderReviewChoiceCard(word) {
     }
   }
 
-  // 组合选项并过滤掉单词或释义为空的
-  let options = [{ word: word.word, meaning: word.meaning }, ...distractors];
-  options = options.filter(opt => opt.word && opt.word.trim() && opt.meaning && opt.meaning.trim());
+  // 组合选项：过滤干扰项空值，正确答案始终包含
+  distractors = distractors.filter(opt => opt.word && opt.word.trim() && opt.meaning && opt.meaning.trim());
+  distractors = distractors.filter(opt => opt.word.trim() !== word.word.trim());
+  const correctMeaning = (word.meaning && word.meaning.trim()) ? word.meaning : '（暂无释义）';
+  let options = [{ word: word.word, meaning: correctMeaning }, ...distractors];
   options.sort(() => Math.random() - 0.5);
 
   const optionsEl = $('#reviewChoiceOptions');
@@ -3592,7 +3599,7 @@ async function handleSaveEdit() {
    移动单词到其他词本
    ==================================================== */
 
-// 打开移动到词本弹窗
+// 打开移动到词本弹窗（单个单词，从详情弹窗触发）
 function openMoveWordbookModal() {
   if (!currentDetailWord) return;
   const select = $('#moveWordbookSelect');
@@ -3603,6 +3610,8 @@ function openMoveWordbookModal() {
     html += `<option value="${b.id}" ${selected}>${escapeHtml(b.name)}（${b.word_count || 0}词）</option>`;
   });
   select.innerHTML = html;
+  // 确保确认按钮绑定的是单个单词移动（避免多选模式遗留的 handleMultiMove）
+  $('#moveConfirmBtn').onclick = handleMoveWordbook;
   $('#moveWordbookModal').classList.add('active');
 }
 
