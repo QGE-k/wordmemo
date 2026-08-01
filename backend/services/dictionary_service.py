@@ -1336,6 +1336,8 @@ class DictionaryService:
             ],
         },
     }
+
+    def __init__(self):
         """初始化本地词典服务"""
         pass
 
