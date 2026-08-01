@@ -274,6 +274,20 @@ class WordAPI {
     return res && res.data ? res.data : [];
   }
 
+  /* ---- 签到相关 ---- */
+
+  // 每日签到
+  async checkin() {
+    const res = await this.request('/checkin', { method: 'POST' });
+    return res;
+  }
+
+  // 获取签到状态
+  async getCheckinStatus() {
+    const res = await this.request('/checkin/status');
+    return res && res.data ? res.data : { checked_in: false, streak_days: 0 };
+  }
+
   // 获取设置
   async getSettings() {
     const res = await this.request('/settings');
@@ -434,20 +448,10 @@ function hideLoginModal() {
 /** 登录成功后的统一处理 */
 function onLoginSuccess() {
   hideLoginModal();
-  // 显示用户名在状态栏
-  const userEl = document.getElementById('statusUser');
-  if (userEl) {
-    userEl.textContent = currentUser.nickname || currentUser.username;
-    userEl.style.display = 'inline-block';
-    userEl.onclick = null; // 不再点击用户名退出
-  }
-  // 显示退出按钮
-  const logoutEl = document.getElementById('statusLogout');
-  if (logoutEl) {
-    logoutEl.style.display = 'inline-block';
-    logoutEl.onclick = () => {
-      if (confirm('确定退出登录吗？')) handleLogout();
-    };
+  // 更新设置页的用户名显示
+  const settingsUserEl = document.getElementById('settingsUsername');
+  if (settingsUserEl && currentUser) {
+    settingsUserEl.textContent = currentUser.nickname || currentUser.username || '已登录';
   }
   // 管理员显示管理 Tab
   const adminTab = document.querySelector('.tab-admin-only');
@@ -546,14 +550,85 @@ async function handleLogout() {
   } catch (e) { /* 忽略 */ }
   currentUser = null;
   clearUserCache(); // 清除用户缓存
-  const userEl = document.getElementById('statusUser');
-  if (userEl) userEl.style.display = 'none';
-  const logoutEl = document.getElementById('statusLogout');
-  if (logoutEl) logoutEl.style.display = 'none';
+  const settingsUserEl = document.getElementById('settingsUsername');
+  if (settingsUserEl) settingsUserEl.textContent = '未登录';
   const adminTab = document.querySelector('.tab-admin-only');
   if (adminTab) adminTab.style.display = 'none';
   showLoginModal();
   showToast('已退出登录', 'info');
+}
+
+/* ====================================================
+   签到功能
+   ==================================================== */
+
+/** 加载签到状态并更新UI */
+async function loadCheckinStatus() {
+  try {
+    const res = await api.getCheckinStatus();
+    updateCheckinUI(res.checked_in, res.streak_days);
+  } catch (e) {
+    console.warn('获取签到状态失败', e);
+  }
+}
+
+/** 更新签到按钮UI */
+function updateCheckinUI(checkedIn, streakDays) {
+  const btn = $('#btnCheckin');
+  const streakEl = $('#checkinStreak');
+  if (!btn) return;
+
+  if (checkedIn) {
+    btn.textContent = '已签到';
+    btn.classList.add('checked-in');
+    btn.disabled = true;
+    if (streakEl) {
+      streakEl.textContent = `连续${streakDays}天`;
+      streakEl.style.display = 'inline-block';
+    }
+  } else {
+    btn.textContent = '签到';
+    btn.classList.remove('checked-in');
+    btn.disabled = false;
+    if (streakEl) {
+      streakEl.style.display = 'none';
+    }
+  }
+
+  // 同时更新首页连续天数
+  const streakNum = $('#streakNum');
+  if (streakNum) streakNum.textContent = streakDays || 0;
+}
+
+/** 处理签到 */
+async function handleCheckin() {
+  const btn = $('#btnCheckin');
+  if (!btn || btn.disabled) return;
+
+  btn.textContent = '签到中...';
+  btn.disabled = true;
+
+  try {
+    const res = await api.checkin();
+    if (res && res.success) {
+      updateCheckinUI(true, res.data.streak_days);
+      if (res.already_checked_in) {
+        showToast('今天已经签到过了', 'info');
+      } else {
+        showToast(res.message || '签到成功！', 'success');
+      }
+      // 刷新首页数据
+      renderHome();
+    } else {
+      showToast((res && res.error) || '签到失败', 'error');
+      btn.textContent = '签到';
+      btn.disabled = false;
+    }
+  } catch (err) {
+    showToast(err.message || '签到失败', 'error');
+    btn.textContent = '签到';
+    btn.disabled = false;
+  }
 }
 
 /** 切换登录/注册 Tab */
@@ -762,7 +837,7 @@ function formatDate(ts) {
  * 获取状态中文
  */
 function statusText(status) {
-  return { new: '新词', review: '复习中', mastered: '已掌握' }[status] || status;
+  return { new: '未学习', review: '复习中', mastered: '已掌握' }[status] || status;
 }
 
 /**
@@ -904,6 +979,8 @@ function onPageEnter(pageName) {
       break;
     case 'learn':
       initLearnWordbookSelector();
+      // 进入学习页时加载签到状态
+      loadCheckinStatus();
       // 进入学习页时自动加载（必须已选词书）
       if (learnQueue.length === 0 && learnWordbookId !== '') loadLearnQueue();
       break;
@@ -945,8 +1022,10 @@ async function renderHome() {
     // 更新欢迎语
     updateGreeting();
 
-    // 连续天数（后端暂未返回，默认0）
+    // 连续天数（基于签到记录）
     $('#streakNum').textContent = stats.streak_days || 0;
+    // 同步签到按钮状态
+    updateCheckinUI(stats.checked_in, stats.streak_days);
 
     // 今日概览
     $('#todayLearned').textContent = stats.today_learned || 0;
@@ -2076,10 +2155,16 @@ let learnRandomMode = false; // 学习随机模式：false=按顺序，true=随�
 let reviewRandomMode = false; // 复习随机模式：false=按时间排序（昨天先于更早），true=随机
 let allLearnedIds = new Set(); // 本次学习会话中所有已学的单词ID（用于"已学会"标记）
 let loadedWordIds = new Set(); // 当前会话中已加载到队列的单词ID（用于"加入新词"排除）
-let learnSessionMode = 'new'; // 学习会话模式：new=新词学习 / review_today=翻今天所有
+let learnSessionMode = 'new'; // 学习会话模式：new=未学习学习 / review_today=翻今天所有
 
-// 加载学习队列：返回词书内所有单词（新词优先），按添加顺序分批
-// append=true 时为"加入新词"模式，只加载没学过的词(new状态)
+// 看词选义正确率统计（仅看词选义模式）
+let learnChoiceCorrect = 0;   // 学习模式答对数
+let learnChoiceTotal = 0;     // 学习模式总答题数
+let reviewChoiceCorrect = 0;  // 复习模式答对数
+let reviewChoiceTotal = 0;    // 复习模式总答题数
+
+// 加载学习队列：返回词书内所有单词（未学习优先），按添加顺序分批
+// append=true 时为"加入未学习"模式，只加载没学过的词(new状态)，追加到队列末尾
 async function loadLearnQueue(append = false, addCount = null) {
   // 必须选择词书才能学习
   if (!learnWordbookId && learnWordbookId !== '0') {
@@ -2093,7 +2178,7 @@ async function loadLearnQueue(append = false, addCount = null) {
       random: learnRandomMode,
     };
     if (append) {
-      // 加入新词：只加载没学过的词(new状态)，排除已加载的
+      // 加入未学习：只加载没学过的词(new状态)，排除已加载的
       options.new_only = true;
       options.exclude = Array.from(loadedWordIds);
       if (addCount) {
@@ -2102,10 +2187,18 @@ async function loadLearnQueue(append = false, addCount = null) {
     }
     const res = await api.getLearnToday(learnWordbookId, options);
     const newWords = Array.isArray(res) ? res : (res.words || res.data || []);
-    // 无论首次加载还是加入新词，都替换队列
-    learnQueue = newWords;
-    learnIndex = 0;
-    learnedIds = new Set();
+    if (append) {
+      // 追加模式：新词加到队列末尾，不重置索引
+      learnQueue = learnQueue.concat(newWords);
+    } else {
+      // 首次加载：替换队列
+      learnQueue = newWords;
+      learnIndex = 0;
+      learnedIds = new Set();
+      // 重置看词选义正确率
+      learnChoiceCorrect = 0;
+      learnChoiceTotal = 0;
+    }
     // 记录已加载的单词ID
     if (!append) {
       loadedWordIds = new Set();
@@ -2113,14 +2206,14 @@ async function loadLearnQueue(append = false, addCount = null) {
     newWords.forEach(w => loadedWordIds.add(w.id));
     if (autoNextTimer) { clearTimeout(autoNextTimer); autoNextTimer = null; }
     hideLoading();
-    if (learnQueue.length === 0) {
+    if (newWords.length === 0) {
       if (append) {
-        showToast('没有更多新词了，这本词书已全部学完', 'info');
+        showToast('没有更多未学习的词了，这本词书已全部学完', 'info');
       } else {
         showToast('当前词书没有单词', 'info');
       }
     } else if (append) {
-      showToast(`已加入 ${newWords.length} 个新词`, 'success');
+      showToast(`已加入 ${newWords.length} 个未学习单词`, 'success');
     }
     renderLearnCard();
   } catch (err) {
@@ -2286,6 +2379,11 @@ async function renderChoiceCard(word) {
   $('#choiceFeedback').textContent = '';
   $('#choiceFeedback').className = 'quiz-feedback';
 
+  // 显示正确率
+  const accuracy = learnChoiceTotal > 0 ? Math.round(learnChoiceCorrect / learnChoiceTotal * 100) : 100;
+  const feedback = $('#choiceFeedback');
+  feedback.innerHTML = `<span class="quiz-accuracy">正确率：${learnChoiceCorrect}/${learnChoiceTotal}（${accuracy}%）</span>`;
+
   // 优先从后端获取形近词干扰项（拼写相似的词）
   let distractors = [];
   try {
@@ -2347,13 +2445,20 @@ function handleChoiceAnswer(btn, currentWord) {
   const feedback = $('#choiceFeedback');
   const optionsEl = $('#choiceOptions');
 
+  // 统计正确率
+  learnChoiceTotal++;
+  if (isCorrect) learnChoiceCorrect++;
+
   // 标记所有选项不可再点
   optionsEl.querySelectorAll('.quiz-option').forEach(b => b.classList.add('disabled'));
+
+  // 计算正确率
+  const accuracy = Math.round(learnChoiceCorrect / learnChoiceTotal * 100);
 
   if (isCorrect) {
     btn.classList.add('correct');
     feedback.className = 'quiz-feedback correct';
-    feedback.textContent = '回答正确！';
+    feedback.innerHTML = `回答正确！<span class="quiz-accuracy">正确率：${learnChoiceCorrect}/${learnChoiceTotal}（${accuracy}%）</span>`;
     playCorrectSound();
     // 答对自动下一题
     autoNextTimer = setTimeout(() => {
@@ -2367,8 +2472,15 @@ function handleChoiceAnswer(btn, currentWord) {
     optionsEl.querySelectorAll('.quiz-option').forEach(b => {
       if (b.dataset.word === currentWord.word) b.classList.add('correct');
     });
+    // 找到用户选错的选项对应的单词和释义
+    let wrongMeaning = '';
+    optionsEl.querySelectorAll('.quiz-option').forEach(b => {
+      if (b.dataset.word === selectedWord) {
+        wrongMeaning = b.textContent;
+      }
+    });
     feedback.className = 'quiz-feedback wrong';
-    feedback.innerHTML = `回答错误<span class="feedback-meaning">正确答案：${escapeHtml(currentWord.meaning || '')}</span>`;
+    feedback.innerHTML = `回答错误<span class="feedback-meaning">你选的是「${escapeHtml(selectedWord)}」的意思：${escapeHtml(wrongMeaning)}<br>正确答案：${escapeHtml(currentWord.word)} - ${escapeHtml(currentWord.meaning || '')}</span><span class="quiz-accuracy">正确率：${learnChoiceCorrect}/${learnChoiceTotal}（${accuracy}%）</span>`;
     // 答错不自动跳，让用户看清楚正确答案，手动点"下一题"
   }
 }
@@ -2572,6 +2684,9 @@ async function loadReviewQueue() {
     const res = await api.getReviewToday(reviewWordbookId, { random: reviewRandomMode });
     reviewQueue = Array.isArray(res) ? res : (res.words || res.data || []);
     reviewIndex = 0;
+    // 重置看词选义正确率
+    reviewChoiceCorrect = 0;
+    reviewChoiceTotal = 0;
     hideLoading();
     renderReviewCard();
   } catch (err) {
@@ -2672,6 +2787,10 @@ async function renderReviewChoiceCard(word) {
   $('#reviewChoiceFeedback').textContent = '';
   $('#reviewChoiceFeedback').className = 'quiz-feedback';
 
+  // 显示正确率
+  const accuracy = reviewChoiceTotal > 0 ? Math.round(reviewChoiceCorrect / reviewChoiceTotal * 100) : 100;
+  $('#reviewChoiceFeedback').innerHTML = `<span class="quiz-accuracy">正确率：${reviewChoiceCorrect}/${reviewChoiceTotal}（${accuracy}%）</span>`;
+
   // 优先获取形近词干扰项
   let distractors = [];
   try {
@@ -2728,12 +2847,19 @@ function handleReviewChoiceAnswer(btn, currentWord) {
   const feedback = $('#reviewChoiceFeedback');
   const optionsEl = $('#reviewChoiceOptions');
 
+  // 统计正确率
+  reviewChoiceTotal++;
+  if (isCorrect) reviewChoiceCorrect++;
+
   optionsEl.querySelectorAll('.quiz-option').forEach(b => b.classList.add('disabled'));
+
+  // 计算正确率
+  const accuracy = Math.round(reviewChoiceCorrect / reviewChoiceTotal * 100);
 
   if (isCorrect) {
     btn.classList.add('correct');
     feedback.className = 'quiz-feedback correct';
-    feedback.textContent = '回答正确！';
+    feedback.innerHTML = `回答正确！<span class="quiz-accuracy">正确率：${reviewChoiceCorrect}/${reviewChoiceTotal}（${accuracy}%）</span>`;
     playCorrectSound();
     reviewAutoNextTimer = setTimeout(() => {
       reviewAutoNextTimer = null;
@@ -2745,8 +2871,15 @@ function handleReviewChoiceAnswer(btn, currentWord) {
     optionsEl.querySelectorAll('.quiz-option').forEach(b => {
       if (b.dataset.word === currentWord.word) b.classList.add('correct');
     });
+    // 找到用户选错的选项对应的单词和释义
+    let wrongMeaning = '';
+    optionsEl.querySelectorAll('.quiz-option').forEach(b => {
+      if (b.dataset.word === selectedWord) {
+        wrongMeaning = b.textContent;
+      }
+    });
     feedback.className = 'quiz-feedback wrong';
-    feedback.innerHTML = `回答错误<span class="feedback-meaning">正确答案：${escapeHtml(currentWord.meaning || '')}</span>`;
+    feedback.innerHTML = `回答错误<span class="feedback-meaning">你选的是「${escapeHtml(selectedWord)}」的意思：${escapeHtml(wrongMeaning)}<br>正确答案：${escapeHtml(currentWord.word)} - ${escapeHtml(currentWord.meaning || '')}</span><span class="quiz-accuracy">正确率：${reviewChoiceCorrect}/${reviewChoiceTotal}（${accuracy}%）</span>`;
   }
 }
 
@@ -3034,7 +3167,7 @@ async function handleSaveDailyGoal() {
   if (!input) return;
   const goal = parseInt(input.value, 10);
   if (!goal || goal < 1 || goal > 200) {
-    showToast('每日新词目标请输入 1-200 之间的数字', 'error');
+    showToast('每日学习目标请输入 1-200 之间的数字', 'error');
     return;
   }
   const reviewInput = $('#dailyReviewGoalInput');
@@ -3045,7 +3178,7 @@ async function handleSaveDailyGoal() {
   }
   try {
     await api.updateSettings({ daily_goal: goal, daily_review_goal: reviewGoal });
-    showToast(`已保存：每日新词 ${goal} 个，复习上限 ${reviewGoal === 0 ? '不限' : reviewGoal + ' 个'}`, 'success');
+    showToast(`已保存：每日学习 ${goal} 个，复习上限 ${reviewGoal === 0 ? '不限' : reviewGoal + ' 个'}`, 'success');
   } catch (err) {
     handleError(err);
   }
@@ -3718,7 +3851,7 @@ function drawPieChart(canvas, data) {
   }
 
   const segments = [
-    { value: data.new, color: '#4a7fff', label: '新词' },
+    { value: data.new, color: '#4a7fff', label: '未学习' },
     { value: data.review, color: '#ff9f0a', label: '复习中' },
     { value: data.mastered, color: '#34c759', label: '已掌握' }
   ].filter(s => s.value > 0);
@@ -4097,7 +4230,7 @@ function bindEvents() {
 
   // 加入新词的提示函数
   function promptAddWords() {
-    const countStr = prompt('要加入多少个新词？', '10');
+    const countStr = prompt('要加入多少个未学习单词？', '10');
     if (countStr !== null) {
       const count = parseInt(countStr, 10);
       if (!isNaN(count) && count > 0) {
@@ -4118,7 +4251,7 @@ function bindEvents() {
   const learnAddMoreBtn = $('#learnAddMoreBtn');
   if (learnAddMoreBtn) {
     learnAddMoreBtn.addEventListener('click', () => {
-      const countStr = prompt('要加入多少个新词？', '10');
+      const countStr = prompt('要加入多少个未学习单词？', '10');
       if (countStr !== null) {
         const count = parseInt(countStr, 10);
         if (!isNaN(count) && count > 0) {
@@ -4221,8 +4354,19 @@ function bindEvents() {
 
   // 复习翻卡
   $('#reviewCard').addEventListener('click', flipReviewCard);
-  $$('.rating-btn').forEach(btn => {
+  // 复习翻卡模式：评分按钮（仅 data-rating 的按钮提交评分）
+  $$('#ratingActions .rating-btn[data-rating]').forEach(btn => {
     btn.addEventListener('click', () => handleReviewRating(btn.dataset.rating));
+  });
+  // 复习翻卡模式：上一个/下一个按钮
+  const btnReviewPrev = $('#btnReviewPrev');
+  if (btnReviewPrev) btnReviewPrev.addEventListener('click', handleReviewQuizPrev);
+  const btnReviewNext = $('#btnReviewNext');
+  if (btnReviewNext) btnReviewNext.addEventListener('click', () => {
+    // 下一个：直接跳到下一个词，不提交评分
+    if (reviewQueue.length === 0) return;
+    reviewIndex++;
+    renderReviewCard();
   });
   $('#reviewClose').addEventListener('click', () => {
     reviewQueue = [];
@@ -4358,6 +4502,57 @@ function bindEvents() {
       }
     }, 200);
   });
+
+  // 签到按钮
+  const btnCheckin = $('#btnCheckin');
+  if (btnCheckin) {
+    btnCheckin.addEventListener('click', handleCheckin);
+  }
+
+  // 设置页退出登录按钮
+  const btnLogoutSettings = $('#btnLogoutSettings');
+  if (btnLogoutSettings) {
+    btnLogoutSettings.addEventListener('click', () => {
+      if (confirm('确定退出登录吗？')) handleLogout();
+    });
+  }
+
+  // 复习卡片左右滑动切换（上一个/下一个）
+  const reviewStage = $('#reviewStage');
+  if (reviewStage) {
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let touchMoved = false;
+    reviewStage.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 0) return;
+      touchStartX = e.touches[0].clientX;
+      touchStartY = e.touches[0].clientY;
+      touchMoved = false;
+    }, { passive: true });
+    reviewStage.addEventListener('touchmove', (e) => {
+      if (e.touches.length === 0) return;
+      const dx = e.touches[0].clientX - touchStartX;
+      const dy = e.touches[0].clientY - touchStartY;
+      if (Math.abs(dx) > 10 || Math.abs(dy) > 10) touchMoved = true;
+    }, { passive: true });
+    reviewStage.addEventListener('touchend', (e) => {
+      if (!touchMoved) return;
+      const dx = e.changedTouches[0].clientX - touchStartX;
+      const dy = e.changedTouches[0].clientY - touchStartY;
+      // 水平滑动且大于阈值
+      if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+        if (dx > 0) {
+          // 右滑 → 上一个
+          handleReviewQuizPrev();
+        } else {
+          // 左滑 → 下一个
+          if (reviewQueue.length === 0) return;
+          reviewIndex++;
+          renderReviewCard();
+        }
+      }
+    }, { passive: true });
+  }
 }
 
 /* ====================================================
@@ -4420,6 +4615,8 @@ function renderHomeFromCache() {
 
   // 连续天数
   $('#streakNum').textContent = stats.streak_days || 0;
+  // 同步签到按钮状态
+  updateCheckinUI(stats.checked_in, stats.streak_days);
 
   // 今日概览
   $('#todayLearned').textContent = stats.today_learned || 0;
@@ -4427,7 +4624,7 @@ function renderHomeFromCache() {
   $('#todayNewCount').textContent = stats.new || 0;
 
   // 操作按钮描述
-  $('#learnDesc').textContent = `${stats.new || 0}个新词待学`;
+  $('#learnDesc').textContent = `${stats.new || 0}个待学`;
   $('#reviewDesc').textContent = `${stats.today_review || 0}个单词待复习`;
 
   // 统计卡片
