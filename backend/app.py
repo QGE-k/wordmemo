@@ -353,6 +353,26 @@ def update_learn_history(count=1):
     db.session.commit()
 
 
+def get_checkin_status():
+    """获取今日签到状态和连续签到天数"""
+    today = date.today()
+    today_history = LearnHistory.query.filter_by(date=today).first()
+    checked_in = today_history is not None and today_history.count > 0
+
+    # 计算连续签到天数：从今天往前数，连续有学习记录的天数
+    all_history = LearnHistory.query.filter(LearnHistory.count > 0).order_by(LearnHistory.date.desc()).all()
+    streak_days = 0
+    check_date = today
+    for h in all_history:
+        if h.date == check_date:
+            streak_days += 1
+            check_date = check_date - timedelta(days=1)
+        elif h.date < check_date:
+            break
+
+    return checked_in, streak_days
+
+
 def fill_missing_examples():
     """
     数据迁移：为没有例句的单词补充专升本例句
@@ -1465,18 +1485,8 @@ def get_stats():
                 break
         history_data.append({'date': d.isoformat(), 'count': count})
 
-    # 计算 streak_days（连续学习天数）：从今天往前数，连续有学习记录的天数
-    # 学习记录定义：当天 learned > 0 即算有学习
-    all_history = LearnHistory.query.filter(LearnHistory.count > 0).order_by(LearnHistory.date.desc()).all()
-    streak_days = 0
-    check_date = today
-    for h in all_history:
-        if h.date == check_date:
-            streak_days += 1
-            check_date = check_date - timedelta(days=1)
-        elif h.date < check_date:
-            # 中断了
-            break
+    # 计算 streak_days（连续签到天数）：使用签到状态计算
+    checked_in, streak_days = get_checkin_status()
 
     # 学习热力图数据：最近 35 天（5 周）的学习记录
     thirty_five_days_ago = today - timedelta(days=34)
@@ -1505,6 +1515,7 @@ def get_stats():
             'daily_goal': get_setting().daily_goal or 20,
             'history': history_data,
             'streak_days': streak_days,
+            'checked_in': checked_in,
             'learn_history': heatmap_data,
         }
     })
@@ -1815,6 +1826,68 @@ def get_calendar_stats():
     return jsonify({
         'success': True,
         'data': [{'date': h.date.isoformat(), 'count': h.count} for h in all_history],
+    })
+
+
+# ==================== 签到API ====================
+
+@app.route('/api/checkin', methods=['POST'])
+def checkin():
+    """每日签到：签到后算作今日已学习，连续天数基于签到记录"""
+    err = require_login()
+    if err:
+        return err
+
+    today = date.today()
+    history = LearnHistory.query.filter_by(date=today).first()
+
+    if history:
+        if history.count > 0:
+            # 已签到
+            _, streak = get_checkin_status()
+            return jsonify({
+                'success': True,
+                'already_checked_in': True,
+                'data': {
+                    'streak_days': streak,
+                    'today_count': history.count,
+                },
+                'message': '今天已经签到过了',
+            })
+        else:
+            history.count = 1
+    else:
+        history = LearnHistory(date=today, count=1)
+        db.session.add(history)
+
+    db.session.commit()
+
+    _, streak = get_checkin_status()
+    return jsonify({
+        'success': True,
+        'already_checked_in': False,
+        'data': {
+            'streak_days': streak,
+            'today_count': history.count,
+        },
+        'message': f'签到成功！已连续签到{streak}天',
+    })
+
+
+@app.route('/api/checkin/status', methods=['GET'])
+def checkin_status():
+    """获取今日签到状态"""
+    err = require_login()
+    if err:
+        return err
+
+    checked_in, streak = get_checkin_status()
+    return jsonify({
+        'success': True,
+        'data': {
+            'checked_in': checked_in,
+            'streak_days': streak,
+        },
     })
 
 
