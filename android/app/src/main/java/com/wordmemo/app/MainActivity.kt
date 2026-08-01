@@ -206,10 +206,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
         settings.databaseEnabled = true
-        // 缓存策略：优先使用缓存（秒开），网络在后台更新
-        // LOAD_CACHE_ELSE_NETWORK：有缓存就直接显示，避免 Render 冷启动时白屏等待30秒
-        // Service Worker 负责后台更新静态资源，API 走网络
-        settings.cacheMode = WebSettings.LOAD_CACHE_ELSE_NETWORK
+        // 缓存策略：LOAD_DEFAULT 让 Service Worker 控制缓存
+        // SW 的 stale-while-revalidate 策略：先返回缓存秒开，后台更新最新版本
+        // 避免 LOAD_CACHE_ELSE_NETWORK 导致前端更新后 WebView 仍用旧缓存
+        settings.cacheMode = WebSettings.LOAD_DEFAULT
         // setAppCacheEnabled 已在 API 34 移除，使用 domStorage 替代
         settings.allowFileAccess = true
         settings.allowContentAccess = true
