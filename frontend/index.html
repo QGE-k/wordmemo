@@ -9,7 +9,7 @@
   <!-- 预连接：提前建立TCP/TLS连接，减少首字节时间 -->
   <link rel="preconnect" href="/" crossorigin>
   <link rel="dns-prefetch" href="/">
-  <link rel="stylesheet" href="assets/style.css?v=20260729e">
+  <link rel="stylesheet" href="assets/style.css?v=20260801a">
   <!-- PWA 支持：允许"添加到桌面"当App用 -->
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" type="image/png" href="/icons/icon-192.png">
@@ -415,8 +415,12 @@
       </div>
       <!-- 翻卡模式额外按钮：加入新词 / 翻今天所有 -->
       <div class="card-actions card-actions-extra" id="learnExtraActions" style="display:none">
-        <button class="btn-secondary btn-sm" id="btnLearnAddMore">加入新词</button>
         <button class="btn-secondary btn-sm" id="btnLearnReviewToday">翻今天所有</button>
+      </div>
+      <!-- 可拖动浮动按钮：加入新词 -->
+      <div class="float-add-btn" id="floatAddBtn" title="长按拖动，点击加入新词">
+        <span class="float-add-icon">+</span>
+        <span class="float-add-text">新词</span>
       </div>
       <!-- 测验模式操作按钮 -->
       <div class="card-actions" id="quizActions" style="display:none">
@@ -440,11 +444,18 @@
         </select>
         <button class="btn-secondary btn-sm" id="btnReviewOrder" style="white-space:nowrap;">顺序复习</button>
       </div>
+      <!-- 复习模式切换 -->
+      <div class="mode-tabs" id="reviewModeTabs">
+        <button class="mode-tab active" data-rmode="flip">翻卡模式</button>
+        <button class="mode-tab" data-rmode="choice">看词选义</button>
+        <button class="mode-tab" data-rmode="spell">拼写默写</button>
+      </div>
       <div class="flip-card-stage" id="reviewStage">
         <div class="empty-state" id="reviewEmpty">
           <p>暂无复习单词</p>
           <p class="empty-sub">请先选择词书并学习单词</p>
         </div>
+        <!-- 翻卡模式 -->
         <div class="flip-card" id="reviewCard" style="display:none">
           <div class="flip-card-inner">
             <div class="flip-card-front">
@@ -465,8 +476,34 @@
             </div>
           </div>
         </div>
+        <!-- 看词选义模式 -->
+        <div class="quiz-card" id="reviewChoiceCard" style="display:none">
+          <div class="quiz-question">
+            <span class="quiz-word" id="reviewChoiceWord"></span>
+            <span class="quiz-phonetic" id="reviewChoicePhonetic"></span>
+            <button class="speak-btn" id="reviewChoiceSpeakBtn" title="发音">🔊</button>
+            <p class="quiz-hint">这个单词是什么意思？</p>
+          </div>
+          <div class="quiz-options" id="reviewChoiceOptions"></div>
+          <div class="quiz-feedback" id="reviewChoiceFeedback"></div>
+        </div>
+        <!-- 拼写默写模式 -->
+        <div class="quiz-card" id="reviewSpellCard" style="display:none">
+          <div class="quiz-question">
+            <span class="quiz-meaning-prompt" id="reviewSpellMeaning"></span>
+            <span class="quiz-phonetic" id="reviewSpellPhonetic"></span>
+            <button class="speak-btn" id="reviewSpellSpeakBtn" title="发音">🔊</button>
+            <p class="quiz-hint">请拼写出这个单词</p>
+          </div>
+          <input type="text" class="spell-input" id="reviewSpellInput" placeholder="输入单词..." autocomplete="off" autocapitalize="off" autocorrect="off">
+          <div class="spell-actions">
+            <button class="btn-primary" id="reviewSpellSubmitBtn">确认</button>
+            <button class="btn-secondary" id="reviewSpellSkipBtn">跳过</button>
+          </div>
+          <div class="quiz-feedback" id="reviewSpellFeedback"></div>
+        </div>
       </div>
-      <!-- 4档评级 -->
+      <!-- 翻卡模式：4档评级 -->
       <div class="rating-actions" id="ratingActions" style="display:none">
         <button class="rating-btn rating-again" data-rating="again">
           <span class="rating-label">忘了</span>
@@ -484,6 +521,12 @@
           <span class="rating-label">简单</span>
           <span class="rating-desc">4天</span>
         </button>
+      </div>
+      <!-- 测验模式操作按钮 -->
+      <div class="card-actions" id="reviewQuizActions" style="display:none">
+        <button class="btn-secondary" id="btnReviewQuizPrev">上一题</button>
+        <button class="btn-secondary" id="btnReviewQuizDetail">详情</button>
+        <button class="btn-primary" id="btnReviewQuizNext">下一题</button>
       </div>
     </section>
 
@@ -872,7 +915,7 @@
     </div>
   </div>
 
-  <script src="assets/app.js?v=20260729e"></script>
+  <script src="assets/app.js?v=20260801a"></script>
   <!-- PWA service worker 注册：仅在 HTTPS/localhost 生效 -->
   <script>
     if ('serviceWorker' in navigator) {
