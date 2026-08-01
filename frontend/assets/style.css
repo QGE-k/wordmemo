@@ -1718,11 +1718,13 @@ input, textarea, select {
 
 .rating-actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
 .rating-btn {
   flex: 1;
+  min-width: 60px;
   padding: 14px 6px;
   border-radius: var(--radius-md);
   color: #fff;
@@ -1737,7 +1739,12 @@ input, textarea, select {
   transform: scale(0.95);
 }
 
-.rating-again {
+.rating-prev {
+  background: linear-gradient(135deg, #8e8e93, #aeaeb2);
+  flex: 0.5;
+}
+
+.rating-forgot {
   background: linear-gradient(135deg, #ff3b30, #ff6b6b);
 }
 
@@ -1746,21 +1753,64 @@ input, textarea, select {
 }
 
 .rating-good {
-  background: linear-gradient(135deg, #4a7fff, #6f99ff);
-}
-
-.rating-easy {
   background: linear-gradient(135deg, #34c759, #5ad879);
 }
 
+.rating-next {
+  background: linear-gradient(135deg, #4a7fff, #6f99ff);
+  flex: 0.5;
+}
+
 .rating-label {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
 }
 
 .rating-desc {
   font-size: 11px;
   opacity: 0.9;
+}
+
+/* 签到按钮 */
+.checkin-area {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.checkin-btn {
+  padding: 6px 16px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #ff9f0a, #ffb340);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  border: none;
+  transition: transform 0.15s;
+}
+
+.checkin-btn:active {
+  transform: scale(0.95);
+}
+
+.checkin-btn.checked-in {
+  background: #e0e0e0;
+  color: #999;
+}
+
+.checkin-streak {
+  font-size: 12px;
+  color: #ff9f0a;
+  font-weight: 600;
+}
+
+/* 看词选义正确率 */
+.quiz-accuracy {
+  display: inline-block;
+  margin-left: 8px;
+  font-size: 12px;
+  color: #8e8e93;
+  font-weight: 500;
 }
 
 /* ===== 统计页 ===== */
