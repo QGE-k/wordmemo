@@ -75,38 +75,54 @@ class WordAPI {
       headers['Content-Type'] = 'application/json';
     }
 
-    // 超时控制：15秒后自动中断，避免 Neon 休眠时页面永久卡住
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    // 单次请求（带超时）
+    // 超时 8 秒：Neon 唤醒最多 ~2 秒，8 秒足够覆盖正常+唤醒场景
+    const fetchOnce = async () => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
+      try {
+        const res = await fetch(url, { ...options, headers, credentials: 'include', signal: controller.signal });
+        clearTimeout(timeoutId);
 
+        // 处理 HTTP 错误状态码
+        if (!res.ok) {
+          let errMsg = `请求失败 (${res.status})`;
+          try {
+            const errData = await res.json();
+            errMsg = errData.error || errData.message || errMsg;
+          } catch (e) { /* 非 JSON 错误体则用默认消息 */ }
+          throw new Error(errMsg);
+        }
+
+        // 解析 JSON 响应
+        const text = await res.text();
+        return text ? JSON.parse(text) : null;
+      } catch (err) {
+        clearTimeout(timeoutId);
+        throw err;
+      }
+    };
+
+    // 首次请求 + 自动重试（应对 Neon 休眠唤醒）
     try {
-      const res = await fetch(url, { ...options, headers, credentials: 'include', signal: controller.signal });
-      clearTimeout(timeoutId);
-
-      // 处理 HTTP 错误状态码
-      if (!res.ok) {
-        let errMsg = `请求失败 (${res.status})`;
-        try {
-          const errData = await res.json();
-          errMsg = errData.error || errData.message || errMsg;
-        } catch (e) { /* 非 JSON 错误体则用默认消息 */ }
-        throw new Error(errMsg);
-      }
-
-      // 解析 JSON 响应
-      const text = await res.text();
-      return text ? JSON.parse(text) : null;
+      return await fetchOnce();
     } catch (err) {
-      clearTimeout(timeoutId);
-      // 超时中断
-      if (err.name === 'AbortError') {
-        throw new Error('请求超时，请稍后重试');
+      // 超时或网络错误：自动重试一次（首次请求已触发 Neon 唤醒，重试会很快）
+      const isRetryable = err.name === 'AbortError' ||
+        (err instanceof TypeError && err.message.includes('Failed to fetch'));
+      if (!isRetryable) throw err; // 业务错误（如409重复）不重试
+
+      try {
+        return await fetchOnce();
+      } catch (err2) {
+        if (err2.name === 'AbortError') {
+          throw new Error('请求超时，请稍后重试');
+        }
+        if (err2 instanceof TypeError && err2.message.includes('Failed to fetch')) {
+          throw new Error('无法连接服务器，请确认后端已启动');
+        }
+        throw err2;
       }
-      // 网络错误（无法连接服务器）
-      if (err instanceof TypeError && err.message.includes('Failed to fetch')) {
-        throw new Error('无法连接服务器，请确认后端已启动');
-      }
-      throw err;
     }
   }
 
