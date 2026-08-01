@@ -2673,7 +2673,7 @@ def ensure_settings_columns():
     new_cols = [
         ('daily_review_goal', 'INTEGER DEFAULT 50'),
         ('review_strategy', "VARCHAR(20) DEFAULT 'standard'"),
-        ('anti_forget', 'BOOLEAN DEFAULT 1'),
+        ('anti_forget', 'BOOLEAN DEFAULT TRUE'),
         ('anti_forget_interval', 'INTEGER DEFAULT 30'),
     ]
     for col_name, col_def in new_cols:
@@ -2787,7 +2787,7 @@ def ensure_user_active_column():
     if 'is_active' not in columns:
         print("[迁移] 检测到 users 表缺少 is_active 列，正在添加...")
         with db.engine.connect() as conn:
-            conn.execute(text("ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT 1"))
+            conn.execute(text("ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT TRUE"))
             conn.commit()
         print("[迁移] users.is_active 列添加完成")
 
