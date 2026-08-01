@@ -2246,7 +2246,15 @@ with app.app_context():
 # ==================== 前端静态文件服务 ====================
 # 生产环境下由后端直接托管前端文件，部署后只需一个服务（同源，无需CORS）
 # 本地开发也可通过 http://localhost:5000/ 直接访问前端
-FRONTEND_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'frontend'))
+# Render 部署时 Root Directory=backend，只更新 backend/ 目录
+# 因此优先使用 ./static/（随 backend 一起部署），回退到 ../frontend/（本地开发）
+_STATIC_FRONTEND = os.path.abspath(os.path.join(os.path.dirname(__file__), 'static'))
+_REPO_FRONTEND = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'frontend'))
+# 优先使用 backend/static/（部署时会更新），如果不存在则用 ../frontend/（本地开发）
+if os.path.exists(os.path.join(_STATIC_FRONTEND, 'index.html')):
+    FRONTEND_DIR = _STATIC_FRONTEND
+else:
+    FRONTEND_DIR = _REPO_FRONTEND
 
 
 @app.route('/')

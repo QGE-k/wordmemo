@@ -1,0 +1,947 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <!-- 移动端视口配置，禁止缩放以保证原生App体验 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#4a7fff">
+  <title>背单词</title>
+  <!-- 预连接：提前建立TCP/TLS连接，减少首字节时间 -->
+  <link rel="preconnect" href="/" crossorigin>
+  <link rel="dns-prefetch" href="/">
+  <link rel="stylesheet" href="assets/style.css?v=20260802a">
+  <!-- PWA 支持：允许"添加到桌面"当App用 -->
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/png" href="/icons/icon-192.png">
+  <link rel="apple-touch-icon" href="/icons/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="背单词">
+</head>
+<body>
+  <!-- ============ 顶部状态栏 ============ -->
+  <header class="status-bar">
+    <span class="status-time" id="statusTime">9:41</span>
+    <span class="status-title" id="statusTitle">背单词</span>
+    <div class="status-right">
+      <div class="status-icons">
+        <span class="status-signal"></span>
+        <span class="status-wifi"></span>
+        <span class="status-battery"></span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ============ 主内容区 ============ -->
+  <main class="app-content" id="appContent">
+
+    <!-- ===== 首页 ===== -->
+    <section class="page page-home active" id="page-home">
+      <!-- 顶部欢迎语 -->
+      <div class="home-header">
+        <div class="home-greeting">
+          <p class="greeting-sub" id="greetingText">早上好，今天也要加油哦</p>
+          <h2 class="greeting-title">背单词</h2>
+        </div>
+        <div class="streak-badge" id="streakBadge">
+          <span class="streak-num" id="streakNum">0</span>
+          <span class="streak-label">天连续</span>
+        </div>
+      </div>
+
+      <!-- 主区域：桌面端双列 -->
+      <div class="home-main">
+        <!-- 左列：概览+操作+统计卡 -->
+        <div class="home-col home-col-left">
+          <!-- 今日学习概览卡片 -->
+          <div class="overview-card">
+            <div class="overview-item">
+              <span class="overview-num" id="todayLearned">0</span>
+              <span class="overview-label">今日已学</span>
+            </div>
+            <div class="overview-divider"></div>
+            <div class="overview-item">
+              <span class="overview-num" id="todayReviewCount">0</span>
+              <span class="overview-label">待复习</span>
+            </div>
+            <div class="overview-divider"></div>
+            <div class="overview-item">
+              <span class="overview-num" id="todayNewCount">0</span>
+              <span class="overview-label">待学</span>
+            </div>
+          </div>
+
+          <!-- 操作按钮 -->
+          <div class="home-actions">
+            <button class="action-btn primary" id="btnStartLearn">
+              <span class="action-icon">学</span>
+              <div class="action-text">
+                <span class="action-title">开始学习</span>
+                <span class="action-desc" id="learnDesc">5个待学</span>
+              </div>
+            </button>
+            <button class="action-btn secondary" id="btnStartReview">
+              <span class="action-icon">复</span>
+              <div class="action-text">
+                <span class="action-title">开始复习</span>
+                <span class="action-desc" id="reviewDesc">0个单词待复习</span>
+              </div>
+            </button>
+          </div>
+
+          <!-- 统计卡片 -->
+          <div class="stat-cards">
+            <div class="stat-card">
+              <span class="stat-card-num" id="statTotal">0</span>
+              <span class="stat-card-label">总词数</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-card-num" id="statNew">0</span>
+              <span class="stat-card-label">未学习</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-card-num" id="statReview">0</span>
+              <span class="stat-card-label">复习中</span>
+            </div>
+            <div class="stat-card">
+              <span class="stat-card-num" id="statMastered">0</span>
+              <span class="stat-card-label">已掌握</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 右列：图表+今日单词 -->
+        <div class="home-col home-col-right">
+          <!-- 学习曲线图 -->
+          <div class="chart-block">
+            <h3 class="block-title">近7天学习曲线</h3>
+            <canvas id="homeLineChart" class="chart-canvas"></canvas>
+          </div>
+
+          <!-- 今日单词列表 -->
+          <div class="today-words">
+            <div class="block-header">
+              <h3 class="block-title">今日单词</h3>
+              <span class="block-more" id="goLibraryFromHome">查看全部</span>
+            </div>
+            <div class="word-list" id="todayWordList">
+              <div class="empty-state">
+                <p>暂无单词，快去添加吧</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 录入页 ===== -->
+    <section class="page page-input" id="page-input">
+      <h2 class="page-title">录入单词</h2>
+
+      <!-- 录入方式切换 -->
+      <div class="tab-switch">
+        <button class="tab-switch-item active" data-input-tab="manual">手动输入</button>
+        <button class="tab-switch-item" data-input-tab="batch">批量粘贴</button>
+        <button class="tab-switch-item" data-input-tab="doc">文档导入</button>
+        <button class="tab-switch-item" data-input-tab="scan">扫描录入</button>
+      </div>
+
+      <!-- 手动输入 -->
+      <div class="input-panel active" id="panel-manual">
+        <div class="form-group">
+          <label class="form-label">单词</label>
+          <input type="text" class="form-input" id="manualWord" placeholder="输入英文单词，如 sports meeting">
+        </div>
+        <div class="form-group">
+          <label class="form-label">音标（选填）</label>
+          <input type="text" class="form-input" id="manualPhonetic" placeholder="/spɔːts ˈmiːtɪŋ/">
+        </div>
+        <div class="form-group">
+          <label class="form-label">释义（选填）</label>
+          <input type="text" class="form-input" id="manualMeaning" placeholder="n. 运动会">
+        </div>
+        <button class="btn-primary" id="btnManualAdd">添加单词</button>
+      </div>
+
+      <!-- 批量粘贴 -->
+      <div class="input-panel" id="panel-batch">
+        <p class="panel-tip">每行一个单词，支持纯单词或“单词 释义”格式</p>
+        <div class="form-group">
+          <label class="form-label">导入到单词本</label>
+          <select class="form-select" id="batchWordbookSelect">
+            <option value="">默认（不归类）</option>
+          </select>
+        </div>
+        <textarea class="form-textarea" id="batchText" placeholder="sports meeting&#10;apple n.苹果&#10;banana"></textarea>
+        <button class="btn-primary" id="btnBatchAdd">批量添加</button>
+      </div>
+
+      <!-- 文档导入 -->
+      <div class="input-panel" id="panel-doc">
+        <p class="panel-tip">上传文档自动提取单词，支持 TXT / Word / Excel / PDF</p>
+        <!-- 导入到哪个单词本 -->
+        <div class="form-group">
+          <label class="form-label">导入到单词本</label>
+          <div class="wordbook-select-row">
+            <select class="form-select" id="docWordbookSelect">
+              <option value="">默认（不归类）</option>
+            </select>
+            <button class="btn-secondary btn-sm" id="btnNewWordbook" title="新建单词本">+ 新建</button>
+          </div>
+        </div>
+        <div class="doc-upload-area" id="docUploadArea">
+          <div class="doc-upload-placeholder">
+            <span class="doc-icon">📄</span>
+            <p class="doc-upload-text">点击或拖拽文件到此处</p>
+            <p class="doc-upload-formats">支持 txt / docx / xlsx / pdf，最大 20MB</p>
+          </div>
+          <input type="file" accept=".txt,.docx,.xlsx,.xls,.pdf" id="docFileInput" style="display:none">
+        </div>
+        <!-- 预览结果 -->
+        <div class="doc-preview" id="docPreview" style="display:none">
+          <div class="doc-preview-header">
+            <span class="doc-preview-name" id="docPreviewName"></span>
+            <span class="doc-preview-count" id="docPreviewCount"></span>
+          </div>
+          <div class="doc-words-list" id="docWordsList"></div>
+          <div class="doc-preview-actions">
+            <button class="btn-secondary" id="btnDocCancel">取消</button>
+            <button class="btn-primary" id="btnDocImport">确认导入</button>
+          </div>
+        </div>
+        <!-- 导入结果 -->
+        <div class="doc-result" id="docResult" style="display:none"></div>
+      </div>
+
+      <!-- 扫描录入 -->
+      <div class="input-panel" id="panel-scan">
+        <p class="panel-tip">拍照或选择图片，AI自动识别单词和释义</p>
+        <div class="form-group">
+          <label class="form-label">导入到单词本</label>
+          <select class="form-select" id="scanWordbookSelect">
+            <option value="">默认（不归类）</option>
+          </select>
+        </div>
+        <div class="scan-area" id="scanArea">
+          <div class="scan-placeholder">
+            <span class="scan-icon">相机</span>
+            <p>点击拍照 / 选择图片</p>
+          </div>
+          <img class="scan-preview" id="scanPreview" alt="预览" style="display:none">
+        </div>
+        <!-- multiple 支持多选，capture 支持拍照 -->
+        <input type="file" accept="image/*" multiple id="scanInput" style="display:none">
+        <div class="scan-actions">
+          <button class="btn-primary" id="btnScanRecognize">识别单词</button>
+        </div>
+        <!-- 识别结果：单词确认列表 -->
+        <div class="scan-confirm" id="scanConfirm" style="display:none">
+          <div class="scan-confirm-header">
+            <span class="scan-confirm-title">识别到 <b id="scanWordCount">0</b> 个单词</span>
+            <div class="scan-confirm-actions">
+              <button class="scan-check-all" id="btnScanCheckAll">全选</button>
+              <button class="btn-primary btn-sm" id="btnScanAddSelected">添加选中</button>
+            </div>
+          </div>
+          <div class="scan-word-list" id="scanWordList"></div>
+        </div>
+        <!-- 添加结果 -->
+        <div class="scan-result" id="scanResult" style="display:none"></div>
+      </div>
+    </section>
+
+    <!-- ===== 词库页 ===== -->
+    <section class="page page-library" id="page-library">
+      <div class="library-header">
+        <h2 class="page-title">我的词库</h2>
+        <div class="export-dropdown" id="exportDropdown">
+          <button class="export-btn" id="btnExport" title="导出单词">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            <span>导出</span>
+          </button>
+          <div class="export-menu" id="exportMenu" style="display:none">
+            <div class="export-menu-tip" id="exportMenuTip">导出全部单词</div>
+            <button class="export-menu-item" data-format="csv">
+              <span class="export-menu-icon">CSV</span>
+              <div class="export-menu-info">
+                <span class="export-menu-name">CSV 表格</span>
+                <span class="export-menu-desc">含音标/释义/记忆法，Excel可开</span>
+              </div>
+            </button>
+            <button class="export-menu-item" data-format="txt">
+              <span class="export-menu-icon">TXT</span>
+              <div class="export-menu-info">
+                <span class="export-menu-name">TXT 文本</span>
+                <span class="export-menu-desc">每行一个单词，兼容扇贝/有道</span>
+              </div>
+            </button>
+            <button class="export-menu-item" data-format="anki">
+              <span class="export-menu-icon">Anki</span>
+              <div class="export-menu-info">
+                <span class="export-menu-name">Anki 卡片</span>
+                <span class="export-menu-desc">制表符分隔，可直接导入Anki</span>
+              </div>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 单词本横向筛选 -->
+      <div class="wordbook-bar" id="wordbookBar">
+        <button class="wordbook-chip active" data-wordbook="">全部</button>
+        <button class="wordbook-chip" data-wordbook="0">未归类</button>
+        <span class="wordbook-chip-sep"></span>
+        <button class="wordbook-chip wordbook-add" id="btnAddWordbook" title="新建单词本">+</button>
+      </div>
+
+      <!-- 搜索框 -->
+      <div class="search-bar">
+        <input type="text" class="search-input" id="searchInput" placeholder="搜索单词或释义">
+      </div>
+
+      <!-- 筛选标签 + 排序 -->
+      <div class="filter-tabs" id="filterTabs">
+        <button class="filter-tab active" data-status="all">全部</button>
+        <button class="filter-tab" data-status="new">未学习</button>
+        <button class="filter-tab" data-status="review">复习中</button>
+        <button class="filter-tab" data-status="mastered">已掌握</button>
+        <select class="sort-select" id="sortSelect" title="排序方式">
+          <option value="added_desc">最近添加</option>
+          <option value="added_asc">最早添加</option>
+          <option value="word_asc">字母 A-Z</option>
+          <option value="word_desc">字母 Z-A</option>
+          <option value="review_desc">复习次数多</option>
+          <option value="review_asc">复习次数少</option>
+          <option value="next_review_asc">最快到期</option>
+        </select>
+      </div>
+
+      <!-- 单词列表 -->
+      <div class="word-list library-list" id="libraryList">
+        <div class="empty-state">
+          <p>词库空空如也</p>
+          <p class="empty-sub">点击右下角 + 添加单词</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 学习页 ===== -->
+    <section class="page page-learn" id="page-learn">
+      <div class="card-header">
+        <span class="card-progress" id="learnProgress">0 / 0</span>
+        <div class="checkin-area" id="checkinArea">
+          <button class="checkin-btn" id="btnCheckin">签到</button>
+          <span class="checkin-streak" id="checkinStreak" style="display:none"></span>
+        </div>
+        <span class="card-close" id="learnClose">退出</span>
+      </div>
+      <!-- 词书选择器 -->
+      <div class="wordbook-selector" id="learnWordbookSelector" style="display:flex;align-items:center;gap:8px;padding:8px 16px;background:var(--bg-card);border-radius:var(--radius-md);margin-bottom:12px;flex-wrap:wrap;">
+        <label style="font-size:13px;color:var(--text-secondary);white-space:nowrap;">词书：</label>
+        <select id="learnWordbookSelect" style="flex:1;min-width:120px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;">
+          <option value="">请选择词书</option>
+        </select>
+      </div>
+      <!-- 学习模式切换 -->
+      <div class="mode-tabs" id="learnModeTabs">
+        <button class="mode-tab active" data-mode="flip">翻卡模式</button>
+        <button class="mode-tab" data-mode="choice">看词选义</button>
+        <button class="mode-tab" data-mode="spell">拼写默写</button>
+      </div>
+      <!-- 学习卡片容器 -->
+      <div class="flip-card-stage" id="learnStage">
+        <div class="empty-state" id="learnEmpty" style="display:none">
+          <p>请选择一本词书</p>
+          <p class="empty-sub">选择词书后开始学习</p>
+          <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:16px;">
+            <button class="btn-primary" id="learnAddMoreBtn">加入未学习</button>
+            <button class="btn-secondary" id="learnReviewTodayBtn">翻今天所有</button>
+          </div>
+        </div>
+        <!-- 翻卡元素 -->
+        <div class="flip-card" id="learnCard" style="display:none">
+          <div class="flip-card-inner">
+            <!-- 正面：单词 -->
+            <div class="flip-card-front">
+              <span class="card-word" id="learnWord"></span>
+              <span class="card-phonetic" id="learnPhonetic"></span>
+              <button class="speak-btn" id="learnSpeakBtn" title="发音">🔊</button>
+              <!-- 例句（专升本） -->
+              <div class="card-example" id="learnExampleFront" style="display:none"></div>
+              <p class="card-tip">点击查看释义</p>
+            </div>
+            <!-- 背面：释义+拆解+记忆方法 -->
+            <div class="flip-card-back">
+              <span class="card-word-sm" id="learnWordBack"></span>
+              <span class="card-phonetic-sm" id="learnPhoneticBack"></span>
+              <span class="card-meaning" id="learnMeaning"></span>
+              <div class="card-split" id="learnSplit"></div>
+              <div class="card-mnemonic" id="learnMnemonic"></div>
+              <!-- 例句（专升本） -->
+              <div class="card-example" id="learnExampleBack" style="display:none"></div>
+            </div>
+          </div>
+        </div>
+        <!-- 看词选义模式 -->
+        <div class="quiz-card" id="learnChoiceCard" style="display:none">
+          <div class="quiz-question">
+            <span class="quiz-word" id="choiceWord"></span>
+            <span class="quiz-phonetic" id="choicePhonetic"></span>
+            <button class="speak-btn" id="choiceSpeakBtn" title="发音">🔊</button>
+            <p class="quiz-hint">这个单词是什么意思？</p>
+          </div>
+          <div class="quiz-options" id="choiceOptions"></div>
+          <div class="quiz-feedback" id="choiceFeedback"></div>
+        </div>
+        <!-- 拼写默写模式 -->
+        <div class="quiz-card" id="learnSpellCard" style="display:none">
+          <div class="quiz-question">
+            <span class="quiz-meaning-prompt" id="spellMeaning"></span>
+            <span class="quiz-phonetic" id="spellPhonetic"></span>
+            <button class="speak-btn" id="spellSpeakBtn" title="发音">🔊</button>
+            <p class="quiz-hint">请拼写出这个单词</p>
+          </div>
+          <input type="text" class="spell-input" id="spellInput" placeholder="输入单词..." autocomplete="off" autocapitalize="off" autocorrect="off">
+          <div class="spell-actions">
+            <button class="btn-primary" id="spellSubmitBtn">确认</button>
+            <button class="btn-secondary" id="spellSkipBtn">跳过</button>
+          </div>
+          <div class="quiz-feedback" id="spellFeedback"></div>
+        </div>
+      </div>
+      <!-- 操作按钮 -->
+      <div class="card-actions" id="learnActions" style="display:none">
+        <button class="btn-secondary" id="btnLearnPrev">上一题</button>
+        <button class="btn-secondary" id="btnLearnDetail">详情</button>
+        <button class="btn-primary" id="btnLearnKnown">已学会</button>
+      </div>
+      <!-- 翻卡模式额外按钮：加入新词 / 翻今天所有 -->
+      <div class="card-actions card-actions-extra" id="learnExtraActions" style="display:none">
+        <button class="btn-secondary btn-sm" id="btnLearnReviewToday">翻今天所有</button>
+      </div>
+      <!-- 可拖动浮动按钮：加入新词 -->
+      <div class="float-add-btn" id="floatAddBtn" title="长按拖动，点击加入未学习单词">
+        <span class="float-add-icon">+</span>
+        <span class="float-add-text">未学习</span>
+      </div>
+      <!-- 测验模式操作按钮 -->
+      <div class="card-actions" id="quizActions" style="display:none">
+        <button class="btn-secondary" id="btnQuizPrev">上一题</button>
+        <button class="btn-secondary" id="btnQuizDetail">详情</button>
+        <button class="btn-primary" id="btnQuizKnown">下一题</button>
+      </div>
+    </section>
+
+    <!-- ===== 复习页 ===== -->
+    <section class="page page-review" id="page-review">
+      <div class="card-header">
+        <span class="card-progress" id="reviewProgress">0 / 0</span>
+        <span class="card-close" id="reviewClose">退出</span>
+      </div>
+      <!-- 词书选择器 + 复习顺序切换 -->
+      <div class="wordbook-selector" id="reviewWordbookSelector" style="display:flex;align-items:center;gap:8px;padding:8px 16px;background:var(--bg-card);border-radius:var(--radius-md);margin-bottom:12px;flex-wrap:wrap;">
+        <label style="font-size:13px;color:var(--text-secondary);white-space:nowrap;">词书：</label>
+        <select id="reviewWordbookSelect" style="flex:1;min-width:120px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;">
+          <option value="">请选择词书</option>
+        </select>
+        <button class="btn-secondary btn-sm" id="btnReviewOrder" style="white-space:nowrap;">顺序复习</button>
+      </div>
+      <!-- 复习模式切换 -->
+      <div class="mode-tabs" id="reviewModeTabs">
+        <button class="mode-tab active" data-rmode="flip">翻卡模式</button>
+        <button class="mode-tab" data-rmode="choice">看词选义</button>
+        <button class="mode-tab" data-rmode="spell">拼写默写</button>
+      </div>
+      <div class="flip-card-stage" id="reviewStage">
+        <div class="empty-state" id="reviewEmpty">
+          <p>暂无复习单词</p>
+          <p class="empty-sub">请先选择词书并学习单词</p>
+        </div>
+        <!-- 翻卡模式 -->
+        <div class="flip-card" id="reviewCard" style="display:none">
+          <div class="flip-card-inner">
+            <div class="flip-card-front">
+              <span class="card-word" id="reviewWord"></span>
+              <span class="card-phonetic" id="reviewPhonetic"></span>
+              <button class="speak-btn" id="reviewSpeakBtn" title="发音">🔊</button>
+              <!-- 例句（专升本） -->
+              <div class="card-example" id="reviewExampleFront" style="display:none"></div>
+              <p class="card-tip">先想想含义，再翻转</p>
+            </div>
+            <div class="flip-card-back">
+              <span class="card-word-sm" id="reviewWordBack"></span>
+              <span class="card-meaning" id="reviewMeaning"></span>
+              <div class="card-split" id="reviewSplit"></div>
+              <div class="card-mnemonic" id="reviewMnemonic"></div>
+              <!-- 例句（专升本） -->
+              <div class="card-example" id="reviewExampleBack" style="display:none"></div>
+            </div>
+          </div>
+        </div>
+        <!-- 看词选义模式 -->
+        <div class="quiz-card" id="reviewChoiceCard" style="display:none">
+          <div class="quiz-question">
+            <span class="quiz-word" id="reviewChoiceWord"></span>
+            <span class="quiz-phonetic" id="reviewChoicePhonetic"></span>
+            <button class="speak-btn" id="reviewChoiceSpeakBtn" title="发音">🔊</button>
+            <p class="quiz-hint">这个单词是什么意思？</p>
+          </div>
+          <div class="quiz-options" id="reviewChoiceOptions"></div>
+          <div class="quiz-feedback" id="reviewChoiceFeedback"></div>
+        </div>
+        <!-- 拼写默写模式 -->
+        <div class="quiz-card" id="reviewSpellCard" style="display:none">
+          <div class="quiz-question">
+            <span class="quiz-meaning-prompt" id="reviewSpellMeaning"></span>
+            <span class="quiz-phonetic" id="reviewSpellPhonetic"></span>
+            <button class="speak-btn" id="reviewSpellSpeakBtn" title="发音">🔊</button>
+            <p class="quiz-hint">请拼写出这个单词</p>
+          </div>
+          <input type="text" class="spell-input" id="reviewSpellInput" placeholder="输入单词..." autocomplete="off" autocapitalize="off" autocorrect="off">
+          <div class="spell-actions">
+            <button class="btn-primary" id="reviewSpellSubmitBtn">确认</button>
+            <button class="btn-secondary" id="reviewSpellSkipBtn">跳过</button>
+          </div>
+          <div class="quiz-feedback" id="reviewSpellFeedback"></div>
+        </div>
+      </div>
+      <!-- 翻卡模式：复习操作按钮 -->
+      <div class="rating-actions" id="ratingActions" style="display:none">
+        <button class="rating-btn rating-prev" id="btnReviewPrev" data-action="prev">
+          <span class="rating-label">上一个</span>
+        </button>
+        <button class="rating-btn rating-forgot" data-rating="again">
+          <span class="rating-label">不记得</span>
+        </button>
+        <button class="rating-btn rating-hard" data-rating="hard">
+          <span class="rating-label">模糊</span>
+        </button>
+        <button class="rating-btn rating-good" data-rating="good">
+          <span class="rating-label">记得</span>
+        </button>
+        <button class="rating-btn rating-next" id="btnReviewNext" data-action="next">
+          <span class="rating-label">下一个</span>
+        </button>
+      </div>
+      <!-- 测验模式操作按钮 -->
+      <div class="card-actions" id="reviewQuizActions" style="display:none">
+        <button class="btn-secondary" id="btnReviewQuizPrev">上一题</button>
+        <button class="btn-secondary" id="btnReviewQuizDetail">详情</button>
+        <button class="btn-primary" id="btnReviewQuizNext">下一题</button>
+      </div>
+    </section>
+
+    <!-- ===== 统计页 ===== -->
+    <section class="page page-stats" id="page-stats">
+      <h2 class="page-title">学习统计</h2>
+
+      <!-- 统计卡片 -->
+      <div class="stats-grid">
+        <div class="stats-cell">
+          <span class="stats-num" id="statsTotal">0</span>
+          <span class="stats-label">总词数</span>
+        </div>
+        <div class="stats-cell">
+          <span class="stats-num" id="statsMastered">0</span>
+          <span class="stats-label">已掌握</span>
+        </div>
+        <div class="stats-cell">
+          <span class="stats-num" id="statsStreak">0</span>
+          <span class="stats-label">连续签到</span>
+        </div>
+        <div class="stats-cell">
+          <span class="stats-num" id="statsToday">0</span>
+          <span class="stats-label">今日学习</span>
+        </div>
+      </div>
+
+      <!-- 7天学习柱状图 -->
+      <div class="chart-block">
+        <h3 class="block-title">近7天学习量</h3>
+        <canvas id="statsBarChart" class="chart-canvas"></canvas>
+      </div>
+
+      <!-- 单词状态饼图 -->
+      <div class="chart-block">
+        <h3 class="block-title">单词状态分布</h3>
+        <canvas id="statsPieChart" class="chart-canvas"></canvas>
+        <div class="pie-legend" id="pieLegend"></div>
+      </div>
+
+      <!-- 日历统计 -->
+      <div class="chart-block">
+        <h3 class="block-title">学习日历</h3>
+        <div id="statsCalendar" class="calendar-container"></div>
+      </div>
+
+      <!-- 设置区 -->
+      <div class="chart-block settings-block">
+        <h3 class="block-title">学习计划</h3>
+        <div class="setting-row">
+          <label class="setting-label" for="dailyGoalInput">每日学习目标</label>
+          <div class="setting-control">
+            <input type="number" id="dailyGoalInput" class="setting-input" min="1" max="100" value="20">
+            <span class="setting-unit">个</span>
+          </div>
+        </div>
+        <div class="setting-row">
+          <label class="setting-label" for="dailyReviewGoalInput">每日复习上限</label>
+          <div class="setting-control">
+            <input type="number" id="dailyReviewGoalInput" class="setting-input" min="0" max="500" value="50">
+            <span class="setting-unit">个（0=不限）</span>
+          </div>
+        </div>
+        <div class="setting-row">
+          <label class="setting-label" for="learnOrderSelect">学习取词顺序</label>
+          <div class="setting-control">
+            <select id="learnOrderSelect" class="setting-input setting-select">
+              <option value="sequential">顺序（按添加时间）</option>
+              <option value="random">随机</option>
+            </select>
+          </div>
+        </div>
+        <div class="setting-row">
+          <label class="setting-label" for="reviewOrderSelect">复习顺序</label>
+          <div class="setting-control">
+            <select id="reviewOrderSelect" class="setting-input setting-select">
+              <option value="sequential">按时间（昨天先于更早）</option>
+              <option value="random">随机</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="chart-block settings-block">
+        <h3 class="block-title">复习策略（防遗忘）</h3>
+        <div class="setting-row">
+          <label class="setting-label" for="reviewStrategySelect">复习间隔策略</label>
+          <div class="setting-control">
+            <select id="reviewStrategySelect" class="setting-input setting-select">
+              <option value="relaxed">宽松（间隔长，省力）</option>
+              <option value="standard">标准（推荐）</option>
+              <option value="strict">严格（间隔短，记得牢）</option>
+            </select>
+          </div>
+        </div>
+        <div class="setting-row">
+          <label class="setting-label">防遗忘回顾</label>
+          <div class="setting-control">
+            <label class="switch-label">
+              <input type="checkbox" id="antiForgetToggle" class="switch-input" checked>
+              <span class="switch-track"><span class="switch-thumb"></span></span>
+              <span class="switch-text">已掌握单词定期回顾</span>
+            </label>
+          </div>
+        </div>
+        <div class="setting-row" id="antiForgetIntervalRow">
+          <label class="setting-label" for="antiForgetIntervalInput">回顾间隔</label>
+          <div class="setting-control">
+            <input type="number" id="antiForgetIntervalInput" class="setting-input" min="1" max="365" value="30">
+            <span class="setting-unit">天</span>
+          </div>
+        </div>
+        <p class="setting-tip">标准策略：复习间隔 1→3→7→14→30 天，连续 4 次简单后标记为已掌握。开启防遗忘后，已掌握单词会按回顾间隔定期重新出现，避免长期不复习而遗忘。</p>
+      </div>
+
+      <div class="chart-block settings-block">
+        <h3 class="block-title">账户管理</h3>
+        <div class="setting-row">
+          <label class="setting-label">当前用户</label>
+          <div class="setting-control">
+            <span class="setting-text" id="settingsUsername">未登录</span>
+          </div>
+        </div>
+        <div class="setting-row">
+          <label class="setting-label">账号操作</label>
+          <div class="setting-control">
+            <button class="setting-btn setting-btn-danger" id="btnLogoutSettings">退出登录</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="chart-block settings-block">
+        <h3 class="block-title">词库管理</h3>
+        <div class="setting-row">
+          <label class="setting-label">数据</label>
+          <div class="setting-control">
+            <button class="setting-btn" id="exportCsvBtn">导出 CSV</button>
+            <button class="setting-btn setting-btn-danger" id="clearDataBtn">清空数据</button>
+          </div>
+        </div>
+        <div class="setting-row">
+          <label class="setting-label">关于</label>
+          <div class="setting-control">
+            <span class="setting-text">词记 WordMemo v1.1</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== 管理员页 ===== -->
+    <section class="page page-admin" id="page-admin">
+      <h2 class="page-title">用户管理</h2>
+      <!-- 用户列表容器：由 JS 动态渲染 admin-user-card -->
+      <div class="admin-user-list" id="adminUserList">
+        <div class="empty-state">
+          <p>暂无用户数据</p>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ============ 底部 TabBar ============ -->
+  <nav class="tab-bar" id="tabBar">
+    <button class="tab-item active" data-page="home">
+      <span class="tab-icon tab-icon-home"></span>
+      <span class="tab-label">首页</span>
+    </button>
+    <button class="tab-item" data-page="library">
+      <span class="tab-icon tab-icon-library"></span>
+      <span class="tab-label">词库</span>
+    </button>
+    <button class="tab-item" data-page="learn">
+      <span class="tab-icon tab-icon-learn"></span>
+      <span class="tab-label">学习</span>
+    </button>
+    <button class="tab-item" data-page="review">
+      <span class="tab-icon tab-icon-review"></span>
+      <span class="tab-label">复习</span>
+    </button>
+    <button class="tab-item" data-page="stats">
+      <span class="tab-icon tab-icon-stats"></span>
+      <span class="tab-label">统计</span>
+    </button>
+    <button class="tab-item tab-admin-only" data-page="admin" style="display:none">
+      <span class="tab-icon tab-icon-admin">管</span>
+      <span class="tab-label">管理</span>
+    </button>
+  </nav>
+
+  <!-- ============ 浮动添加按钮 ============ -->
+  <button class="fab" id="fabAdd" aria-label="添加单词">+</button>
+
+  <!-- ============ Toast 提示容器 ============ -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- ============ 单词详情弹窗 ============ -->
+  <div class="modal-overlay" id="wordDetailModal">
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-header">
+        <div class="modal-word-wrap">
+          <h3 class="modal-word" id="modalWord"></h3>
+          <span class="modal-phonetic" id="modalPhonetic"></span>
+        </div>
+        <div class="modal-header-actions">
+          <button class="speak-btn modal-speak-btn" id="modalSpeakBtn" title="发音">🔊</button>
+          <button class="modal-close" id="modalCloseBtn">×</button>
+        </div>
+      </div>
+      <div class="modal-body" id="modalBody">
+        <!-- 释义 -->
+        <div class="modal-section">
+          <h4 class="modal-section-title">释义
+            <span class="pos-badge" id="modalPosBadge" style="display:none"></span>
+          </h4>
+          <p class="modal-meaning" id="modalMeaning"></p>
+        </div>
+        <!-- 变形（时态/复数/比较级等，有什么显示什么，默认收起） -->
+        <div class="modal-section" id="modalTensesSection" style="display:none">
+          <div class="modal-tags-bar">
+            <button class="modal-tag-btn" id="modalTensesToggle" type="button">
+              <span class="modal-tag-text">变形</span>
+              <span class="modal-tag-arrow">▸</span>
+            </button>
+          </div>
+          <div class="tenses-grid" id="modalTenses" style="display:none"></div>
+        </div>
+        <!-- 拆解 -->
+        <div class="modal-section" id="modalSplitSection">
+          <h4 class="modal-section-title">单词拆解</h4>
+          <div class="split-list" id="modalSplit"></div>
+        </div>
+        <!-- 记忆方法 -->
+        <div class="modal-section" id="modalMnemonicSection">
+          <h4 class="modal-section-title">记忆方法</h4>
+          <div class="mnemonic-box" id="modalMnemonic"></div>
+        </div>
+        <!-- 词根词缀 -->
+        <div class="modal-section" id="modalMorphSection">
+          <h4 class="modal-section-title">词根词缀</h4>
+          <div class="morph-list" id="modalMorph"></div>
+        </div>
+        <!-- 例句 -->
+        <div class="modal-section" id="modalExampleSection">
+          <h4 class="modal-section-title">例句</h4>
+          <div class="example-list" id="modalExamples"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" id="modalDeleteBtn">删除</button>
+        <button class="btn-secondary" id="modalMoveBtn">移动到词本</button>
+        <button class="btn-primary" id="modalEditBtn">编辑</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 编辑弹窗 ============ -->
+  <div class="modal-overlay" id="editModal">
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-header">
+        <h3 class="modal-word">编辑单词</h3>
+        <button class="modal-close" id="editCloseBtn">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">单词</label>
+          <input type="text" class="form-input" id="editWord">
+        </div>
+        <div class="form-group">
+          <label class="form-label">音标</label>
+          <input type="text" class="form-input" id="editPhonetic">
+        </div>
+        <div class="form-group">
+          <label class="form-label">释义</label>
+          <input type="text" class="form-input" id="editMeaning">
+        </div>
+        <div class="form-group">
+          <label class="form-label">状态</label>
+          <select class="form-input" id="editStatus">
+            <option value="new">未学习</option>
+            <option value="review">复习中</option>
+            <option value="mastered">已掌握</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" id="editCancelBtn">取消</button>
+        <button class="btn-primary" id="editSaveBtn">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 移动到词本弹窗 -->
+  <div class="modal-overlay" id="moveWordbookModal">
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-header">
+        <h3 class="modal-word">移动到词本</h3>
+        <button class="modal-close" id="moveCloseBtn">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">选择目标单词本</label>
+          <select class="form-input" id="moveWordbookSelect">
+            <option value="">未归类</option>
+          </select>
+        </div>
+        <p class="panel-tip" style="margin-top:8px">移动后单词将归属新的单词本，可在任意词本间切换</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" id="moveCancelBtn">取消</button>
+        <button class="btn-primary" id="moveConfirmBtn">确认移动</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 新建/编辑单词本弹窗 -->
+  <div class="modal-overlay" id="wordbookModal">
+    <div class="modal-sheet wordbook-modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-header">
+        <h3 class="modal-word" id="wordbookModalTitle">新建单词本</h3>
+        <button class="modal-close" id="wordbookCloseBtn">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">单词本名称</label>
+          <input type="text" class="form-input" id="wordbookNameInput" placeholder="如：四级核心词" maxlength="100">
+        </div>
+        <div class="form-group">
+          <label class="form-label">描述（选填）</label>
+          <input type="text" class="form-input" id="wordbookDescInput" placeholder="如：来自课本第1-5单元" maxlength="255">
+        </div>
+        <div class="form-group">
+          <label class="form-label">颜色</label>
+          <div class="color-picker" id="wordbookColorPicker">
+            <button class="color-dot active" data-color="#4a7fff" style="background:#4a7fff"></button>
+            <button class="color-dot" data-color="#10b981" style="background:#10b981"></button>
+            <button class="color-dot" data-color="#f59e0b" style="background:#f59e0b"></button>
+            <button class="color-dot" data-color="#ef4444" style="background:#ef4444"></button>
+            <button class="color-dot" data-color="#8b5cf6" style="background:#8b5cf6"></button>
+            <button class="color-dot" data-color="#ec4899" style="background:#ec4899"></button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" id="wordbookCancelBtn">取消</button>
+        <button class="btn-primary" id="wordbookSaveBtn">保存</button>
+        <button class="setting-btn setting-btn-danger" id="wordbookDeleteBtn" style="display:none">删除</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 登录/注册弹窗 ============ -->
+  <div class="login-overlay" id="loginModal" style="display:none;">
+    <div class="login-card">
+      <div class="login-logo">
+        <h1>背单词</h1>
+        <p>登录后开始你的单词学习之旅</p>
+      </div>
+      <!-- 登录/注册切换 -->
+      <div class="login-tabs">
+        <div class="login-tab active" data-login-tab="login">登录</div>
+        <div class="login-tab" data-login-tab="register">注册</div>
+      </div>
+      <!-- 登录表单 -->
+      <form class="login-form active" id="loginForm" onsubmit="return false">
+        <div class="login-error" id="loginError"></div>
+        <div class="form-group">
+          <label class="form-label">用户名</label>
+          <input type="text" class="form-input" id="loginUsername" placeholder="请输入用户名" autocomplete="username">
+        </div>
+        <div class="form-group">
+          <label class="form-label">密码</label>
+          <input type="password" class="form-input" id="loginPassword" placeholder="请输入密码" autocomplete="current-password">
+        </div>
+        <button type="submit" class="login-btn" id="btnLogin">登录</button>
+      </form>
+      <!-- 注册表单 -->
+      <form class="login-form" id="registerForm" onsubmit="return false">
+        <div class="login-error" id="registerError"></div>
+        <div class="form-group">
+          <label class="form-label">用户名</label>
+          <input type="text" class="form-input" id="registerUsername" placeholder="请输入用户名" autocomplete="username">
+        </div>
+        <div class="form-group">
+          <label class="form-label">密码</label>
+          <input type="password" class="form-input" id="registerPassword" placeholder="请输入密码" autocomplete="new-password">
+        </div>
+        <div class="form-group">
+          <label class="form-label">确认密码</label>
+          <input type="password" class="form-input" id="registerConfirmPassword" placeholder="请再次输入密码" autocomplete="new-password">
+        </div>
+        <div class="form-group">
+          <label class="form-label">昵称（选填）</label>
+          <input type="text" class="form-input" id="registerNickname" placeholder="请输入昵称">
+        </div>
+        <button type="submit" class="login-btn" id="btnRegister">注册</button>
+      </form>
+    </div>
+  </div>
+
+  <script src="assets/app.js?v=20260802a"></script>
+  <!-- PWA service worker 注册：仅在 HTTPS/localhost 生效 -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('/sw.js').catch(function (err) {
+          console.log('SW注册失败（不影响使用）:', err);
+        });
+      });
+    }
+  </script>
+</body>
+</html>
