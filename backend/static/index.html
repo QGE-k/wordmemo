@@ -9,7 +9,7 @@
   <!-- 预连接：提前建立TCP/TLS连接，减少首字节时间 -->
   <link rel="preconnect" href="/" crossorigin>
   <link rel="dns-prefetch" href="/">
-  <link rel="stylesheet" href="assets/style.css?v=20260802f">
+  <link rel="stylesheet" href="assets/style.css?v=20260802g">
   <!-- PWA 支持：允许"添加到桌面"当App用 -->
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" type="image/png" href="/icons/icon-192.png">
@@ -164,7 +164,15 @@
           </select>
         </div>
         <textarea class="form-textarea" id="batchText" placeholder="sports meeting&#10;apple n.苹果&#10;banana"></textarea>
-        <button class="btn-primary" id="btnBatchAdd">批量添加</button>
+        <button class="btn-secondary" id="btnBatchPreview">预览</button>
+        <div class="batch-preview" id="batchPreview" style="display:none">
+          <div class="batch-preview-header">
+            <span id="batchPreviewCount">0 个单词</span>
+            <button class="btn-primary btn-sm" id="btnBatchConfirm">确认导入</button>
+          </div>
+          <div class="batch-preview-list" id="batchPreviewList"></div>
+        </div>
+        <button class="btn-primary" id="btnBatchAdd" style="display:none">批量添加</button>
       </div>
 
       <!-- 文档导入 -->
@@ -319,7 +327,18 @@
     <!-- ===== 学习页 ===== -->
     <section class="page page-learn" id="page-learn">
       <div class="card-header">
+        <div class="progress-ring" id="learnProgressRing" style="display:none">
+          <svg width="36" height="36">
+            <circle class="progress-ring-bg" cx="18" cy="18" r="15"></circle>
+            <circle class="progress-ring-fill" cx="18" cy="18" r="15" stroke-dasharray="94.2" stroke-dashoffset="94.2" id="progressRingFill"></circle>
+          </svg>
+          <span class="progress-ring-text" id="progressRingText">0%</span>
+        </div>
         <span class="card-progress" id="learnProgress">0 / 0</span>
+        <span class="study-timer" id="studyTimerDisplay" style="display:none">
+          <span class="study-timer-icon">⏱</span>
+          <span id="studyTimer">00:00</span>
+        </span>
         <span class="card-close" id="learnClose">退出</span>
       </div>
       <!-- 词书选择器 -->
@@ -333,7 +352,9 @@
       <div class="mode-tabs" id="learnModeTabs">
         <button class="mode-tab active" data-mode="flip">翻卡模式</button>
         <button class="mode-tab" data-mode="choice">看词选义</button>
+        <button class="mode-tab" data-mode="reverse">看义选词</button>
         <button class="mode-tab" data-mode="spell">拼写默写</button>
+        <button class="mode-tab" data-mode="listen">听力模式</button>
         <button class="order-toggle-btn" id="learnOrderToggle" title="切换翻卡顺序">顺序</button>
       </div>
       <!-- 学习卡片容器 -->
@@ -381,6 +402,15 @@
           <div class="quiz-options" id="choiceOptions"></div>
           <div class="quiz-feedback" id="choiceFeedback"></div>
         </div>
+        <!-- 看义选词模式（中→英） -->
+        <div class="quiz-card" id="learnReverseCard" style="display:none">
+          <div class="quiz-question">
+            <span class="quiz-meaning-prompt" id="reverseMeaning"></span>
+            <p class="quiz-hint">这个释义对应的单词是？</p>
+          </div>
+          <div class="quiz-options" id="reverseOptions"></div>
+          <div class="quiz-feedback" id="reverseFeedback"></div>
+        </div>
         <!-- 拼写默写模式 -->
         <div class="quiz-card" id="learnSpellCard" style="display:none">
           <div class="quiz-question">
@@ -395,6 +425,18 @@
             <button class="btn-secondary" id="spellSkipBtn">跳过</button>
           </div>
           <div class="quiz-feedback" id="spellFeedback"></div>
+        </div>
+        <!-- 听力模式 -->
+        <div class="quiz-card listen-card" id="learnListenCard" style="display:none">
+          <button class="listen-play-btn" id="listenPlayBtn">🔊</button>
+          <p class="listen-hint">点击播放，听写单词</p>
+          <button class="listen-replay-btn" id="listenReplayBtn">再听一遍</button>
+          <input type="text" class="spell-input" id="listenInput" placeholder="输入听到的单词..." autocomplete="off" autocapitalize="off" autocorrect="off">
+          <div class="spell-actions">
+            <button class="btn-primary" id="listenSubmitBtn">确认</button>
+            <button class="btn-secondary" id="listenSkipBtn">跳过</button>
+          </div>
+          <div class="quiz-feedback" id="listenFeedback"></div>
         </div>
       </div>
       <!-- 操作按钮 -->
@@ -422,6 +464,7 @@
         <span class="card-progress" id="reviewProgress">0 / 0</span>
         <span class="card-close" id="reviewClose">退出</span>
       </div>
+      <div class="review-estimate" id="reviewEstimate" style="display:none"></div>
       <!-- 词书选择器 + 复习顺序切换 -->
       <div class="wordbook-selector" id="reviewWordbookSelector" style="display:flex;align-items:center;gap:8px;padding:8px 16px;background:var(--bg-card);border-radius:var(--radius-md);margin-bottom:12px;flex-wrap:wrap;">
         <label style="font-size:13px;color:var(--text-secondary);white-space:nowrap;">词书：</label>
@@ -434,6 +477,7 @@
       <div class="mode-tabs" id="reviewModeTabs">
         <button class="mode-tab active" data-rmode="flip">翻卡模式</button>
         <button class="mode-tab" data-rmode="choice">看词选义</button>
+        <button class="mode-tab" data-rmode="reverse">看义选词</button>
         <button class="mode-tab" data-rmode="spell">拼写默写</button>
       </div>
       <div class="flip-card-stage" id="reviewStage">
@@ -472,6 +516,15 @@
           </div>
           <div class="quiz-options" id="reviewChoiceOptions"></div>
           <div class="quiz-feedback" id="reviewChoiceFeedback"></div>
+        </div>
+        <!-- 看义选词模式（中→英） -->
+        <div class="quiz-card" id="reviewReverseCard" style="display:none">
+          <div class="quiz-question">
+            <span class="quiz-meaning-prompt" id="reviewReverseMeaning"></span>
+            <p class="quiz-hint">这个释义对应的单词是？</p>
+          </div>
+          <div class="quiz-options" id="reviewReverseOptions"></div>
+          <div class="quiz-feedback" id="reviewReverseFeedback"></div>
         </div>
         <!-- 拼写默写模式 -->
         <div class="quiz-card" id="reviewSpellCard" style="display:none">
@@ -561,10 +614,15 @@
         <h3 class="block-title">学习日历</h3>
         <div id="statsCalendar" class="calendar-container"></div>
       </div>
+    </section>
 
-      <!-- 设置区 -->
-      <div class="chart-block settings-block">
-        <h3 class="block-title">学习计划</h3>
+    <!-- ===== 设置页 ===== -->
+    <section class="page page-settings" id="page-settings">
+      <h2 class="page-title">设置</h2>
+
+      <!-- 学习计划 -->
+      <div class="settings-section">
+        <h3 class="settings-section-title">学习计划</h3>
         <div class="setting-row">
           <label class="setting-label" for="dailyGoalInput">每日学习目标</label>
           <div class="setting-control">
@@ -599,8 +657,9 @@
         </div>
       </div>
 
-      <div class="chart-block settings-block">
-        <h3 class="block-title">复习策略（防遗忘）</h3>
+      <!-- 复习策略 -->
+      <div class="settings-section">
+        <h3 class="settings-section-title">复习策略（防遗忘）</h3>
         <div class="setting-row">
           <label class="setting-label" for="reviewStrategySelect">复习间隔策略</label>
           <div class="setting-control">
@@ -629,10 +688,22 @@
           </div>
         </div>
         <p class="setting-tip">标准策略：复习间隔 1→3→7→14→30 天，连续 4 次简单后标记为已掌握。开启防遗忘后，已掌握单词会按回顾间隔定期重新出现，避免长期不复习而遗忘。</p>
+        <!-- 策略对比表 -->
+        <table class="strategy-table" id="strategyTable">
+          <thead>
+            <tr><th>策略</th><th>第1次</th><th>第2次</th><th>第3次</th><th>第4次</th><th>第5次</th><th>掌握阈值</th></tr>
+          </thead>
+          <tbody>
+            <tr id="strategy-row-relaxed"><td>宽松</td><td>2天</td><td>5天</td><td>10天</td><td>20天</td><td>45天</td><td>3次</td></tr>
+            <tr id="strategy-row-standard"><td>标准</td><td>1天</td><td>3天</td><td>7天</td><td>14天</td><td>30天</td><td>4次</td></tr>
+            <tr id="strategy-row-strict"><td>严格</td><td>1天</td><td>2天</td><td>4天</td><td>7天</td><td>15天</td><td>6次</td></tr>
+          </tbody>
+        </table>
       </div>
 
-      <div class="chart-block settings-block">
-        <h3 class="block-title">账户管理</h3>
+      <!-- 账户管理 -->
+      <div class="settings-section">
+        <h3 class="settings-section-title">账户管理</h3>
         <div class="setting-row">
           <label class="setting-label">当前用户</label>
           <div class="setting-control">
@@ -647,8 +718,9 @@
         </div>
       </div>
 
-      <div class="chart-block settings-block">
-        <h3 class="block-title">词库管理</h3>
+      <!-- 词库管理 -->
+      <div class="settings-section">
+        <h3 class="settings-section-title">词库管理</h3>
         <div class="setting-row">
           <label class="setting-label">数据</label>
           <div class="setting-control">
@@ -659,7 +731,7 @@
         <div class="setting-row">
           <label class="setting-label">关于</label>
           <div class="setting-control">
-            <span class="setting-text">词记 WordMemo v1.1</span>
+            <span class="setting-text">词记 WordMemo v1.2</span>
           </div>
         </div>
       </div>
@@ -700,6 +772,10 @@
       <span class="tab-icon tab-icon-stats"></span>
       <span class="tab-label">统计</span>
     </button>
+    <button class="tab-item" data-page="settings">
+      <span class="tab-icon tab-icon-settings">⚙</span>
+      <span class="tab-label">设置</span>
+    </button>
     <button class="tab-item tab-admin-only" data-page="admin" style="display:none">
       <span class="tab-icon tab-icon-admin">管</span>
       <span class="tab-label">管理</span>
@@ -711,6 +787,9 @@
 
   <!-- ============ Toast 提示容器 ============ -->
   <div class="toast-container" id="toastContainer"></div>
+
+  <!-- ============ 下拉刷新指示器 ============ -->
+  <div class="pull-refresh-indicator" id="pullRefreshIndicator" style="display:none">↓</div>
 
   <!-- ============ 单词详情弹窗 ============ -->
   <div class="modal-overlay" id="wordDetailModal">
@@ -905,7 +984,13 @@
         </div>
         <div class="form-group">
           <label class="form-label">密码</label>
-          <input type="password" class="form-input" id="registerPassword" placeholder="请输入密码" autocomplete="new-password">
+          <input type="password" class="form-input" id="registerPassword" placeholder="请输入密码（至少6位）" autocomplete="new-password">
+          <div class="password-strength" id="passwordStrength" style="display:none">
+            <div class="password-strength-bar"></div>
+            <div class="password-strength-bar"></div>
+            <div class="password-strength-bar"></div>
+          </div>
+          <p class="password-strength-text" id="passwordStrengthText" style="display:none"></p>
         </div>
         <div class="form-group">
           <label class="form-label">确认密码</label>
@@ -920,7 +1005,7 @@
     </div>
   </div>
 
-  <script src="assets/app.js?v=20260802c"></script>
+  <script src="assets/app.js?v=20260802d"></script>
   <!-- PWA service worker 注册：仅在 HTTPS/localhost 生效 -->
   <script>
     if ('serviceWorker' in navigator) {

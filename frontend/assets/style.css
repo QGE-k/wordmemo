@@ -3395,3 +3395,483 @@ input, textarea, select {
   margin-top: 2px;
   opacity: 0.9;
 }
+
+/* ================================================================
+   暗色模式
+   ================================================================ */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --primary: #818cf8;
+    --primary-light: #a5b4fc;
+    --primary-dark: #6366f1;
+    --primary-bg: #1e1e2e;
+    --accent: #94a3b8;
+    --accent-bg: #1e293b;
+    --success: #34d399;
+    --warning: #fbbf24;
+    --danger: #f87171;
+    --info: #22d3ee;
+    --text-primary: #f1f5f9;
+    --text-secondary: #94a3b8;
+    --text-tertiary: #64748b;
+    --bg-page: #0f0f1a;
+    --bg-card: #1e1e2e;
+    --bg-input: #2a2a3c;
+    --border: #334155;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.2), 0 1px 3px rgba(0,0,0,0.2);
+    --shadow-md: 0 2px 4px rgba(0,0,0,0.2), 0 4px 8px rgba(0,0,0,0.2);
+    --shadow-lg: 0 4px 8px rgba(0,0,0,0.3), 0 8px 16px rgba(0,0,0,0.3);
+    --shadow-xl: 0 8px 16px rgba(0,0,0,0.4), 0 16px 32px rgba(0,0,0,0.4);
+  }
+  body { background: var(--bg-page); color: var(--text-primary); }
+  .app-content { background: var(--bg-page); }
+  .tab-bar { background: var(--bg-card); border-color: var(--border); }
+  .tab-item { color: var(--text-tertiary); }
+  .tab-item.active { color: var(--primary); }
+  .flip-card-front, .flip-card-back { background: var(--bg-card); color: var(--text-primary); border-color: var(--border); }
+  .word-item { background: var(--bg-card); border-color: var(--border); }
+  .word-item:active { background: var(--bg-input); }
+  .form-input, .form-select, .form-textarea, .search-input, .setting-input, .setting-select {
+    background: var(--bg-input); color: var(--text-primary); border-color: var(--border);
+  }
+  .modal-sheet { background: var(--bg-card); }
+  .modal-overlay { background: rgba(0,0,0,0.7); }
+  .quiz-option { background: var(--bg-card); border-color: var(--border); color: var(--text-primary); }
+  .quiz-option.selected { background: var(--primary); color: #fff; }
+  .overview-card, .stat-card, .chart-block, .stats-cell, .home-actions {
+    background: var(--bg-card);
+  }
+  .overview-num, .stat-card-num, .stats-num { color: var(--primary); }
+  .checkin-btn { background: var(--primary); color: #fff; }
+  .checkin-btn:disabled { background: var(--bg-input); color: var(--text-tertiary); }
+  .rating-btn { background: var(--bg-card); border-color: var(--border); }
+  .mode-tab { background: var(--bg-card); color: var(--text-secondary); border-color: var(--border); }
+  .mode-tab.active { background: var(--primary); color: #fff; }
+  .order-toggle-btn { background: var(--bg-card); color: var(--text-secondary); border-color: var(--border); }
+  .wordbook-chip { background: var(--bg-card); color: var(--text-secondary); border-color: var(--border); }
+  .wordbook-chip.active { background: var(--primary); color: #fff; }
+  .filter-tab { background: var(--bg-card); color: var(--text-secondary); border-color: var(--border); }
+  .filter-tab.active { background: var(--primary); color: #fff; }
+  .sort-select { background: var(--bg-card); color: var(--text-secondary); border-color: var(--border); }
+  .login-card { background: var(--bg-card); }
+  .login-overlay { background: rgba(0,0,0,0.8); }
+  .home-greeting .greeting-sub { color: var(--text-secondary); }
+  .home-greeting .greeting-title { color: var(--text-primary); }
+  .action-btn { background: var(--bg-card); }
+  .action-btn.secondary { background: var(--bg-input); }
+  .toast { background: var(--bg-card); color: var(--text-primary); border-color: var(--border); }
+  .skeleton-item { background: var(--bg-input); }
+  .pull-refresh-indicator { background: var(--bg-card); color: var(--text-secondary); }
+}
+
+/* ================================================================
+   环形进度条
+   ================================================================ */
+.progress-ring {
+  width: 36px;
+  height: 36px;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.progress-ring svg {
+  transform: rotate(-90deg);
+}
+.progress-ring-bg {
+  fill: none;
+  stroke: var(--border);
+  stroke-width: 4;
+}
+.progress-ring-fill {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 4;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.4s ease;
+}
+.progress-ring-text {
+  position: absolute;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* ================================================================
+   成功动效
+   ================================================================ */
+@keyframes cardFlyOut {
+  0% { transform: translateX(0) rotate(0); opacity: 1; }
+  100% { transform: translateX(120%) rotate(15deg); opacity: 0; }
+}
+@keyframes correctPulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); box-shadow: 0 0 20px rgba(5,150,105,0.3); }
+  100% { transform: scale(1); }
+}
+@keyframes wrongShake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-8px); }
+  75% { transform: translateX(8px); }
+}
+.card-fly-out { animation: cardFlyOut 0.4s ease forwards; }
+.correct-pulse { animation: correctPulse 0.5s ease; }
+.wrong-shake { animation: wrongShake 0.3s ease; }
+
+/* ================================================================
+   骨架屏
+   ================================================================ */
+.skeleton-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 8px;
+}
+.skeleton-bar {
+  height: 12px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--border) 25%, var(--bg-input) 50%, var(--border) 75%);
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.5s infinite;
+}
+.skeleton-bar.short { width: 60px; }
+.skeleton-bar.medium { width: 120px; }
+.skeleton-bar.long { width: 200px; }
+@keyframes skeletonShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ================================================================
+   错误重试
+   ================================================================ */
+.error-retry-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  gap: 16px;
+}
+.error-retry-icon {
+  font-size: 40px;
+  opacity: 0.5;
+}
+.error-retry-msg {
+  font-size: 14px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+.error-retry-btn {
+  padding: 10px 24px;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+/* ================================================================
+   下拉刷新
+   ================================================================ */
+.pull-refresh-indicator {
+  position: fixed;
+  top: -50px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  box-shadow: var(--shadow-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  z-index: 400;
+  transition: top 0.2s ease;
+}
+.pull-refresh-indicator.active { top: 10px; }
+.pull-refresh-indicator.spinning { animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: translateX(-50%) rotate(360deg); } }
+
+/* ================================================================
+   复习预估时间
+   ================================================================ */
+.review-estimate {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  padding: 4px 12px;
+  text-align: center;
+}
+
+/* ================================================================
+   设置页样式
+   ================================================================ */
+.page-settings .settings-section {
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
+  margin: 12px 16px;
+  padding: 16px;
+  box-shadow: var(--shadow-sm);
+}
+.page-settings .settings-section-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: var(--text-primary);
+}
+
+/* ================================================================
+   词书进度徽章
+   ================================================================ */
+.wordbook-progress-badge {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  margin-left: 4px;
+}
+
+/* ================================================================
+   密码强度指示器
+   ================================================================ */
+.password-strength {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+}
+.password-strength-bar {
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  transition: background 0.2s;
+}
+.password-strength-bar.active.weak { background: var(--danger); }
+.password-strength-bar.active.medium { background: var(--warning); }
+.password-strength-bar.active.strong { background: var(--success); }
+.password-strength-text {
+  font-size: 11px;
+  margin-top: 4px;
+  color: var(--text-tertiary);
+}
+
+/* ================================================================
+   听力模式
+   ================================================================ */
+/* 听力模式 */
+.listen-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  padding: 30px 20px;
+}
+.listen-play-btn {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  border: none;
+  font-size: 28px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-md);
+  transition: transform 0.2s;
+}
+.listen-play-btn:active { transform: scale(0.95); }
+.listen-play-btn.playing { animation: pulse 1s infinite; }
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(74,127,255,0.4); }
+  50% { box-shadow: 0 0 0 12px rgba(74,127,255,0); }
+}
+.listen-hint {
+  font-size: 14px;
+  color: var(--text-tertiary);
+}
+.listen-replay-btn {
+  padding: 6px 16px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* ================================================================
+   批量导入预览
+   ================================================================ */
+/* 批量导入预览 */
+.batch-preview {
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.batch-preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 14px;
+  background: var(--bg-input);
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.batch-preview-list {
+  max-height: 240px;
+  overflow-y: auto;
+}
+.batch-preview-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+.batch-preview-item:last-child { border-bottom: none; }
+.batch-preview-word { font-weight: 600; color: var(--text-primary); min-width: 100px; }
+.batch-preview-meaning { color: var(--text-secondary); flex: 1; }
+.batch-preview-dup { color: var(--warning); font-size: 12px; }
+.batch-preview-remove {
+  width: 24px; height: 24px;
+  border: none; background: none;
+  color: var(--danger); cursor: pointer;
+  font-size: 18px; line-height: 1;
+}
+
+/* ================================================================
+   复习策略可视化
+   ================================================================ */
+/* 复习策略可视化 */
+.strategy-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 12px;
+  font-size: 13px;
+}
+.strategy-table th, .strategy-table td {
+  padding: 8px 12px;
+  text-align: center;
+  border: 1px solid var(--border);
+}
+.strategy-table th {
+  background: var(--bg-input);
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+.strategy-table td { color: var(--text-primary); }
+.strategy-table .active-strategy { background: var(--primary); color: #fff; }
+.strategy-table .active-strategy th { background: var(--primary); color: #fff; }
+
+/* ================================================================
+   学习时长
+   ================================================================ */
+/* 学习时长 */
+.study-timer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.study-timer-icon { font-size: 14px; }
+
+/* ================================================================
+   统计扩展
+   ================================================================ */
+/* 统计扩展 */
+.stats-accuracy-chart, .stats-difficulty-chart {
+  margin-top: 16px;
+}
+.difficulty-bar {
+  display: flex;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  margin-top: 8px;
+}
+.difficulty-bar-segment {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: #fff;
+  transition: width 0.3s ease;
+}
+.difficulty-legend {
+  display: flex;
+  gap: 16px;
+  margin-top: 8px;
+  font-size: 12px;
+}
+.difficulty-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.difficulty-legend-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+}
+
+/* ================================================================
+   管理员增强
+   ================================================================ */
+/* 管理员增强 */
+.admin-user-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.admin-action-btn {
+  padding: 4px 10px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.admin-action-btn.danger { color: var(--danger); border-color: var(--danger); }
+.admin-action-btn.warning { color: var(--warning); border-color: var(--warning); }
+
+/* ================================================================
+   密码找回
+   ================================================================ */
+/* 密码找回 */
+.reset-link {
+  color: var(--primary);
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: none;
+}
+.reset-link:hover { text-decoration: underline; }
+.security-question {
+  padding: 12px;
+  background: var(--bg-input);
+  border-radius: var(--radius-sm);
+  margin-top: 8px;
+}
+
+/* ================================================================
+   单词去重提示
+   ================================================================ */
+/* 单词去重提示 */
+.dup-warning {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: rgba(251,191,36,0.1);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-sm);
+  color: var(--warning);
+  font-size: 12px;
+  margin-top: 6px;
+}

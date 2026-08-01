@@ -14,7 +14,7 @@ from werkzeug.utils import secure_filename
 from sqlalchemy import case
 
 from config import Config
-from models import db, Word, LearnHistory, Setting, Wordbook, User
+from models import db, Word, LearnHistory, Setting, Wordbook, User, LearnSession
 from services.ocr_service import OCRService
 from services.ai_service import AIService
 from services.dictionary_service import DictionaryService
@@ -26,6 +26,8 @@ app = Flask(__name__)
 app.config.from_object(Config)
 # session 密钥
 app.secret_key = os.environ.get('SECRET_KEY', 'wordmemo-dev-secret-key-2024')
+# session 过期时间：登录后 7 天内有效（需在登录时设置 session.permanent = True 生效）
+app.permanent_session_lifetime = timedelta(days=7)
 
 # 启用CORS，允许前端跨域访问（支持 credentials）
 CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
@@ -89,11 +91,15 @@ def auth_register():
 
     if len(username) < 2 or len(username) > 20:
         return jsonify({'success': False, 'error': '用户名长度需2-20个字符'}), 400
-    if len(password) < 4:
-        return jsonify({'success': False, 'error': '密码至少4个字符'}), 400
+    if len(password) < 6:
+        return jsonify({'success': False, 'error': '密码至少6个字符'}), 400
 
     if User.query.filter_by(username=username).first():
         return jsonify({'success': False, 'error': '用户名已存在'}), 409
+
+    # 安全问题及答案（用于密码重置，可选；未提供时使用默认问题且答案为空）
+    security_question = (data.get('security_question') or 'What is your favorite color?').strip()
+    security_answer = (data.get('security_answer') or '').strip()
 
     # 第一个注册的用户自动成为管理员
     is_first = User.query.count() == 0
@@ -101,12 +107,15 @@ def auth_register():
         username=username,
         nickname=data.get('nickname', username),
         role='admin' if is_first else 'user',
+        security_question=security_question,
+        security_answer=security_answer,
     )
     user.set_password(password)
     db.session.add(user)
     db.session.commit()
 
     session['user_id'] = user.id
+    session.permanent = True
     return jsonify({'success': True, 'data': user.to_dict()}), 201
 
 
@@ -121,7 +130,13 @@ def auth_login():
     if not user or not user.check_password(data['password']):
         return jsonify({'success': False, 'error': '用户名或密码错误'}), 401
 
+    # 账号被禁用不允许登录（is_active 为 None 时按启用处理，兼容旧数据）
+    if user.is_active is False:
+        return jsonify({'success': False, 'error': '该账号已被禁用，请联系管理员'}), 403
+
     session['user_id'] = user.id
+    # 启用永久会话，配合 app.permanent_session_lifetime 实现 7 天有效期
+    session.permanent = True
     return jsonify({'success': True, 'data': user.to_dict()})
 
 
@@ -139,6 +154,51 @@ def auth_me():
     if not user:
         return jsonify({'success': False, 'error': '未登录'}), 401
     return jsonify({'success': True, 'data': user.to_dict()})
+
+
+@app.route('/api/auth/reset_password', methods=['POST'])
+def auth_reset_password():
+    """
+    密码重置：通过安全问题答案重置密码（简单版）
+    请求体JSON: {"username": "xxx", "new_password": "xxx", "security_answer": "xxx"}
+    校验规则：
+    - 用户必须存在
+    - 新密码至少 6 个字符
+    - 若用户设置了安全问题答案，需与提交的 security_answer 匹配（不区分大小写）
+    - 旧用户未设置安全问题答案时，要求提供非空答案作为兜底校验
+    """
+    data = request.get_json()
+    if not data or not data.get('username') or not data.get('new_password'):
+        return jsonify({'success': False, 'error': '请提供用户名和新密码'}), 400
+
+    username = data['username'].strip()
+    new_password = data['new_password']
+    security_answer = (data.get('security_answer') or '').strip()
+
+    if len(new_password) < 6:
+        return jsonify({'success': False, 'error': '新密码至少6个字符'}), 400
+
+    user = User.query.filter_by(username=username).first()
+    if not user:
+        return jsonify({'success': False, 'error': '用户不存在'}), 404
+
+    # 安全问题答案校验
+    stored_answer = (user.security_answer or '').strip()
+    if stored_answer:
+        # 已设置安全问题：答案需匹配（不区分大小写）
+        if stored_answer.lower() != security_answer.lower():
+            return jsonify({'success': False, 'error': '安全问题答案不正确'}), 403
+    else:
+        # 旧用户未设置安全问题答案：要求提供非空答案作为兜底
+        if not security_answer:
+            return jsonify({
+                'success': False,
+                'error': '该账号未设置安全问题，请联系管理员重置密码',
+            }), 400
+
+    user.set_password(new_password)
+    db.session.commit()
+    return jsonify({'success': True, 'message': '密码已重置，请使用新密码登录'})
 
 
 @app.route('/api/admin/users', methods=['GET'])
@@ -203,6 +263,156 @@ def admin_delete_user(user_id):
     db.session.commit()
 
     return jsonify({'success': True, 'message': f'已删除用户 {target_user.username}'})
+
+
+@app.route('/api/admin/reset_user_password', methods=['POST'])
+def admin_reset_user_password():
+    """管理员：重置任意用户的密码
+    请求体JSON: {"user_id": 1, "new_password": "xxx"}
+    """
+    err = require_admin()
+    if err:
+        return err
+
+    data = request.get_json() or {}
+    user_id = data.get('user_id')
+    new_password = data.get('new_password')
+
+    if not user_id:
+        return jsonify({'success': False, 'error': '请提供 user_id'}), 400
+    if not new_password or len(new_password) < 6:
+        return jsonify({'success': False, 'error': '新密码至少6个字符'}), 400
+
+    target_user = User.query.get(user_id)
+    if not target_user:
+        return jsonify({'success': False, 'error': '用户不存在'}), 404
+
+    target_user.set_password(new_password)
+    db.session.commit()
+    return jsonify({
+        'success': True,
+        'message': f'已重置用户 {target_user.username} 的密码',
+    })
+
+
+@app.route('/api/admin/toggle_user', methods=['POST'])
+def admin_toggle_user():
+    """管理员：启用/禁用用户账号
+    请求体JSON: {"user_id": 1, "is_active": true/false}
+    不传 is_active 时按当前状态取反（切换）
+    """
+    err = require_admin()
+    if err:
+        return err
+
+    data = request.get_json() or {}
+    user_id = data.get('user_id')
+    if not user_id:
+        return jsonify({'success': False, 'error': '请提供 user_id'}), 400
+
+    target_user = User.query.get(user_id)
+    if not target_user:
+        return jsonify({'success': False, 'error': '用户不存在'}), 404
+
+    current = get_current_user_id()
+    if current == user_id:
+        return jsonify({'success': False, 'error': '不能禁用当前登录的管理员账号'}), 400
+
+    if 'is_active' in data:
+        target_user.is_active = bool(data['is_active'])
+    else:
+        # 未指定则切换当前状态（None 视为启用）
+        target_user.is_active = False if target_user.is_active is not False else True
+
+    db.session.commit()
+    return jsonify({
+        'success': True,
+        'data': target_user.to_dict(),
+        'message': f'用户 {target_user.username} 已{"启用" if target_user.is_active else "禁用"}',
+    })
+
+
+@app.route('/api/admin/user_stats/<int:user_id>', methods=['GET'])
+def admin_user_stats(user_id):
+    """管理员：获取指定用户的详细学习统计"""
+    err = require_admin()
+    if err:
+        return err
+
+    target_user = User.query.get(user_id)
+    if not target_user:
+        return jsonify({'success': False, 'error': '用户不存在'}), 404
+
+    # 单词统计
+    words = Word.query.filter_by(user_id=user_id).all()
+    total = len(words)
+    new_count = sum(1 for w in words if w.status == 'new')
+    review_count = sum(1 for w in words if w.status == 'review')
+    mastered_count = sum(1 for w in words if w.status == 'mastered')
+    # 高频错词（wrong_count > 0）
+    wrong_words = [w for w in words if (w.wrong_count or 0) > 0]
+    total_wrong = sum((w.wrong_count or 0) for w in words)
+    total_reviews = sum((w.review_count or 0) for w in words)
+
+    # 单词本统计
+    wordbooks = Wordbook.query.filter_by(user_id=user_id).all()
+
+    # 最近 7 天学习历史
+    today = date.today()
+    seven_days_ago = today - timedelta(days=6)
+    history = LearnHistory.query.filter(
+        LearnHistory.date >= seven_days_ago
+    ).order_by(LearnHistory.date).all()
+    history_data = []
+    for i in range(7):
+        d = seven_days_ago + timedelta(days=i)
+        count = 0
+        correct = 0
+        total_rev = 0
+        for h in history:
+            if h.date == d:
+                count = h.count or 0
+                correct = h.correct_count or 0
+                total_rev = h.total_count or 0
+                break
+        accuracy = round(correct / total_rev * 100, 1) if total_rev else 0.0
+        history_data.append({
+            'date': d.isoformat(),
+            'count': count,
+            'correct_count': correct,
+            'total_count': total_rev,
+            'accuracy': accuracy,
+        })
+
+    # 平均准确率
+    sum_correct = sum(h['correct_count'] for h in history_data)
+    sum_total = sum(h['total_count'] for h in history_data)
+    avg_accuracy = round(sum_correct / sum_total * 100, 1) if sum_total else 0.0
+
+    return jsonify({
+        'success': True,
+        'data': {
+            'user': target_user.to_dict(),
+            'word_stats': {
+                'total': total,
+                'new': new_count,
+                'review': review_count,
+                'mastered': mastered_count,
+            },
+            'review_stats': {
+                'total_reviews': total_reviews,
+                'wrong_word_count': len(wrong_words),
+                'total_wrong_count': total_wrong,
+                'avg_accuracy': avg_accuracy,
+            },
+            'wordbook_count': len(wordbooks),
+            'recent_wrong_words': [
+                {'word': w.word, 'wrong_count': w.wrong_count, 'review_count': w.review_count}
+                for w in sorted(wrong_words, key=lambda x: x.wrong_count or 0, reverse=True)[:20]
+            ],
+            'history': history_data,
+        },
+    })
 
 
 def analyze_word_with_fallback(word):
@@ -350,6 +560,22 @@ def update_learn_history(count=1):
     else:
         history = LearnHistory(date=today, count=count)
         db.session.add(history)
+    db.session.commit()
+
+
+def update_review_accuracy(is_correct):
+    """更新今日复习准确率统计（correct_count/total_count）
+    参数:
+        is_correct: 本次复习是否正确（rating 为 good/easy 视为正确，again/hard 视为错误）
+    """
+    today = date.today()
+    history = LearnHistory.query.filter_by(date=today).first()
+    if not history:
+        history = LearnHistory(date=today, count=0)
+        db.session.add(history)
+    history.total_count = (history.total_count or 0) + 1
+    if is_correct:
+        history.correct_count = (history.correct_count or 0) + 1
     db.session.commit()
 
 
@@ -1109,6 +1335,52 @@ def get_similar_distractors():
     })
 
 
+@app.route('/api/words/check_duplicate', methods=['GET'])
+def check_duplicate_word():
+    """检查单词是否已在指定单词本中存在
+    查询参数:
+    - word: 要检查的单词文本（必填）
+    - wordbook_id: 单词本 ID（不传或 0=未归类，具体 id=该单词本）
+    返回: {"exists": true/false, "word": {...}|null}
+    """
+    word_text = (request.args.get('word', '') or '').strip().lower()
+    wordbook_id_raw = (request.args.get('wordbook_id', '') or '').strip()
+
+    if not word_text:
+        return jsonify({'success': False, 'error': '请提供 word 参数'}), 400
+
+    # 规范化空白字符，与 add_word 保持一致
+    word_text = re.sub(r'\s+', ' ', word_text).strip()
+
+    user_id = get_current_user_id()
+
+    # 解析 wordbook_id：空/0 = 未归类（NULL），具体数字 = 该单词本
+    wordbook_id = None
+    if wordbook_id_raw and wordbook_id_raw != '0':
+        try:
+            wordbook_id = int(wordbook_id_raw)
+        except ValueError:
+            return jsonify({'success': False, 'error': 'wordbook_id 必须是整数'}), 400
+
+    # 按词本去重查询（与 add_word 的查重逻辑一致）
+    query = Word.query.filter(Word.word == word_text)
+    if user_id:
+        query = query.filter_by(user_id=user_id)
+    if wordbook_id is None:
+        query = query.filter(Word.wordbook_id.is_(None))
+    else:
+        query = query.filter_by(wordbook_id=wordbook_id)
+
+    existing = query.first()
+    return jsonify({
+        'success': True,
+        'data': {
+            'exists': existing is not None,
+            'word': existing.to_dict() if existing else None,
+        },
+    })
+
+
 # ==================== 文档导入API ====================
 
 ALLOWED_DOC_EXT = {'txt', 'docx', 'xlsx', 'xls', 'pdf'}
@@ -1649,6 +1921,132 @@ def get_stats():
     })
 
 
+@app.route('/api/stats/enhanced', methods=['GET'])
+def get_enhanced_stats():
+    """增强统计：准确率趋势、平均每日学习时长、难度分布、遗忘曲线
+    可选查询参数:
+    - daily_times: 前端 localStorage 中的每日学习时长（JSON 数组，如 [{"date":"2024-01-01","minutes":30}]）
+                   未提供时回退到 learn_sessions 表数据
+    """
+    user_id = get_current_user_id()
+    today = date.today()
+    seven_days_ago = today - timedelta(days=6)
+
+    # ---------- 1. accuracy_trend: 最近 7 天准确率 ----------
+    history = LearnHistory.query.filter(
+        LearnHistory.date >= seven_days_ago
+    ).order_by(LearnHistory.date).all()
+    accuracy_trend = []
+    for i in range(7):
+        d = seven_days_ago + timedelta(days=i)
+        correct = 0
+        total_rev = 0
+        learned = 0
+        for h in history:
+            if h.date == d:
+                correct = h.correct_count or 0
+                total_rev = h.total_count or 0
+                learned = h.count or 0
+                break
+        accuracy = round(correct / total_rev * 100, 1) if total_rev else 0.0
+        accuracy_trend.append({
+            'date': d.isoformat(),
+            'accuracy': accuracy,
+            'correct': correct,
+            'total': total_rev,
+            'learned': learned,
+        })
+
+    # ---------- 2. avg_daily_time: 平均每日学习时长（分钟）----------
+    # 优先使用前端 localStorage 传入的数据，否则回退到 learn_sessions 表
+    avg_daily_time = 0.0
+    daily_time_detail = []
+    daily_times_param = request.args.get('daily_times', '').strip()
+    frontend_times = None
+    if daily_times_param:
+        import json as _json
+        try:
+            frontend_times = _json.loads(daily_times_param)
+        except (ValueError, TypeError):
+            frontend_times = None
+
+    # 构建最近 7 天的时长映射
+    time_map = {}
+    if frontend_times and isinstance(frontend_times, list):
+        for item in frontend_times:
+            if isinstance(item, dict) and item.get('date'):
+                try:
+                    time_map[item['date']] = float(item.get('minutes', 0) or 0)
+                except (ValueError, TypeError):
+                    continue
+    else:
+        # 回退：从 learn_sessions 表按日期汇总
+        sessions = LearnSession.query.filter(
+            LearnSession.date >= seven_days_ago
+        )
+        if user_id:
+            sessions = sessions.filter_by(user_id=user_id)
+        sessions = sessions.all()
+        for s in sessions:
+            key = s.date.isoformat() if s.date else None
+            if key:
+                time_map[key] = time_map.get(key, 0) + (s.duration_minutes or 0)
+
+    total_minutes = 0.0
+    for i in range(7):
+        d = seven_days_ago + timedelta(days=i)
+        minutes = time_map.get(d.isoformat(), 0.0)
+        daily_time_detail.append({'date': d.isoformat(), 'minutes': round(minutes, 1)})
+        total_minutes += minutes
+    avg_daily_time = round(total_minutes / 7, 1) if total_minutes else 0.0
+
+    # ---------- 3. difficulty_distribution: 按 review_count 分档统计单词数 ----------
+    # 0-2: easy, 3-5: medium, 6+: hard
+    base_query = Word.query
+    if user_id:
+        base_query = base_query.filter_by(user_id=user_id)
+    easy_count = base_query.filter(Word.review_count <= 2).count()
+    medium_count = base_query.filter(
+        Word.review_count >= 3, Word.review_count <= 5
+    ).count()
+    hard_count = base_query.filter(Word.review_count >= 6).count()
+    difficulty_distribution = {
+        'easy': easy_count,
+        'medium': medium_count,
+        'hard': hard_count,
+    }
+
+    # ---------- 4. forgetting_curve: 未来 7 天每日待复习单词数预测 ----------
+    # 基于 next_review 日期统计未来 7 天每天到期需要复习的单词数
+    curve = []
+    for i in range(7):
+        day = today + timedelta(days=i)
+        day_start = datetime(day.year, day.month, day.day)
+        day_end = day_start + timedelta(days=1)
+        q = Word.query.filter(
+            Word.next_review.isnot(None),
+            Word.next_review >= day_start,
+            Word.next_review < day_end,
+        )
+        if user_id:
+            q = q.filter_by(user_id=user_id)
+        curve.append({
+            'date': day.isoformat(),
+            'review_count': q.count(),
+        })
+
+    return jsonify({
+        'success': True,
+        'data': {
+            'accuracy_trend': accuracy_trend,
+            'avg_daily_time': avg_daily_time,
+            'daily_time_detail': daily_time_detail,
+            'difficulty_distribution': difficulty_distribution,
+            'forgetting_curve': curve,
+        },
+    })
+
+
 # ==================== 复习API（艾宾浩斯遗忘曲线） ====================
 
 @app.route('/api/review/today', methods=['GET'])
@@ -1778,6 +2176,11 @@ def submit_review(word_id):
     # 记录本次复习
     word.last_review = now
     word.review_count = (word.review_count or 0) + 1
+    # 错题追踪：again/hard 计为答错，累加 wrong_count；good/easy 不改变 wrong_count
+    # 前端可依据 wrong_count 优先复习高频错词
+    is_correct = rating in ('good', 'easy')
+    if not is_correct:
+        word.wrong_count = (word.wrong_count or 0) + 1
 
     # 防遗忘：已掌握单词的回顾，只按 anti_forget_interval 安排，不改变状态
     if was_mastered and anti_forget:
@@ -1826,6 +2229,12 @@ def submit_review(word_id):
         update_learn_history(1)
 
     db.session.commit()
+
+    # 更新今日复习准确率统计（total_count +1，正确时 correct_count +1）
+    try:
+        update_review_accuracy(is_correct)
+    except Exception as e:
+        print(f"[统计] 更新复习准确率失败: {e}")
 
     return jsonify({
         'success': True,
@@ -2346,6 +2755,80 @@ def fix_word_unique_constraint():
             conn.commit()
 
 
+def ensure_user_security_columns():
+    """
+    数据库迁移：为 users 表添加 security_question 和 security_answer 列（如果不存在）
+    用于密码重置功能
+    """
+    from sqlalchemy import text, inspect
+    inspector = inspect(db.engine)
+    columns = [col['name'] for col in inspector.get_columns('users')]
+    new_cols = [
+        ('security_question', "VARCHAR(255) DEFAULT 'What is your favorite color?'"),
+        ('security_answer', "VARCHAR(255) DEFAULT ''"),
+    ]
+    for col_name, col_def in new_cols:
+        if col_name not in columns:
+            print(f"[迁移] 检测到 users 表缺少 {col_name} 列，正在添加...")
+            with db.engine.connect() as conn:
+                conn.execute(text(f"ALTER TABLE users ADD COLUMN {col_name} {col_def}"))
+                conn.commit()
+            print(f"[迁移] users.{col_name} 列添加完成")
+
+
+def ensure_user_active_column():
+    """
+    数据库迁移：为 users 表添加 is_active 列（如果不存在）
+    用于管理员启用/禁用用户账号
+    """
+    from sqlalchemy import text, inspect
+    inspector = inspect(db.engine)
+    columns = [col['name'] for col in inspector.get_columns('users')]
+    if 'is_active' not in columns:
+        print("[迁移] 检测到 users 表缺少 is_active 列，正在添加...")
+        with db.engine.connect() as conn:
+            conn.execute(text("ALTER TABLE users ADD COLUMN is_active BOOLEAN DEFAULT 1"))
+            conn.commit()
+        print("[迁移] users.is_active 列添加完成")
+
+
+def ensure_word_wrong_count_column():
+    """
+    数据库迁移：为 words 表添加 wrong_count 列（如果不存在）
+    用于错题追踪，前端可优先复习高频错词
+    """
+    from sqlalchemy import text, inspect
+    inspector = inspect(db.engine)
+    columns = [col['name'] for col in inspector.get_columns('words')]
+    if 'wrong_count' not in columns:
+        print("[迁移] 检测到 words 表缺少 wrong_count 列，正在添加...")
+        with db.engine.connect() as conn:
+            conn.execute(text("ALTER TABLE words ADD COLUMN wrong_count INTEGER DEFAULT 0"))
+            conn.commit()
+        print("[迁移] words.wrong_count 列添加完成")
+
+
+def ensure_learn_history_accuracy_columns():
+    """
+    数据库迁移：为 learn_history 表添加 correct_count 和 total_count 列（如果不存在）
+    用于准确率统计
+    """
+    from sqlalchemy import text, inspect
+    inspector = inspect(db.engine)
+    columns = [col['name'] for col in inspector.get_columns('learn_history')]
+    new_cols = [
+        ('correct_count', 'INTEGER DEFAULT 0'),
+        ('total_count', 'INTEGER DEFAULT 0'),
+    ]
+    for col_name, col_def in new_cols:
+        if col_name not in columns:
+            print(f"[迁移] 检测到 learn_history 表缺少 {col_name} 列，正在添加...")
+            with db.engine.connect() as conn:
+                conn.execute(text(f"ALTER TABLE learn_history ADD COLUMN {col_name} {col_def}"))
+                conn.commit()
+            print(f"[迁移] learn_history.{col_name} 列添加完成")
+
+
 with app.app_context():
     # 创建数据库表（含新的 wordbooks 表）
     db.create_all()
@@ -2361,6 +2844,14 @@ with app.app_context():
     ensure_user_id_columns()
     # 迁移：将 words.word 全局唯一改为 (word, user_id) 联合唯一
     fix_word_unique_constraint()
+    # 迁移：为 users 表添加 security_question / security_answer 列（密码重置）
+    ensure_user_security_columns()
+    # 迁移：为 users 表添加 is_active 列（启用/禁用账号）
+    ensure_user_active_column()
+    # 迁移：为 words 表添加 wrong_count 列（错题追踪）
+    ensure_word_wrong_count_column()
+    # 迁移：为 learn_history 表添加 correct_count / total_count 列（准确率统计）
+    ensure_learn_history_accuracy_columns()
     # 插入演示数据
     init_demo_data()
     # 升级已有单词的拆解数据和记忆方法到新结构

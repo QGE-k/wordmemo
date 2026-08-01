@@ -536,6 +536,11 @@ async function handleRegister() {
     errEl.style.display = 'block';
     return;
   }
+  if (password.length < 6) {
+    errEl.textContent = '密码至少需要6个字符';
+    errEl.style.display = 'block';
+    return;
+  }
   if (password !== confirmPassword) {
     errEl.textContent = '两次密码不一致';
     errEl.style.display = 'block';
@@ -845,7 +850,34 @@ function hideLoading() {
 function handleError(err) {
   hideLoading();
   console.error(err);
-  showToast(err.message || '操作失败', 'error');
+  const msg = err.message || '操作失败';
+  showToast(msg, 'error', 4000);
+}
+
+function handleErrorWithRetry(err, retryFn) {
+  hideLoading();
+  console.error(err);
+  const msg = err.message || '网络错误';
+  // 显示带重试按钮的Toast
+  const container = $('#toastContainer');
+  if (!container) { showToast(msg, 'error'); return; }
+  const toast = document.createElement('div');
+  toast.className = 'toast toast-error';
+  toast.style.cssText = 'display:flex;align-items:center;gap:12px;';
+  toast.innerHTML = `<span style="flex:1">${escapeHtml(msg)}</span><button class="error-retry-btn" style="padding:4px 12px;font-size:12px;">重试</button>`;
+  container.appendChild(toast);
+  requestAnimationFrame(() => toast.classList.add('show'));
+  toast.querySelector('.error-retry-btn').addEventListener('click', () => {
+    toast.classList.remove('show');
+    setTimeout(() => toast.remove(), 300);
+    if (retryFn) retryFn();
+  });
+  setTimeout(() => {
+    if (toast.parentNode) {
+      toast.classList.remove('show');
+      setTimeout(() => toast.remove(), 300);
+    }
+  }, 6000);
 }
 
 /**
@@ -883,6 +915,252 @@ function shuffleArray(arr) {
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
   return arr;
+}
+
+/** 更新环形进度条 */
+function updateProgressRing(current, total) {
+  const ring = $('#learnProgressRing');
+  const fill = $('#progressRingFill');
+  const text = $('#progressRingText');
+  if (!ring || !fill || !text) return;
+  if (total === 0) {
+    ring.style.display = 'none';
+    return;
+  }
+  ring.style.display = 'inline-flex';
+  const circumference = 2 * Math.PI * 15; // r=15
+  const percent = Math.round((current / total) * 100);
+  const offset = circumference - (percent / 100) * circumference;
+  fill.style.strokeDasharray = circumference;
+  fill.style.strokeDashoffset = offset;
+  text.textContent = percent + '%';
+}
+
+/** 密码强度检测 */
+function checkPasswordStrength(password) {
+  let score = 0;
+  if (password.length >= 6) score++;
+  if (password.length >= 10) score++;
+  if (/[A-Z]/.test(password) && /[a-z]/.test(password)) score++;
+  if (/[0-9]/.test(password)) score++;
+  if (/[^A-Za-z0-9]/.test(password)) score++;
+  if (score <= 1) return { level: 'weak', text: '弱', bars: 1 };
+  if (score <= 3) return { level: 'medium', text: '中', bars: 2 };
+  return { level: 'strong', text: '强', bars: 3 };
+}
+
+/** 显示骨架屏 */
+function showSkeleton(container, count = 5) {
+  if (!container) return;
+  let html = '';
+  for (let i = 0; i < count; i++) {
+    html += `<div class="skeleton-item">
+      <div class="skeleton-bar short"></div>
+      <div class="skeleton-bar long"></div>
+      <div class="skeleton-bar medium"></div>
+    </div>`;
+  }
+  container.innerHTML = html;
+}
+
+/** 下拉刷新 */
+let pullRefreshState = { startY: 0, pulling: false };
+function initPullRefresh() {
+  const appContent = $('#appContent');
+  const indicator = $('#pullRefreshIndicator');
+  if (!appContent || !indicator) return;
+
+  appContent.addEventListener('touchstart', (e) => {
+    if (appContent.scrollTop === 0) {
+      pullRefreshState.startY = e.touches[0].clientY;
+      pullRefreshState.pulling = true;
+    } else {
+      pullRefreshState.pulling = false;
+    }
+  }, { passive: true });
+
+  appContent.addEventListener('touchmove', (e) => {
+    if (!pullRefreshState.pulling) return;
+    const diff = e.touches[0].clientY - pullRefreshState.startY;
+    if (diff > 60 && diff < 200) {
+      indicator.style.display = 'flex';
+      indicator.style.top = (diff / 4) + 'px';
+    }
+  }, { passive: true });
+
+  appContent.addEventListener('touchend', (e) => {
+    if (!pullRefreshState.pulling) return;
+    const diff = (e.changedTouches[0].clientY - pullRefreshState.startY);
+    indicator.style.top = '';
+    if (diff > 80) {
+      indicator.classList.add('active', 'spinning');
+      indicator.textContent = '';
+      // 触发当前页面刷新
+      const activePage = document.querySelector('.page.active');
+      if (activePage) {
+        const pageName = activePage.id.replace('page-', '');
+        onPageEnter(pageName);
+      }
+      setTimeout(() => {
+        indicator.classList.remove('active', 'spinning');
+        indicator.style.display = 'none';
+        indicator.textContent = '↓';
+        showToast('已刷新', 'success');
+      }, 1000);
+    } else {
+      indicator.style.display = 'none';
+    }
+    pullRefreshState.pulling = false;
+  }, { passive: true });
+}
+
+/** 页面左右滑动切换 */
+function initPageSwipe() {
+  const pages = ['home', 'library', 'learn', 'review', 'stats', 'settings'];
+  const appContent = $('#appContent');
+  if (!appContent) return;
+  let startX = 0, startY = 0, swipping = false;
+
+  appContent.addEventListener('touchstart', (e) => {
+    // 不在弹窗、卡片、输入框上才启用
+    if (e.target.closest('.modal-overlay, .quiz-option, .flip-card, input, textarea, select, .word-item')) return;
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    swipping = true;
+  }, { passive: true });
+
+  appContent.addEventListener('touchend', (e) => {
+    if (!swipping) return;
+    swipping = false;
+    const dx = e.changedTouches[0].clientX - startX;
+    const dy = e.changedTouches[0].clientY - startY;
+    // 水平滑动距离 > 80 且 垂直移动 < 40
+    if (Math.abs(dx) < 80 || Math.abs(dy) > 40) return;
+    const activePage = document.querySelector('.page.active');
+    if (!activePage) return;
+    const currentName = activePage.id.replace('page-', '');
+    const idx = pages.indexOf(currentName);
+    if (idx === -1) return;
+    if (dx > 0 && idx > 0) {
+      switchPage(pages[idx - 1]);
+    } else if (dx < 0 && idx < pages.length - 1) {
+      switchPage(pages[idx + 1]);
+    }
+  }, { passive: true });
+}
+
+/** 复习预估时间 */
+function updateReviewEstimate(count) {
+  const el = $('#reviewEstimate');
+  if (!el) return;
+  if (count === 0) {
+    el.style.display = 'none';
+    return;
+  }
+  // 预估每词约8秒
+  const seconds = count * 8;
+  const minutes = Math.ceil(seconds / 60);
+  el.textContent = `预计 ${minutes} 分钟`;
+  el.style.display = 'block';
+}
+
+/* ====================================================
+   学习时长统计 & 正确率持久化
+   ==================================================== */
+let studyStartTime = null;  // 学习开始时间
+let studyTimerInterval = null; // 计时器
+
+function startStudyTimer() {
+  studyStartTime = Date.now();
+  if (studyTimerInterval) clearInterval(studyTimerInterval);
+  studyTimerInterval = setInterval(updateStudyTimerDisplay, 1000);
+}
+
+function stopStudyTimer() {
+  if (!studyStartTime) return;
+  const elapsed = Math.floor((Date.now() - studyStartTime) / 1000); // 秒
+  studyStartTime = null;
+  if (studyTimerInterval) { clearInterval(studyTimerInterval); studyTimerInterval = null; }
+  // 保存到当天的学习时长
+  const today = new Date().toISOString().slice(0, 10);
+  const key = `wordmemo_study_time_${today}`;
+  const prev = parseInt(localStorage.getItem(key) || '0', 10);
+  localStorage.setItem(key, prev + elapsed);
+  // 更新总时长
+  const totalTime = parseInt(localStorage.getItem('wordmemo_total_study_time') || '0', 10);
+  localStorage.setItem('wordmemo_total_study_time', totalTime + elapsed);
+}
+
+function updateStudyTimerDisplay() {
+  if (!studyStartTime) return;
+  const elapsed = Math.floor((Date.now() - studyStartTime) / 1000);
+  const minutes = Math.floor(elapsed / 60);
+  const seconds = elapsed % 60;
+  const timerEl = $('#studyTimer');
+  if (timerEl) {
+    timerEl.textContent = `${String(minutes).padStart(2,'0')}:${String(seconds).padStart(2,'0')}`;
+  }
+}
+
+function getTodayStudyTime() {
+  const today = new Date().toISOString().slice(0, 10);
+  return parseInt(localStorage.getItem(`wordmemo_study_time_${today}`) || '0', 10);
+}
+
+function getTodayStudyTimeText() {
+  const seconds = getTodayStudyTime();
+  const minutes = Math.floor(seconds / 60);
+  if (minutes > 0) return `${minutes}分钟`;
+  return `${seconds}秒`;
+}
+
+// 正确率持久化
+function incrementReviewWrongCount() {
+  const today = new Date().toISOString().slice(0, 10);
+  const key = `wordmemo_review_wrong_${today}`;
+  const prev = parseInt(localStorage.getItem(key) || '0', 10);
+  localStorage.setItem(key, prev + 1);
+}
+
+function getReviewAccuracyToday() {
+  const today = new Date().toISOString().slice(0, 10);
+  const wrongCount = parseInt(localStorage.getItem(`wordmemo_review_wrong_${today}`) || '0', 10);
+  const totalReviewed = parseInt(localStorage.getItem(`wordmemo_review_total_${today}`) || '0', 10);
+  if (totalReviewed === 0) return 100;
+  return Math.max(0, Math.round((totalReviewed - wrongCount) / totalReviewed * 100));
+}
+
+// 安卓返回键处理
+function initBackButtonHandler() {
+  window.addEventListener('popstate', (e) => {
+    // 如果有弹窗打开，先关弹窗
+    const openModal = document.querySelector('.modal-overlay[style*="flex"]');
+    if (openModal) {
+      openModal.style.display = 'none';
+      history.pushState(null, '', location.href);
+      return;
+    }
+    // 如果不在首页，回到首页
+    const activePage = document.querySelector('.page.active');
+    if (activePage && activePage.id !== 'page-home') {
+      switchPage('home');
+      history.pushState(null, '', location.href);
+      return;
+    }
+    // 在首页则退出
+  });
+  // 初始压入一个状态
+  history.pushState(null, '', location.href);
+}
+
+// 单词去重检查
+async function checkWordDuplicate(word, wordbookId) {
+  try {
+    const res = await api.request(`/api/words/check_duplicate?word=${encodeURIComponent(word)}&wordbook_id=${wordbookId || ''}`);
+    return res && res.exists;
+  } catch (e) {
+    return false;
+  }
 }
 
 /**
@@ -1009,12 +1287,20 @@ function onPageEnter(pageName) {
       initLearnWordbookSelector();
       // 进入学习页时自动加载（必须已选词书）
       if (learnQueue.length === 0 && learnWordbookId !== '') loadLearnQueue();
+      startStudyTimer(); // 开始计时
+      // 显示计时器
+      const timerDisplay = $('#studyTimerDisplay');
+      if (timerDisplay) timerDisplay.style.display = 'flex';
       break;
     case 'review':
       // 复习词书自动同步为学习词书
       reviewWordbookId = learnWordbookId;
       initReviewWordbookSelector();
       if (reviewQueue.length === 0) loadReviewQueue();
+      startStudyTimer(); // 开始计时
+      // 显示计时器
+      const reviewTimerDisplay = $('#studyTimerDisplay');
+      if (reviewTimerDisplay) reviewTimerDisplay.style.display = 'flex';
       break;
     case 'input':
       // 进入录入页时刷新单词本下拉
@@ -1022,11 +1308,19 @@ function onPageEnter(pageName) {
       break;
     case 'stats':
       renderStats();
+      break;
+    case 'settings':
       loadSettings();
       break;
     case 'admin':
       renderAdminPage();
       break;
+  }
+  // 离开学习/复习页时停止计时
+  if (pageName !== 'learn' && pageName !== 'review') {
+    stopStudyTimer();
+    const timerDisplay = $('#studyTimerDisplay');
+    if (timerDisplay) timerDisplay.style.display = 'none';
   }
 }
 
@@ -1168,6 +1462,13 @@ async function handleManualAdd() {
     return;
   }
 
+  // 去重检查
+  const isDup = await checkWordDuplicate(word, '');
+  if (isDup) {
+    showToast(`单词 "${word}" 已存在`, 'warning');
+    return;
+  }
+
   try {
     showLoading('添加中...');
     await api.addWord(word, phonetic, meaning);
@@ -1178,6 +1479,98 @@ async function handleManualAdd() {
     $('#manualWord').value = '';
     $('#manualPhonetic').value = '';
     $('#manualMeaning').value = '';
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+// 批量预览
+let batchPreviewWords = [];
+async function handleBatchPreview() {
+  const text = $('#batchText').value.trim();
+  if (!text) {
+    showToast('请输入单词', 'warning');
+    return;
+  }
+  const lines = text.split(/\n+/).map(l => l.trim()).filter(Boolean);
+  batchPreviewWords = lines.map(line => {
+    const idx = line.search(/\s/);
+    if (idx > 0) {
+      return { word: line.slice(0, idx).trim(), meaning: line.slice(idx + 1).trim() };
+    }
+    return { word: line, meaning: '' };
+  }).filter(w => w.word);
+
+  if (batchPreviewWords.length === 0) {
+    showToast('未解析到有效单词', 'warning');
+    return;
+  }
+
+  // 渲染预览列表
+  const listEl = $('#batchPreviewList');
+  listEl.innerHTML = batchPreviewWords.map((w, i) => `
+    <div class="batch-preview-item" data-idx="${i}">
+      <span class="batch-preview-word">${escapeHtml(w.word)}</span>
+      <span class="batch-preview-meaning">${escapeHtml(w.meaning || '(无释义)')}</span>
+      <button class="batch-preview-remove" data-idx="${i}">×</button>
+    </div>
+  `).join('');
+  $('#batchPreviewCount').textContent = `${batchPreviewWords.length} 个单词`;
+  $('#batchPreview').style.display = 'block';
+
+  // 绑定删除按钮
+  listEl.querySelectorAll('.batch-preview-remove').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.idx);
+      batchPreviewWords.splice(idx, 1);
+      // 重新渲染
+      listEl.innerHTML = batchPreviewWords.map((w, i) => `
+        <div class="batch-preview-item" data-idx="${i}">
+          <span class="batch-preview-word">${escapeHtml(w.word)}</span>
+          <span class="batch-preview-meaning">${escapeHtml(w.meaning || '(无释义)')}</span>
+          <button class="batch-preview-remove" data-idx="${i}">×</button>
+        </div>
+      `).join('');
+      $('#batchPreviewCount').textContent = `${batchPreviewWords.length} 个单词`;
+      listEl.querySelectorAll('.batch-preview-remove').forEach(b => {
+        b.addEventListener('click', () => {
+          const i2 = parseInt(b.dataset.idx);
+          batchPreviewWords.splice(i2, 1);
+          b.parentElement.remove();
+          $('#batchPreviewCount').textContent = `${batchPreviewWords.length} 个单词`;
+        });
+      });
+    });
+  });
+}
+
+// 批量确认导入
+async function handleBatchConfirm() {
+  if (batchPreviewWords.length === 0) {
+    showToast('没有可导入的单词', 'warning');
+    return;
+  }
+  try {
+    showLoading('批量添加中...');
+    const batchWordbookId = ($('#batchWordbookSelect') || {}).value || null;
+    const pureWords = batchPreviewWords.filter(w => !w.meaning).map(w => w.word);
+    const withMeaning = batchPreviewWords.filter(w => w.meaning);
+    let added = 0;
+    if (pureWords.length > 0) {
+      const res = await api.addWordsBatch(pureWords, batchWordbookId);
+      added += (res && res.added) || (res && res.count) || pureWords.length;
+    }
+    for (const w of withMeaning) {
+      try {
+        await api.addWord(w.word, '', w.meaning);
+        added++;
+      } catch (e) { /* 单个失败继续 */ }
+    }
+    hideLoading();
+    showToast(`成功添加 ${added} 个单词`, 'success');
+    $('#batchText').value = '';
+    $('#batchPreview').style.display = 'none';
+    batchPreviewWords = [];
   } catch (err) {
     handleError(err);
   }
@@ -1915,7 +2308,9 @@ async function handleMultiStatus(newStatus) {
 
 async function renderLibrary() {
   try {
-    showLoading();
+    // 用骨架屏代替全屏loading
+    const list = $('#libraryList');
+    if (list) showSkeleton(list, 6);
     const params = {};
     if (libraryFilter !== 'all') params.status = libraryFilter;
     if (librarySearch) params.search = librarySearch;
@@ -1923,9 +2318,7 @@ async function renderLibrary() {
 
     const words = await api.getWords(params);
     libraryData = sortLibraryData(words || []);
-    hideLoading();
 
-    const list = $('#libraryList');
     if (libraryData.length === 0) {
       list.innerHTML = `
         <div class="empty-state">
@@ -2097,7 +2490,10 @@ function renderWordbookBar() {
     html += `<span class="wordbook-chip-sep"></span>`;
     wordbooks.forEach(b => {
       const active = String(libraryWordbook) === String(b.id) ? 'active' : '';
-      const count = b.word_count !== undefined ? `<span class="chip-count">${b.word_count}</span>` : '';
+      const total = b.word_count || 0;
+      const learned = b.learned_count || 0;
+      const progress = total > 0 ? `${learned}/${total}` : '';
+      const count = total !== undefined ? `<span class="chip-count">${progress}</span>` : '';
       html += `<button class="wordbook-chip ${active}" data-wordbook="${b.id}" style="${active ? `border-color:${b.color};background:${b.color}` : `border-color:${b.color}40; color:${b.color}`}">${escapeHtml(b.name)}${count}</button>`;
     });
   }
@@ -2387,12 +2783,15 @@ function renderLearnCard() {
   if (total === 0) {
     $('#learnCard').style.display = 'none';
     $('#learnChoiceCard').style.display = 'none';
+    $('#learnReverseCard').style.display = 'none';
     $('#learnSpellCard').style.display = 'none';
+    $('#learnListenCard').style.display = 'none';
     $('#learnActions').style.display = 'none';
     $('#learnExtraActions').style.display = 'none';
     $('#quizActions').style.display = 'none';
     $('#learnEmpty').style.display = 'block';
     $('#learnProgress').textContent = `0 / 0`;
+    updateProgressRing(0, 0);
     return;
   }
 
@@ -2403,13 +2802,17 @@ function renderLearnCard() {
 
   const word = learnQueue[learnIndex];
   $('#learnProgress').textContent = `${learnIndex + 1} / ${total}`;
+  // 更新环形进度条
+  updateProgressRing(learnIndex + 1, total);
   $('#learnEmpty').style.display = 'none';
 
   // 根据模式显示对应卡片
   if (learnMode === 'flip') {
     $('#learnCard').style.display = 'block';
     $('#learnChoiceCard').style.display = 'none';
+    $('#learnReverseCard').style.display = 'none';
     $('#learnSpellCard').style.display = 'none';
+    $('#learnListenCard').style.display = 'none';
     $('#learnActions').style.display = 'flex';
     $('#learnExtraActions').style.display = 'flex';
     $('#quizActions').style.display = 'none';
@@ -2417,19 +2820,43 @@ function renderLearnCard() {
   } else if (learnMode === 'choice') {
     $('#learnCard').style.display = 'none';
     $('#learnChoiceCard').style.display = 'flex';
+    $('#learnReverseCard').style.display = 'none';
     $('#learnSpellCard').style.display = 'none';
+    $('#learnListenCard').style.display = 'none';
     $('#learnActions').style.display = 'none';
     $('#learnExtraActions').style.display = 'flex';
     $('#quizActions').style.display = 'flex';
     renderChoiceCard(word);
+  } else if (learnMode === 'reverse') {
+    $('#learnCard').style.display = 'none';
+    $('#learnChoiceCard').style.display = 'none';
+    $('#learnReverseCard').style.display = 'flex';
+    $('#learnSpellCard').style.display = 'none';
+    $('#learnListenCard').style.display = 'none';
+    $('#learnActions').style.display = 'none';
+    $('#learnExtraActions').style.display = 'flex';
+    $('#quizActions').style.display = 'flex';
+    renderReverseCard(word);
   } else if (learnMode === 'spell') {
     $('#learnCard').style.display = 'none';
     $('#learnChoiceCard').style.display = 'none';
+    $('#learnReverseCard').style.display = 'none';
     $('#learnSpellCard').style.display = 'flex';
+    $('#learnListenCard').style.display = 'none';
     $('#learnActions').style.display = 'none';
     $('#learnExtraActions').style.display = 'flex';
     $('#quizActions').style.display = 'flex';
     renderSpellCard(word);
+  } else if (learnMode === 'listen') {
+    $('#learnCard').style.display = 'none';
+    $('#learnChoiceCard').style.display = 'none';
+    $('#learnReverseCard').style.display = 'none';
+    $('#learnSpellCard').style.display = 'none';
+    $('#learnListenCard').style.display = 'flex';
+    $('#learnActions').style.display = 'none';
+    $('#learnExtraActions').style.display = 'flex';
+    $('#quizActions').style.display = 'flex';
+    renderListenCard(word);
   }
 }
 
@@ -2619,6 +3046,113 @@ function handleChoiceAnswer(btn, currentWord) {
 }
 
 /**
+ * 渲染看义选词模式（中→英）
+ * 显示中文释义，选择对应的英文单词
+ */
+async function renderReverseCard(word) {
+  quizAnswered = false;
+  $('#reverseMeaning').textContent = word.meaning || '（暂无释义）';
+  $('#reverseFeedback').textContent = '';
+  $('#reverseFeedback').className = 'quiz-feedback';
+
+  // 显示正确率
+  const learnWrongCount = learnChoiceTotal - learnChoiceCorrect;
+  const learnTotalWords = learnQueue.length > 0 ? learnQueue.length : 1;
+  const accuracy = Math.max(0, Math.round((learnTotalWords - learnWrongCount) / learnTotalWords * 100));
+  const feedback = $('#reverseFeedback');
+  feedback.innerHTML = `<span class="quiz-accuracy">正确率：${accuracy}%（${learnTotalWords}词，错${learnWrongCount}个）</span>`;
+
+  // 获取干扰项（其他英文单词）
+  let distractors = [];
+  try {
+    const excludeIds = learnQueue.map(w => w.id);
+    const result = await api.getDistractors(learnWordbookId, excludeIds, 3);
+    distractors = result || [];
+  } catch (e) {
+    console.warn('获取干扰项失败，使用队列内词', e);
+  }
+
+  // 从队列中补充干扰项
+  if (distractors.length < 3) {
+    const otherWords = learnQueue.filter(w => w.word !== word.word && w.id !== word.id);
+    while (distractors.length < 3 && otherWords.length > 0) {
+      const idx = Math.floor(Math.random() * otherWords.length);
+      const w = otherWords[idx];
+      distractors.push({ word: w.word, meaning: w.meaning });
+      otherWords.splice(idx, 1);
+    }
+  }
+
+  // 过滤：单词不能为空，不能和正确答案相同
+  distractors = distractors.filter(opt => opt.word && opt.word.trim() && opt.word.trim() !== word.word.trim());
+  distractors = distractors.slice(0, 3);
+
+  // 正确答案
+  let options = [{ word: word.word, meaning: word.meaning || '' }, ...distractors];
+  options.sort(() => Math.random() - 0.5);
+
+  const optionsEl = $('#reverseOptions');
+  // 默认只显示英文单词
+  optionsEl.innerHTML = options.map(opt => `
+    <button class="quiz-option" data-word="${escapeHtml(opt.word)}">
+      <span class="quiz-option-word">${escapeHtml(opt.word)}</span>
+    </button>
+  `).join('');
+
+  // 绑定点击
+  optionsEl.querySelectorAll('.quiz-option').forEach(btn => {
+    btn.addEventListener('click', () => handleReverseAnswer(btn, word));
+  });
+}
+
+/**
+ * 处理看义选词答题
+ */
+function handleReverseAnswer(btn, currentWord) {
+  if (quizAnswered) return;
+  quizAnswered = true;
+
+  const selectedWord = btn.dataset.word;
+  const optionsEl = $('#reverseOptions');
+  const feedback = $('#reverseFeedback');
+  learnChoiceTotal++;
+
+  const learnWrongCount = learnChoiceTotal - learnChoiceCorrect;
+  const learnTotalWords = learnQueue.length > 0 ? learnQueue.length : 1;
+  const accuracy = Math.max(0, Math.round((learnTotalWords - learnWrongCount) / learnTotalWords * 100));
+
+  if (selectedWord === currentWord.word) {
+    learnChoiceCorrect++;
+    btn.classList.add('correct');
+    playCorrectSound();
+    feedback.className = 'quiz-feedback correct';
+    feedback.innerHTML = `回答正确！<span class="quiz-accuracy">正确率：${accuracy}%（${learnTotalWords}词，错${learnWrongCount}个）</span>`;
+    optionsEl.querySelectorAll('.quiz-option').forEach(b => b.classList.add('disabled'));
+    // 答对自动跳下一题
+    autoNextTimer = setTimeout(() => {
+      handleQuizNext();
+    }, 900);
+  } else {
+    btn.classList.add('wrong');
+    playWrongSound();
+    // 选错后：显示所有选项的释义
+    optionsEl.querySelectorAll('.quiz-option').forEach(b => {
+      const w = b.dataset.word;
+      // 从选项数据中找释义
+      const opt = currentWord.word === w ? currentWord : null;
+      let meaning = '';
+      // 尝试从队列中找释义
+      const queueWord = learnQueue.find(qw => qw.word === w);
+      if (queueWord) meaning = queueWord.meaning || '';
+      b.innerHTML = `<span class="quiz-option-word">${escapeHtml(w)}</span><span class="quiz-option-meaning">${escapeHtml(meaning)}</span>`;
+      if (w === currentWord.word) b.classList.add('correct');
+    });
+    feedback.className = 'quiz-feedback wrong';
+    feedback.innerHTML = `回答错误<span class="feedback-meaning">正确答案：${escapeHtml(currentWord.word)} - ${escapeHtml(currentWord.meaning || '')}</span><span class="quiz-accuracy">正确率：${accuracy}%（${learnTotalWords}词，错${learnWrongCount}个）</span>`;
+  }
+}
+
+/**
  * 渲染拼写默写模式
  */
 function renderSpellCard(word) {
@@ -2635,6 +3169,63 @@ function renderSpellCard(word) {
   setTimeout(() => input.focus(), 100);
   // 保存当前词用于校验
   input.dataset.answer = word.word;
+}
+
+/**
+ * 渲染听力模式卡片
+ * 播放单词发音，用户根据听到的内容拼写
+ */
+function renderListenCard(word) {
+  quizAnswered = false;
+  $('#listenFeedback').textContent = '';
+  $('#listenFeedback').className = 'quiz-feedback';
+  const input = $('#listenInput');
+  input.value = '';
+  input.className = 'spell-input';
+  input.disabled = false;
+  input.dataset.answer = word.word;
+  // 自动播放发音
+  setTimeout(() => {
+    speakWord(word.word, $('#listenPlayBtn'));
+  }, 300);
+  // 自动聚焦输入框
+  setTimeout(() => input.focus(), 1000);
+}
+
+/**
+ * 处理听力模式提交
+ */
+function handleListenSubmit() {
+  if (quizAnswered) return;
+  const input = $('#listenInput');
+  const answer = input.dataset.answer || '';
+  const userAns = input.value.trim().toLowerCase();
+  const correctAns = answer.toLowerCase();
+
+  if (!userAns) {
+    showToast('请输入单词', 'error');
+    return;
+  }
+
+  quizAnswered = true;
+  input.disabled = true;
+  const feedback = $('#listenFeedback');
+
+  if (userAns === correctAns) {
+    input.classList.add('correct');
+    feedback.className = 'quiz-feedback correct';
+    feedback.textContent = '拼写正确！';
+    playCorrectSound();
+    autoNextTimer = setTimeout(() => {
+      autoNextTimer = null;
+      handleQuizNext();
+    }, 900);
+  } else {
+    input.classList.add('wrong');
+    playWrongSound();
+    feedback.className = 'quiz-feedback wrong';
+    feedback.innerHTML = `拼写错误<span class="feedback-meaning">正确答案：${escapeHtml(answer)}</span>`;
+  }
 }
 
 /**
@@ -2775,6 +3366,11 @@ function flipLearnCard() {
 async function handleLearnKnown() {
   const word = learnQueue[learnIndex];
   if (!word) return;
+  // 成功动效：卡片飞出
+  const cardEl = $('#learnCard');
+  if (cardEl && learnMode === 'flip') {
+    cardEl.classList.add('card-fly-out');
+  }
   try {
     // 调用复习接口标记为 good（避免重复标记）
     if (!learnedIds.has(word.id)) {
@@ -2784,12 +3380,18 @@ async function handleLearnKnown() {
     }
     // 跳到下一个，翻完循环
     learnIndex++;
-    renderLearnCard();
+    setTimeout(() => {
+      if (cardEl) cardEl.classList.remove('card-fly-out');
+      renderLearnCard();
+    }, 300);
   } catch (err) {
     // 即使提交失败也继续
     console.error(err);
     learnIndex++;
-    renderLearnCard();
+    setTimeout(() => {
+      if (cardEl) cardEl.classList.remove('card-fly-out');
+      renderLearnCard();
+    }, 300);
   }
 }
 
@@ -2806,9 +3408,41 @@ function handleLearnDetail() {
 let reviewQueue = [];      // 今日复习队列
 let reviewIndex = 0;       // 当前索引
 let reviewFlipped = false; // 当前卡片是否翻转
-let reviewMode = 'flip';   // 复习模式：flip 翻卡 / choice 看词选义 / spell 拼写默写
+let reviewMode = 'flip';   // 复习模式：flip 翻卡 / choice 看词选义 / reverse 看义选词 / spell 拼写默写
 let reviewQuizAnswered = false; // 复习测验题是否已作答
 let reviewAutoNextTimer = null;  // 复习自动下一题定时器
+
+// 保存复习位置到 localStorage（用于中断恢复）
+function saveReviewPosition() {
+  if (reviewQueue.length === 0) return;
+  const position = {
+    index: reviewIndex,
+    queueLength: reviewQueue.length,
+    wordbookId: reviewWordbookId,
+    timestamp: Date.now()
+  };
+  localStorage.setItem('wordmemo_review_position', JSON.stringify(position));
+}
+
+// 恢复复习位置（从 localStorage）
+function restoreReviewPosition() {
+  try {
+    const saved = JSON.parse(localStorage.getItem('wordmemo_review_position') || 'null');
+    if (!saved) return false;
+    // 检查是否同词书、同队列长度、且不超过5分钟
+    if (saved.wordbookId !== reviewWordbookId) return false;
+    if (saved.queueLength !== reviewQueue.length) return false;
+    if (Date.now() - saved.timestamp > 5 * 60 * 1000) return false;
+    // 恢复索引
+    if (saved.index >= 0 && saved.index < reviewQueue.length) {
+      reviewIndex = saved.index;
+      return true;
+    }
+  } catch (e) {
+    console.warn('恢复复习位置失败', e);
+  }
+  return false;
+}
 
 // 加载今日复习队列
 async function loadReviewQueue() {
@@ -2816,11 +3450,16 @@ async function loadReviewQueue() {
     showLoading();
     const res = await api.getReviewToday(reviewWordbookId, { random: reviewRandomMode });
     reviewQueue = Array.isArray(res) ? res : (res.words || res.data || []);
-    reviewIndex = 0;
+    // 尝试恢复上次复习位置
+    const restored = restoreReviewPosition();
+    if (!restored) {
+      reviewIndex = 0;
+    }
     // 重置看词选义正确率
     reviewChoiceCorrect = 0;
     reviewChoiceTotal = 0;
     hideLoading();
+    updateReviewEstimate(reviewQueue.length);
     renderReviewCard();
   } catch (err) {
     handleError(err);
@@ -2836,6 +3475,7 @@ function renderReviewCard() {
   if (total === 0) {
     $('#reviewCard').style.display = 'none';
     $('#reviewChoiceCard').style.display = 'none';
+    $('#reviewReverseCard').style.display = 'none';
     $('#reviewSpellCard').style.display = 'none';
     $('#ratingActions').style.display = 'none';
     $('#reviewQuizActions').style.display = 'none';
@@ -2855,11 +3495,14 @@ function renderReviewCard() {
   const word = reviewQueue[reviewIndex];
   $('#reviewProgress').textContent = `${reviewIndex + 1} / ${total}`;
   $('#reviewEmpty').style.display = 'none';
+  // 保存复习位置（用于中断恢复）
+  saveReviewPosition();
 
   // 根据模式显示对应卡片
   if (reviewMode === 'flip') {
     $('#reviewCard').style.display = 'block';
     $('#reviewChoiceCard').style.display = 'none';
+    $('#reviewReverseCard').style.display = 'none';
     $('#reviewSpellCard').style.display = 'none';
     $('#ratingActions').style.display = 'flex';
     $('#reviewQuizActions').style.display = 'none';
@@ -2868,14 +3511,25 @@ function renderReviewCard() {
   } else if (reviewMode === 'choice') {
     $('#reviewCard').style.display = 'none';
     $('#reviewChoiceCard').style.display = 'flex';
+    $('#reviewReverseCard').style.display = 'none';
     $('#reviewSpellCard').style.display = 'none';
     $('#ratingActions').style.display = 'none';
     $('#reviewQuizActions').style.display = 'flex';
     $('#reviewExtraActions').style.display = 'none';
     renderReviewChoiceCard(word);
+  } else if (reviewMode === 'reverse') {
+    $('#reviewCard').style.display = 'none';
+    $('#reviewChoiceCard').style.display = 'none';
+    $('#reviewReverseCard').style.display = 'flex';
+    $('#reviewSpellCard').style.display = 'none';
+    $('#ratingActions').style.display = 'none';
+    $('#reviewQuizActions').style.display = 'flex';
+    $('#reviewExtraActions').style.display = 'none';
+    renderReviewReverseCard(word);
   } else if (reviewMode === 'spell') {
     $('#reviewCard').style.display = 'none';
     $('#reviewChoiceCard').style.display = 'none';
+    $('#reviewReverseCard').style.display = 'none';
     $('#reviewSpellCard').style.display = 'flex';
     $('#ratingActions').style.display = 'none';
     $('#reviewQuizActions').style.display = 'flex';
@@ -3025,6 +3679,104 @@ function handleReviewChoiceAnswer(btn, currentWord) {
 }
 
 /**
+ * 渲染复习看义选词卡片（中→英）
+ */
+async function renderReviewReverseCard(word) {
+  reviewQuizAnswered = false;
+  $('#reviewReverseMeaning').textContent = word.meaning || '（暂无释义）';
+  $('#reviewReverseFeedback').textContent = '';
+  $('#reviewReverseFeedback').className = 'quiz-feedback';
+
+  // 显示正确率
+  const reviewWrongCount = reviewChoiceTotal - reviewChoiceCorrect;
+  const reviewTotalWords = reviewQueue.length > 0 ? reviewQueue.length : 1;
+  const accuracy = Math.max(0, Math.round((reviewTotalWords - reviewWrongCount) / reviewTotalWords * 100));
+  const feedback = $('#reviewReverseFeedback');
+  feedback.innerHTML = `<span class="quiz-accuracy">正确率：${accuracy}%（${reviewTotalWords}词，错${reviewWrongCount}个）</span>`;
+
+  // 获取干扰项
+  let distractors = [];
+  try {
+    const excludeIds = reviewQueue.map(w => w.id);
+    const result = await api.getDistractors(reviewWordbookId, excludeIds, 3);
+    distractors = result || [];
+  } catch (e) {
+    console.warn('获取干扰项失败，使用队列内词', e);
+  }
+
+  // 从队列中补充干扰项
+  if (distractors.length < 3) {
+    const otherWords = reviewQueue.filter(w => w.word !== word.word && w.id !== word.id);
+    while (distractors.length < 3 && otherWords.length > 0) {
+      const idx = Math.floor(Math.random() * otherWords.length);
+      const w = otherWords[idx];
+      distractors.push({ word: w.word, meaning: w.meaning });
+      otherWords.splice(idx, 1);
+    }
+  }
+
+  // 过滤
+  distractors = distractors.filter(opt => opt.word && opt.word.trim() && opt.word.trim() !== word.word.trim());
+  distractors = distractors.slice(0, 3);
+
+  let options = [{ word: word.word, meaning: word.meaning || '' }, ...distractors];
+  options.sort(() => Math.random() - 0.5);
+
+  const optionsEl = $('#reviewReverseOptions');
+  optionsEl.innerHTML = options.map(opt => `
+    <button class="quiz-option" data-word="${escapeHtml(opt.word)}">
+      <span class="quiz-option-word">${escapeHtml(opt.word)}</span>
+    </button>
+  `).join('');
+
+  optionsEl.querySelectorAll('.quiz-option').forEach(btn => {
+    btn.addEventListener('click', () => handleReviewReverseAnswer(btn, word));
+  });
+}
+
+/**
+ * 处理复习看义选词答题
+ */
+function handleReviewReverseAnswer(btn, currentWord) {
+  if (reviewQuizAnswered) return;
+  reviewQuizAnswered = true;
+
+  const selectedWord = btn.dataset.word;
+  const optionsEl = $('#reviewReverseOptions');
+  const feedback = $('#reviewReverseFeedback');
+  reviewChoiceTotal++;
+
+  const reviewWrongCount = reviewChoiceTotal - reviewChoiceCorrect;
+  const reviewTotalWords = reviewQueue.length > 0 ? reviewQueue.length : 1;
+  const accuracy = Math.max(0, Math.round((reviewTotalWords - reviewWrongCount) / reviewTotalWords * 100));
+
+  if (selectedWord === currentWord.word) {
+    reviewChoiceCorrect++;
+    btn.classList.add('correct');
+    playCorrectSound();
+    feedback.className = 'quiz-feedback correct';
+    feedback.innerHTML = `回答正确！<span class="quiz-accuracy">正确率：${accuracy}%（${reviewTotalWords}词，错${reviewWrongCount}个）</span>`;
+    optionsEl.querySelectorAll('.quiz-option').forEach(b => b.classList.add('disabled'));
+    reviewAutoNextTimer = setTimeout(() => {
+      handleReviewQuizNext();
+    }, 900);
+  } else {
+    btn.classList.add('wrong');
+    playWrongSound();
+    optionsEl.querySelectorAll('.quiz-option').forEach(b => {
+      const w = b.dataset.word;
+      let meaning = '';
+      const queueWord = reviewQueue.find(qw => qw.word === w);
+      if (queueWord) meaning = queueWord.meaning || '';
+      b.innerHTML = `<span class="quiz-option-word">${escapeHtml(w)}</span><span class="quiz-option-meaning">${escapeHtml(meaning)}</span>`;
+      if (w === currentWord.word) b.classList.add('correct');
+    });
+    feedback.className = 'quiz-feedback wrong';
+    feedback.innerHTML = `回答错误<span class="feedback-meaning">正确答案：${escapeHtml(currentWord.word)} - ${escapeHtml(currentWord.meaning || '')}</span><span class="quiz-accuracy">正确率：${accuracy}%（${reviewTotalWords}词，错${reviewWrongCount}个）</span>`;
+  }
+}
+
+/**
  * 渲染复习拼写默写卡片
  */
 function renderReviewSpellCard(word) {
@@ -3135,9 +3887,18 @@ async function handleReviewRating(rating) {
   if (!word) return;
   try {
     await api.submitReview(word.id, rating);
-    // 评级为 again 时，将单词重新加入队列末尾
+    // 评级为 again 时，将单词重新加入队列末尾（立即重看）
     if (rating === 'again') {
       reviewQueue.push(word);
+    }
+    // 评级为 hard 时，将单词插入到5个位置后（稍后重看）
+    if (rating === 'hard') {
+      const insertPos = Math.min(reviewIndex + 6, reviewQueue.length);
+      reviewQueue.splice(insertPos, 0, word);
+    }
+    // 记录正确率到localStorage
+    if (rating === 'again' || rating === 'hard') {
+      incrementReviewWrongCount();
     }
     reviewIndex++;
     renderReviewCard();
@@ -3283,6 +4044,12 @@ async function loadSettings() {
     const antiIntervalInput = $('#antiForgetIntervalInput');
     if (antiIntervalInput) antiIntervalInput.value = s.anti_forget_interval || 30;
     updateAntiForgetRowVisibility();
+    // 高亮当前策略行
+    const currentStrategy = s.review_strategy || 'standard';
+    ['relaxed', 'standard', 'strict'].forEach(name => {
+      const row = $(`#strategy-row-${name}`);
+      if (row) row.classList.toggle('active-strategy', name === currentStrategy);
+    });
   } catch (err) {
     // 静默失败，不影响统计页
     console.warn('加载设置失败', err);
@@ -4077,6 +4844,8 @@ function bindEvents() {
 
   // 批量添加
   $('#btnBatchAdd').addEventListener('click', handleBatchAdd);
+  $('#btnBatchPreview').addEventListener('click', handleBatchPreview);
+  $('#btnBatchConfirm').addEventListener('click', handleBatchConfirm);
 
   // 文档导入
   $('#docUploadArea').addEventListener('click', handleDocFilePick);
@@ -4183,7 +4952,17 @@ function bindEvents() {
     });
   }
   // 设置：复习策略与防遗忘
-  $('#reviewStrategySelect').addEventListener('change', handleSaveReviewStrategy);
+  $('#reviewStrategySelect').addEventListener('change', () => {
+    handleSaveReviewStrategy();
+    // 更新策略表高亮
+    const sel = $('#reviewStrategySelect');
+    if (sel) {
+      ['relaxed', 'standard', 'strict'].forEach(name => {
+        const row = $(`#strategy-row-${name}`);
+        if (row) row.classList.toggle('active-strategy', name === sel.value);
+      });
+    }
+  });
   $('#antiForgetToggle').addEventListener('change', handleSaveReviewStrategy);
   $('#antiForgetIntervalInput').addEventListener('change', handleSaveReviewStrategy);
   $('#antiForgetIntervalInput').addEventListener('blur', handleSaveReviewStrategy);
@@ -4538,6 +5317,36 @@ function bindEvents() {
       }
     }
   });
+  // 听力模式
+  $('#listenPlayBtn').addEventListener('click', (e) => {
+    const word = learnQueue[learnIndex];
+    if (word) speakWord(word.word, e.currentTarget);
+  });
+  $('#listenReplayBtn').addEventListener('click', () => {
+    const word = learnQueue[learnIndex];
+    if (word) speakWord(word.word, $('#listenPlayBtn'));
+  });
+  $('#listenSubmitBtn').addEventListener('click', handleListenSubmit);
+  $('#listenSkipBtn').addEventListener('click', () => {
+    if (quizAnswered) return;
+    quizAnswered = true;
+    const input = $('#listenInput');
+    const answer = input.dataset.answer || '';
+    input.disabled = true;
+    const feedback = $('#listenFeedback');
+    feedback.className = 'quiz-feedback wrong';
+    feedback.innerHTML = `已跳过<span class="feedback-meaning">正确答案：${escapeHtml(answer)}</span>`;
+  });
+  $('#listenInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (quizAnswered) {
+        handleQuizNext();
+      } else {
+        handleListenSubmit();
+      }
+    }
+  });
   // 测验模式操作按钮
   $('#btnQuizDetail').addEventListener('click', handleLearnDetail);
   $('#btnQuizKnown').addEventListener('click', handleQuizNext);
@@ -4848,6 +5657,11 @@ function renderHomeFromCache() {
 async function init() {
   bindEvents();
   bindAuthEvents();
+  // 初始化下拉刷新和页面滑动切换
+  initPullRefresh();
+  initPageSwipe();
+  // 初始化安卓返回键处理
+  initBackButtonHandler();
 
   // 乐观渲染：先用缓存用户信息显示状态栏，再用缓存数据渲染首页
   const cachedUser = loadUserCache();
@@ -4885,6 +5699,33 @@ function bindAuthEvents() {
   const registerForm = document.getElementById('registerForm');
   if (registerForm) {
     registerForm.addEventListener('submit', (e) => { e.preventDefault(); handleRegister(); });
+  }
+  // 密码强度实时检测
+  const regPassword = document.getElementById('registerPassword');
+  if (regPassword) {
+    regPassword.addEventListener('input', (e) => {
+      const val = e.target.value;
+      const strengthEl = document.getElementById('passwordStrength');
+      const textEl = document.getElementById('passwordStrengthText');
+      if (!val) {
+        if (strengthEl) strengthEl.style.display = 'none';
+        if (textEl) textEl.style.display = 'none';
+        return;
+      }
+      const result = checkPasswordStrength(val);
+      if (strengthEl) {
+        strengthEl.style.display = 'flex';
+        const bars = strengthEl.querySelectorAll('.password-strength-bar');
+        bars.forEach((bar, i) => {
+          bar.className = 'password-strength-bar' + (i < result.bars ? ' active ' + result.level : '');
+        });
+      }
+      if (textEl) {
+        textEl.style.display = 'block';
+        textEl.textContent = `密码强度：${result.text}`;
+        textEl.style.color = result.level === 'weak' ? 'var(--danger)' : result.level === 'medium' ? 'var(--warning)' : 'var(--success)';
+      }
+    });
   }
 }
 

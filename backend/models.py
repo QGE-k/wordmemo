@@ -26,6 +26,11 @@ class User(db.Model):
     # 昵称（显示名）
     nickname = db.Column(db.String(80), default='')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    # 安全问题及答案（用于密码重置，简单版）
+    security_question = db.Column(db.String(255), default='What is your favorite color?')
+    security_answer = db.Column(db.String(255), default='')
+    # 账号是否启用（True=启用，False=禁用），管理员可切换
+    is_active = db.Column(db.Boolean, default=True)
 
     def set_password(self, password):
         self.salt = os.urandom(16).hex()
@@ -42,6 +47,8 @@ class User(db.Model):
             'role': self.role,
             'nickname': self.nickname or self.username,
             'created_at': self.created_at.isoformat() if self.created_at else None,
+            'is_active': self.is_active if self.is_active is not None else True,
+            'security_question': self.security_question or 'What is your favorite color?',
         }
         if include_stats:
             data['word_count'] = Word.query.filter_by(user_id=self.id).count()
@@ -96,6 +103,8 @@ class Word(db.Model):
     wordbook_id = db.Column(db.Integer, db.ForeignKey('wordbooks.id'), nullable=True, index=True)
     # 所属用户 ID（外键，可空=旧数据/未登录用户）
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
+    # 错误次数：评分 again/hard 时累加，用于前端优先复习高频错词
+    wrong_count = db.Column(db.Integer, default=0)
 
     def to_dict(self):
         """将单词对象转换为字典，用于API响应"""
@@ -117,6 +126,7 @@ class Word(db.Model):
             'examples': self.examples or [],
             'tenses': self.tenses or None,
             'wordbook_id': self.wordbook_id,
+            'wrong_count': self.wrong_count or 0,
         }
 
     @staticmethod
@@ -163,6 +173,10 @@ class LearnHistory(db.Model):
     date = db.Column(db.Date, nullable=False, unique=True, index=True)
     # 当天学习的单词数量
     count = db.Column(db.Integer, default=0)
+    # 当天复习正确次数（用于准确率统计）
+    correct_count = db.Column(db.Integer, default=0)
+    # 当天复习总次数（用于准确率统计）
+    total_count = db.Column(db.Integer, default=0)
 
     def to_dict(self):
         """转换为字典"""
@@ -170,10 +184,40 @@ class LearnHistory(db.Model):
             'id': self.id,
             'date': self.date.isoformat() if self.date else None,
             'count': self.count,
+            'correct_count': self.correct_count or 0,
+            'total_count': self.total_count or 0,
         }
 
     def __repr__(self):
         return f'<LearnHistory {self.date}: {self.count}>'
+
+
+class LearnSession(db.Model):
+    """学习会话记录：记录每日学习时长（分钟），用于统计平均每日学习时间"""
+    __tablename__ = 'learn_sessions'
+
+    # 主键ID
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    # 学习日期
+    date = db.Column(db.Date, nullable=False, index=True)
+    # 学习时长（分钟）
+    duration_minutes = db.Column(db.Integer, default=0)
+    # 所属用户 ID（外键，可空=未登录用户）
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
+    # 创建时间
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        """转换为字典"""
+        return {
+            'id': self.id,
+            'date': self.date.isoformat() if self.date else None,
+            'duration_minutes': self.duration_minutes or 0,
+            'user_id': self.user_id,
+        }
+
+    def __repr__(self):
+        return f'<LearnSession {self.date}: {self.duration_minutes}min>'
 
 
 class Setting(db.Model):
