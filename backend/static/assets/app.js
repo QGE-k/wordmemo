@@ -129,10 +129,12 @@ class WordAPI {
 
   // 添加单个单词
   // 返回值：{success, data, source}
-  async addWord(word, phonetic = '', meaning = '') {
+  async addWord(word, phonetic = '', meaning = '', wordbookId = null) {
+    const payload = { word, phonetic, meaning };
+    if (wordbookId) payload.wordbook_id = wordbookId;
     const res = await this.request('/words', {
       method: 'POST',
-      body: JSON.stringify({ word, phonetic, meaning })
+      body: JSON.stringify(payload)
     });
     return res;  // 返回完整响应（含 source 字段）
   }
@@ -1476,14 +1478,15 @@ async function handleManualAdd() {
   const word = $('#manualWord').value.trim();
   const phonetic = $('#manualPhonetic').value.trim();
   const meaning = $('#manualMeaning').value.trim();
+  const wordbookId = ($('#manualWordbookSelect') && $('#manualWordbookSelect').value) || '';
 
   if (!word) {
     showToast('请输入单词', 'warning');
     return;
   }
 
-  // 去重检查
-  const isDup = await checkWordDuplicate(word, '');
+  // 去重检查（按所选词书范围）
+  const isDup = await checkWordDuplicate(word, wordbookId);
   if (isDup) {
     showToast(`单词 "${word}" 已存在`, 'warning');
     return;
@@ -1491,7 +1494,7 @@ async function handleManualAdd() {
 
   try {
     showLoading('添加中...');
-    await api.addWord(word, phonetic, meaning);
+    await api.addWord(word, phonetic, meaning, wordbookId || null);
     hideLoading();
     showToast('添加成功', 'success');
 
@@ -1582,7 +1585,7 @@ async function handleBatchConfirm() {
     }
     for (const w of withMeaning) {
       try {
-        await api.addWord(w.word, '', w.meaning);
+        await api.addWord(w.word, '', w.meaning, batchWordbookId);
         added++;
       } catch (e) { /* 单个失败继续 */ }
     }
@@ -1639,7 +1642,7 @@ async function handleBatchAdd() {
     }
     for (const w of withMeaning) {
       try {
-        await api.addWord(w.word, '', w.meaning);
+        await api.addWord(w.word, '', w.meaning, batchWordbookId);
         added++;
       } catch (e) { /* 单个失败继续 */ }
     }
@@ -2608,6 +2611,8 @@ function renderDocWordbookSelect() {
   if (batchSel) batchSel.innerHTML = html;
   const scanSel = $('#scanWordbookSelect');
   if (scanSel) scanSel.innerHTML = html;
+  const manualSel = $('#manualWordbookSelect');
+  if (manualSel) manualSel.innerHTML = html;
 }
 
 /**

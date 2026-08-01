@@ -4,7 +4,7 @@
    策略：静态资源 stale-while-revalidate（缓存优先，后台更新）
          API 请求网络优先，缓存兜底
    ==================================================== */
-const CACHE_NAME = 'wordmemo-v29';
+const CACHE_NAME = 'wordmemo-v30';
 const CORE_ASSETS = [
   '/',
   '/index.html',
