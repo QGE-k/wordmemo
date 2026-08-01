@@ -949,9 +949,6 @@ function switchPage(pageName) {
   const floatBtn = $('#floatAddBtn');
   if (floatBtn) floatBtn.style.display = (pageName === 'learn') ? 'flex' : 'none';
 
-  // 更新顶部标题
-  $('#statusTitle').textContent = PAGE_TITLES[pageName] || '背单词';
-
   // 更新底部 TabBar 高亮
   $$('.tab-item').forEach(t => t.classList.remove('active'));
   const tab = $(`.tab-item[data-page="${pageName}"]`);
@@ -2379,10 +2376,12 @@ async function renderChoiceCard(word) {
   $('#choiceFeedback').textContent = '';
   $('#choiceFeedback').className = 'quiz-feedback';
 
-  // 显示正确率
-  const accuracy = learnChoiceTotal > 0 ? Math.round(learnChoiceCorrect / learnChoiceTotal * 100) : 100;
+  // 显示正确率（基于今日学习单词总量：如学100个错1个=99%）
+  const learnWrongCount = learnChoiceTotal - learnChoiceCorrect;
+  const learnTotalWords = learnQueue.length > 0 ? learnQueue.length : 1;
+  const accuracy = Math.max(0, Math.round((learnTotalWords - learnWrongCount) / learnTotalWords * 100));
   const feedback = $('#choiceFeedback');
-  feedback.innerHTML = `<span class="quiz-accuracy">正确率：${learnChoiceCorrect}/${learnChoiceTotal}（${accuracy}%）</span>`;
+  feedback.innerHTML = `<span class="quiz-accuracy">正确率：${accuracy}%（${learnTotalWords}词，错${learnWrongCount}个）</span>`;
 
   // 优先从后端获取形近词干扰项（拼写相似的词）
   let distractors = [];
@@ -2423,7 +2422,10 @@ async function renderChoiceCard(word) {
 
   const optionsEl = $('#choiceOptions');
   optionsEl.innerHTML = options.map(opt => `
-    <button class="quiz-option" data-word="${escapeHtml(opt.word)}">${escapeHtml(opt.meaning || '（无释义）')}</button>
+    <button class="quiz-option" data-word="${escapeHtml(opt.word)}">
+      <span class="quiz-option-word">${escapeHtml(opt.word)}</span>
+      <span class="quiz-option-meaning">${escapeHtml(opt.meaning || '（无释义）')}</span>
+    </button>
   `).join('');
 
   // 绑定点击
@@ -2452,13 +2454,15 @@ function handleChoiceAnswer(btn, currentWord) {
   // 标记所有选项不可再点
   optionsEl.querySelectorAll('.quiz-option').forEach(b => b.classList.add('disabled'));
 
-  // 计算正确率
-  const accuracy = Math.round(learnChoiceCorrect / learnChoiceTotal * 100);
+  // 计算正确率（基于今日学习单词总量）
+  const learnWrongCount = learnChoiceTotal - learnChoiceCorrect;
+  const learnTotalWords = learnQueue.length > 0 ? learnQueue.length : 1;
+  const accuracy = Math.max(0, Math.round((learnTotalWords - learnWrongCount) / learnTotalWords * 100));
 
   if (isCorrect) {
     btn.classList.add('correct');
     feedback.className = 'quiz-feedback correct';
-    feedback.innerHTML = `回答正确！<span class="quiz-accuracy">正确率：${learnChoiceCorrect}/${learnChoiceTotal}（${accuracy}%）</span>`;
+    feedback.innerHTML = `回答正确！<span class="quiz-accuracy">正确率：${accuracy}%（${learnTotalWords}词，错${learnWrongCount}个）</span>`;
     playCorrectSound();
     // 答对自动下一题
     autoNextTimer = setTimeout(() => {
@@ -2480,7 +2484,7 @@ function handleChoiceAnswer(btn, currentWord) {
       }
     });
     feedback.className = 'quiz-feedback wrong';
-    feedback.innerHTML = `回答错误<span class="feedback-meaning">你选的是「${escapeHtml(selectedWord)}」的意思：${escapeHtml(wrongMeaning)}<br>正确答案：${escapeHtml(currentWord.word)} - ${escapeHtml(currentWord.meaning || '')}</span><span class="quiz-accuracy">正确率：${learnChoiceCorrect}/${learnChoiceTotal}（${accuracy}%）</span>`;
+    feedback.innerHTML = `回答错误<span class="feedback-meaning">你选的是「${escapeHtml(selectedWord)}」的意思：${escapeHtml(wrongMeaning)}<br>正确答案：${escapeHtml(currentWord.word)} - ${escapeHtml(currentWord.meaning || '')}</span><span class="quiz-accuracy">正确率：${accuracy}%（${learnTotalWords}词，错${learnWrongCount}个）</span>`;
     // 答错不自动跳，让用户看清楚正确答案，手动点"下一题"
   }
 }
@@ -2787,9 +2791,11 @@ async function renderReviewChoiceCard(word) {
   $('#reviewChoiceFeedback').textContent = '';
   $('#reviewChoiceFeedback').className = 'quiz-feedback';
 
-  // 显示正确率
-  const accuracy = reviewChoiceTotal > 0 ? Math.round(reviewChoiceCorrect / reviewChoiceTotal * 100) : 100;
-  $('#reviewChoiceFeedback').innerHTML = `<span class="quiz-accuracy">正确率：${reviewChoiceCorrect}/${reviewChoiceTotal}（${accuracy}%）</span>`;
+  // 显示正确率（基于今日复习单词总量）
+  const reviewWrongCount = reviewChoiceTotal - reviewChoiceCorrect;
+  const reviewTotalWords = reviewQueue.length > 0 ? reviewQueue.length : 1;
+  const accuracy = Math.max(0, Math.round((reviewTotalWords - reviewWrongCount) / reviewTotalWords * 100));
+  $('#reviewChoiceFeedback').innerHTML = `<span class="quiz-accuracy">正确率：${accuracy}%（${reviewTotalWords}词，错${reviewWrongCount}个）</span>`;
 
   // 优先获取形近词干扰项
   let distractors = [];
@@ -2827,7 +2833,10 @@ async function renderReviewChoiceCard(word) {
 
   const optionsEl = $('#reviewChoiceOptions');
   optionsEl.innerHTML = options.map(opt => `
-    <button class="quiz-option" data-word="${escapeHtml(opt.word)}">${escapeHtml(opt.meaning || '（无释义）')}</button>
+    <button class="quiz-option" data-word="${escapeHtml(opt.word)}">
+      <span class="quiz-option-word">${escapeHtml(opt.word)}</span>
+      <span class="quiz-option-meaning">${escapeHtml(opt.meaning || '（无释义）')}</span>
+    </button>
   `).join('');
 
   optionsEl.querySelectorAll('.quiz-option').forEach(btn => {
@@ -2853,13 +2862,15 @@ function handleReviewChoiceAnswer(btn, currentWord) {
 
   optionsEl.querySelectorAll('.quiz-option').forEach(b => b.classList.add('disabled'));
 
-  // 计算正确率
-  const accuracy = Math.round(reviewChoiceCorrect / reviewChoiceTotal * 100);
+  // 计算正确率（基于今日复习单词总量）
+  const reviewWrongCount = reviewChoiceTotal - reviewChoiceCorrect;
+  const reviewTotalWords = reviewQueue.length > 0 ? reviewQueue.length : 1;
+  const accuracy = Math.max(0, Math.round((reviewTotalWords - reviewWrongCount) / reviewTotalWords * 100));
 
   if (isCorrect) {
     btn.classList.add('correct');
     feedback.className = 'quiz-feedback correct';
-    feedback.innerHTML = `回答正确！<span class="quiz-accuracy">正确率：${reviewChoiceCorrect}/${reviewChoiceTotal}（${accuracy}%）</span>`;
+    feedback.innerHTML = `回答正确！<span class="quiz-accuracy">正确率：${accuracy}%（${reviewTotalWords}词，错${reviewWrongCount}个）</span>`;
     playCorrectSound();
     reviewAutoNextTimer = setTimeout(() => {
       reviewAutoNextTimer = null;
@@ -2879,7 +2890,7 @@ function handleReviewChoiceAnswer(btn, currentWord) {
       }
     });
     feedback.className = 'quiz-feedback wrong';
-    feedback.innerHTML = `回答错误<span class="feedback-meaning">你选的是「${escapeHtml(selectedWord)}」的意思：${escapeHtml(wrongMeaning)}<br>正确答案：${escapeHtml(currentWord.word)} - ${escapeHtml(currentWord.meaning || '')}</span><span class="quiz-accuracy">正确率：${reviewChoiceCorrect}/${reviewChoiceTotal}（${accuracy}%）</span>`;
+    feedback.innerHTML = `回答错误<span class="feedback-meaning">你选的是「${escapeHtml(selectedWord)}」的意思：${escapeHtml(wrongMeaning)}<br>正确答案：${escapeHtml(currentWord.word)} - ${escapeHtml(currentWord.meaning || '')}</span><span class="quiz-accuracy">正确率：${accuracy}%（${reviewTotalWords}词，错${reviewWrongCount}个）</span>`;
   }
 }
 
@@ -4069,8 +4080,126 @@ function bindEvents() {
     }
   });
 
-  // 浮动添加按钮 -> 跳转录入页
-  $('#fabAdd').addEventListener('click', () => switchPage('input'));
+  // 浮动添加按钮 -> 可拖动，点击跳转录入页
+  const fabAdd = $('#fabAdd');
+  if (fabAdd) {
+    // 恢复上次位置
+    const savedPos = localStorage.getItem('wordmemo_fab_pos');
+    if (savedPos) {
+      try {
+        const pos = JSON.parse(savedPos);
+        fabAdd.style.right = 'auto';
+        fabAdd.style.left = pos.left + 'px';
+        fabAdd.style.top = pos.top + 'px';
+      } catch (e) {}
+    }
+
+    let fabDragging = false;
+    let fabMoved = false;
+    let fabStartX = 0, fabStartY = 0;
+    let fabStartLeft = 0, fabStartTop = 0;
+
+    // 触摸拖动
+    fabAdd.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 0) return;
+      fabDragging = true;
+      fabMoved = false;
+      fabStartX = e.touches[0].clientX;
+      fabStartY = e.touches[0].clientY;
+      const rect = fabAdd.getBoundingClientRect();
+      fabStartLeft = rect.left;
+      fabStartTop = rect.top;
+      fabAdd.style.right = 'auto';
+      fabAdd.style.transition = 'none';
+      fabAdd.classList.add('fab-dragging');
+      e.stopPropagation();
+    }, { passive: true });
+
+    fabAdd.addEventListener('touchmove', (e) => {
+      if (!fabDragging || e.touches.length === 0) return;
+      const dx = e.touches[0].clientX - fabStartX;
+      const dy = e.touches[0].clientY - fabStartY;
+      if (Math.abs(dx) > 5 || Math.abs(dy) > 5) fabMoved = true;
+      let newLeft = fabStartLeft + dx;
+      let newTop = fabStartTop + dy;
+      const btnW = fabAdd.offsetWidth;
+      const btnH = fabAdd.offsetHeight;
+      newLeft = Math.max(8, Math.min(window.innerWidth - btnW - 8, newLeft));
+      newTop = Math.max(8, Math.min(window.innerHeight - btnH - 8, newTop));
+      fabAdd.style.left = newLeft + 'px';
+      fabAdd.style.top = newTop + 'px';
+      e.stopPropagation();
+    }, { passive: true });
+
+    fabAdd.addEventListener('touchend', (e) => {
+      fabAdd.style.transition = '';
+      fabAdd.classList.remove('fab-dragging');
+      if (fabDragging && !fabMoved) {
+        switchPage('input');
+      }
+      if (fabMoved) {
+        const rect = fabAdd.getBoundingClientRect();
+        localStorage.setItem('wordmemo_fab_pos', JSON.stringify({
+          left: rect.left,
+          top: rect.top,
+        }));
+      }
+      fabDragging = false;
+      fabMoved = false;
+      e.stopPropagation();
+    });
+
+    // 鼠标拖动（桌面端）
+    let fabMouseDragging = false;
+    fabAdd.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      fabMouseDragging = true;
+      fabMoved = false;
+      fabStartX = e.clientX;
+      fabStartY = e.clientY;
+      const rect = fabAdd.getBoundingClientRect();
+      fabStartLeft = rect.left;
+      fabStartTop = rect.top;
+      fabAdd.style.right = 'auto';
+      fabAdd.style.transition = 'none';
+      fabAdd.classList.add('fab-dragging');
+      e.preventDefault();
+      e.stopPropagation();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!fabMouseDragging) return;
+      const dx = e.clientX - fabStartX;
+      const dy = e.clientY - fabStartY;
+      if (Math.abs(dx) > 5 || Math.abs(dy) > 5) fabMoved = true;
+      let newLeft = fabStartLeft + dx;
+      let newTop = fabStartTop + dy;
+      const btnW = fabAdd.offsetWidth;
+      const btnH = fabAdd.offsetHeight;
+      newLeft = Math.max(8, Math.min(window.innerWidth - btnW - 8, newLeft));
+      newTop = Math.max(8, Math.min(window.innerHeight - btnH - 8, newTop));
+      fabAdd.style.left = newLeft + 'px';
+      fabAdd.style.top = newTop + 'px';
+    });
+
+    document.addEventListener('mouseup', (e) => {
+      if (!fabMouseDragging) return;
+      fabAdd.style.transition = '';
+      fabAdd.classList.remove('fab-dragging');
+      if (!fabMoved) {
+        switchPage('input');
+      }
+      if (fabMoved) {
+        const rect = fabAdd.getBoundingClientRect();
+        localStorage.setItem('wordmemo_fab_pos', JSON.stringify({
+          left: rect.left,
+          top: rect.top,
+        }));
+      }
+      fabMouseDragging = false;
+      fabMoved = false;
+    });
+  }
 
   // 学习翻卡
   $('#learnCard').addEventListener('click', flipLearnCard);
@@ -4657,9 +4786,6 @@ function renderHomeFromCache() {
 async function init() {
   bindEvents();
   bindAuthEvents();
-  updateStatusBarTime();
-  // 每分钟更新状态栏时间
-  setInterval(updateStatusBarTime, 60000);
 
   // 乐观渲染：先用缓存用户信息显示状态栏，再用缓存数据渲染首页
   const cachedUser = loadUserCache();

@@ -67,7 +67,7 @@ input, textarea, select {
   --radius-md: 14px;
   --radius-lg: 20px;
   --tabbar-h: 64px;              /* 底部TabBar高度 */
-  --statusbar-h: 48px;           /* 顶部状态栏高度 */
+  --statusbar-h: 0px;            /* 顶部状态栏已移除 */
 }
 
 /* ===== 顶部状态栏 ===== */
@@ -2114,7 +2114,9 @@ input, textarea, select {
   width: 100%;
 }
 .quiz-option {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   width: 100%;
   padding: 14px 16px;
   background: var(--bg-input);
@@ -2125,6 +2127,16 @@ input, textarea, select {
   text-align: left;
   cursor: pointer;
   transition: all 0.15s;
+}
+.quiz-option-word {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.quiz-option-meaning {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.4;
 }
 .quiz-option:hover {
   background: #fff;
@@ -2270,10 +2282,10 @@ input, textarea, select {
   font-weight: 500;
 }
 
-/* ===== 浮动添加按钮 ===== */
+/* ===== 浮动添加按钮（可拖动） ===== */
 .fab {
   position: fixed;
-  right: calc(50% - 240px + 20px);
+  right: 20px;
   bottom: calc(var(--tabbar-h) + 20px);
   width: 56px;
   height: 56px;
@@ -2287,18 +2299,19 @@ input, textarea, select {
   justify-content: center;
   box-shadow: 0 6px 16px rgba(74,127,255,0.4);
   z-index: 90;
-  transition: transform 0.2s;
+  cursor: pointer;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  transition: transform 0.2s, box-shadow 0.2s;
 }
 
 .fab:active {
-  transform: scale(0.92) rotate(90deg);
+  transform: scale(0.92);
 }
 
-/* 屏幕较小时靠右 */
-@media (max-width: 480px) {
-  .fab {
-    right: 20px;
-  }
+.fab.fab-dragging {
+  transition: none;
 }
 
 /* ===== Toast 提示 ===== */
