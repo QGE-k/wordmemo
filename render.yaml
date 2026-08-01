@@ -11,6 +11,7 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn --bind 0.0.0.0:$PORT --workers 1 --timeout 120 app:app
     healthCheckPath: /api/stats
+    autoDeploy: true
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9  # 固定 Python 版本，避免默认用 3.13+ 导致 Pillow 编译失败
