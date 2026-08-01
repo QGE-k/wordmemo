@@ -1779,9 +1779,8 @@ async function handleDocImport() {
 
 // 扫描录入：选择图片
 function handleScanPick() {
-  // 如果已有识别结果，先清空
-  if (scanRecognizedWords.length > 0) {
-    if (!confirm('已有识别结果，确定要重新拍照吗？')) return;
+  // 如果已有识别结果，直接清空重新选（不用confirm，避免WebView不弹窗导致卡死）
+  if (scanRecognizedWords.length > 0 || scanFiles.length > 0) {
     resetScan();
   }
   $('#scanInput').click();
@@ -1806,12 +1805,15 @@ function handleScanChange(e) {
 function updateScanPreview() {
   const placeholder = $('.scan-placeholder');
   const preview = $('#scanPreview');
+  const cancelBtn = $('#scanCancelBtn');
   if (scanFiles.length === 0) {
     placeholder.style.display = '';
     preview.style.display = 'none';
+    if (cancelBtn) cancelBtn.style.display = 'none';
     return;
   }
   placeholder.style.display = 'none';
+  if (cancelBtn) cancelBtn.style.display = 'block';
   // 只显示第一张作为主预览，加数量标记
   const reader = new FileReader();
   reader.onload = (ev) => {
@@ -1839,6 +1841,8 @@ function resetScan() {
   $('.scan-placeholder').style.display = '';
   $('#scanConfirm').style.display = 'none';
   $('#scanResult').style.display = 'none';
+  const cancelBtn = $('#scanCancelBtn');
+  if (cancelBtn) cancelBtn.style.display = 'none';
   const badge = $('#scanCountBadge');
   if (badge) badge.style.display = 'none';
 }
@@ -4862,8 +4866,18 @@ function bindEvents() {
   $('#scanArea').addEventListener('click', handleScanPick);
   $('#scanInput').addEventListener('change', handleScanChange);
   $('#btnScanRecognize').addEventListener('click', handleScanRecognize);
-  $('#btnScanCheckAll').addEventListener('click', handleScanCheckAll);
+  $('#btnScanCheckAll').addEventListener('click', scanCheckAll);
   $('#btnScanAddSelected').addEventListener('click', handleScanAddSelected);
+
+  // 取消照片按钮：阻止冒泡，避免触发 scanArea 的选图
+  const scanCancelBtn = $('#scanCancelBtn');
+  if (scanCancelBtn) {
+    scanCancelBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      resetScan();
+    });
+  }
 
   // 词库搜索（输入防抖）
   let searchTimer = null;

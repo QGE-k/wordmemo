@@ -170,7 +170,8 @@ class AIService:
                 {'role': 'user', 'content': user_prompt},
             ],
             'temperature': 0.3,  # 较低的温度保证输出稳定
-            'max_tokens': 4000,  # agnes-2.0-flash是推理模型，需要更多token
+            # 推理模型需要大量token用于reasoning_content，4000不够
+            'max_tokens': 16000,
             # 注意：不使用response_format，部分推理模型不支持，改用提示词约束
         }
 
@@ -479,7 +480,10 @@ class AIService:
                 ]},
             ],
             'temperature': 0.1,
-            'max_tokens': 4000,
+            # 推理模型(agnes-2.0-flash)需要大量token用于reasoning_content，
+            # 实测识别5个单词推理用~3000 tokens + 正式回答~80 tokens
+            # 16000足够识别一页单词(约30-50个)
+            'max_tokens': 16000,
         }
 
         headers = {
@@ -574,6 +578,6 @@ class AIService:
         except json.JSONDecodeError:
             pass
 
-        # 所有解析方式均失败，记录原始内容用于调试
+        # 所有解析方式均失败，把原始内容附加到错误信息中，方便诊断
         print(f"[AI识别] 解析失败，原始内容前500字符: {content[:500]}")
-        raise RuntimeError('AI视觉识别返回数据解析失败')
+        raise RuntimeError(f'AI视觉识别返回数据解析失败。AI原始返回(前300字): {content[:300]}')
