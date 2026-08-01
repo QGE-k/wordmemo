@@ -1846,8 +1846,11 @@ async function handleScanRecognize() {
     for (let i = 0; i < scanFiles.length; i++) {
       showLoading(`AI识别中... (${i + 1}/${scanFiles.length})`);
       const res = await api.aiRecognizeImage(scanFiles[i]);
-      if (res.success && res.words) {
+      if (res.success && res.words && res.words.length > 0) {
         allWords = allWords.concat(res.words);
+      } else if (res.success === false) {
+        // API返回了明确的错误
+        throw new Error(res.error || 'AI识别失败');
       }
     }
     hideLoading();

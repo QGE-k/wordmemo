@@ -374,22 +374,57 @@ class AIService:
 
         try:
             content = result['choices'][0]['message']['content']
-            # 尝试直接解析JSON数组
-            words = json.loads(content)
+        except (KeyError, IndexError, TypeError):
+            raise RuntimeError('AI视觉识别返回数据解析失败：无法获取content')
+
+        # 清理内容：去除markdown代码块标记、首尾空白等
+        cleaned = content.strip()
+        # 去除 markdown 代码块包裹（```json ... ``` 或 ``` ... ```）
+        if cleaned.startswith('```'):
+            # 去掉第一行的 ```json 或 ```
+            lines = cleaned.split('\n')
+            if len(lines) > 1:
+                lines = lines[1:]  # 去掉第一行
+            # 去掉最后的 ```
+            if lines and lines[-1].strip() == '```':
+                lines = lines[:-1]
+            cleaned = '\n'.join(lines).strip()
+
+        # 尝试直接解析JSON数组
+        try:
+            words = json.loads(cleaned)
             if isinstance(words, list):
                 return words
-            # 如果返回的是字典，尝试提取
             if isinstance(words, dict) and 'words' in words:
                 return words['words']
             return []
-        except (KeyError, json.JSONDecodeError):
-            # 尝试从文本中提取JSON数组
-            try:
-                start = content.find('[')
-                end = content.rfind(']')
-                if start != -1 and end != -1 and end > start:
-                    words = json.loads(content[start:end + 1])
-                    return words if isinstance(words, list) else []
-            except Exception:
-                pass
-            raise RuntimeError('AI视觉识别返回数据解析失败')
+        except json.JSONDecodeError:
+            pass
+
+        # 尝试从文本中提取JSON数组（找最外层的 [ ] ）
+        try:
+            start = cleaned.find('[')
+            end = cleaned.rfind(']')
+            if start != -1 and end != -1 and end > start:
+                words = json.loads(cleaned[start:end + 1])
+                return words if isinstance(words, list) else []
+        except json.JSONDecodeError:
+            pass
+
+        # 尝试逐行提取（某些模型会每行一个JSON对象）
+        try:
+            words = []
+            for line in cleaned.split('\n'):
+                line = line.strip().rstrip(',')
+                if line.startswith('{') and line.endswith('}'):
+                    obj = json.loads(line)
+                    if isinstance(obj, dict) and 'word' in obj:
+                        words.append(obj)
+            if words:
+                return words
+        except json.JSONDecodeError:
+            pass
+
+        # 所有解析方式均失败，记录原始内容用于调试
+        print(f"[AI识别] 解析失败，原始内容前500字符: {content[:500]}")
+        raise RuntimeError('AI视觉识别返回数据解析失败')
