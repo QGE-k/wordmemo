@@ -797,6 +797,134 @@ def delete_word(word_id):
     return jsonify({'success': True, 'message': '单词已删除'})
 
 
+@app.route('/api/words/batch-update-status', methods=['POST'])
+def batch_update_status():
+    """批量更新单词状态
+    请求体: {"word_ids": [1,2,3], "status": "new"}
+    支持状态: new, review, mastered
+    """
+    data = request.get_json()
+    if not data or 'word_ids' not in data or 'status' not in data:
+        return jsonify({'success': False, 'error': '缺少 word_ids 或 status 参数'}), 400
+
+    word_ids = data['word_ids']
+    new_status = data['status']
+
+    if not isinstance(word_ids, list) or len(word_ids) == 0:
+        return jsonify({'success': False, 'error': 'word_ids 必须是非空列表'}), 400
+
+    if new_status not in ('new', 'review', 'mastered'):
+        return jsonify({'success': False, 'error': 'status 必须是 new/review/mastered'}), 400
+
+    user_id = get_current_user_id()
+    updated = 0
+    errors = 0
+    for wid in word_ids:
+        word = Word.query.get(wid)
+        if not word:
+            errors += 1
+            continue
+        if user_id and word.user_id and word.user_id != user_id:
+            errors += 1
+            continue
+        word.status = new_status
+        updated += 1
+
+    db.session.commit()
+    return jsonify({
+        'success': True,
+        'updated': updated,
+        'errors': errors,
+        'message': f'成功更新 {updated} 个单词状态'
+    })
+
+
+@app.route('/api/words/batch-move', methods=['POST'])
+def batch_move_words():
+    """批量移动单词到指定词本
+    请求体: {"word_ids": [1,2,3], "wordbook_id": 5}
+    wordbook_id 为 null/0/"" 时移至未归类
+    """
+    data = request.get_json()
+    if not data or 'word_ids' not in data:
+        return jsonify({'success': False, 'error': '缺少 word_ids 参数'}), 400
+
+    word_ids = data['word_ids']
+    if not isinstance(word_ids, list) or len(word_ids) == 0:
+        return jsonify({'success': False, 'error': 'word_ids 必须是非空列表'}), 400
+
+    wb_id_raw = data.get('wordbook_id')
+    user_id = get_current_user_id()
+
+    # 验证目标词本
+    if wb_id_raw is None or wb_id_raw == '' or wb_id_raw == 0:
+        target_wb_id = None
+    else:
+        target_wb_id = int(wb_id_raw)
+        book = Wordbook.query.get(target_wb_id)
+        if not book:
+            return jsonify({'success': False, 'error': '单词本不存在'}), 400
+        if user_id and book.user_id and book.user_id != user_id:
+            return jsonify({'success': False, 'error': '无权访问该单词本'}), 403
+
+    moved = 0
+    errors = 0
+    for wid in word_ids:
+        word = Word.query.get(wid)
+        if not word:
+            errors += 1
+            continue
+        if user_id and word.user_id and word.user_id != user_id:
+            errors += 1
+            continue
+        word.wordbook_id = target_wb_id
+        moved += 1
+
+    db.session.commit()
+    return jsonify({
+        'success': True,
+        'moved': moved,
+        'errors': errors,
+        'message': f'成功移动 {moved} 个单词'
+    })
+
+
+@app.route('/api/words/batch-delete', methods=['POST'])
+def batch_delete_words():
+    """批量删除单词
+    请求体: {"word_ids": [1,2,3]}
+    """
+    data = request.get_json()
+    if not data or 'word_ids' not in data:
+        return jsonify({'success': False, 'error': '缺少 word_ids 参数'}), 400
+
+    word_ids = data['word_ids']
+    if not isinstance(word_ids, list) or len(word_ids) == 0:
+        return jsonify({'success': False, 'error': 'word_ids 必须是非空列表'}), 400
+
+    user_id = get_current_user_id()
+    deleted = 0
+    errors = 0
+    for wid in word_ids:
+        word = Word.query.get(wid)
+        if not word:
+            errors += 1
+            continue
+        if user_id and word.user_id and word.user_id != user_id:
+            errors += 1
+            continue
+        db.session.delete(word)
+        deleted += 1
+
+    db.session.commit()
+    return jsonify({
+        'success': True,
+        'deleted': deleted,
+        'errors': errors,
+        'message': f'成功删除 {deleted} 个单词'
+    })
+
+
 @app.route('/api/words/distractors', methods=['GET'])
 def get_distractors():
     """获取随机干扰项释义（用于看词选义模式）

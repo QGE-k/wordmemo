@@ -9,7 +9,7 @@
   <!-- 预连接：提前建立TCP/TLS连接，减少首字节时间 -->
   <link rel="preconnect" href="/" crossorigin>
   <link rel="dns-prefetch" href="/">
-  <link rel="stylesheet" href="assets/style.css?v=20260802c">
+  <link rel="stylesheet" href="assets/style.css?v=20260802e">
   <!-- PWA 支持：允许"添加到桌面"当App用 -->
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" type="image/png" href="/icons/icon-192.png">
@@ -404,12 +404,8 @@
       </div>
       <!-- 翻卡模式额外按钮：加入新词 / 翻今天所有 -->
       <div class="card-actions card-actions-extra" id="learnExtraActions" style="display:none">
-        <button class="btn-secondary btn-sm" id="btnLearnReviewToday">翻今天所有</button>
-      </div>
-      <!-- 可拖动浮动按钮：加入新词 -->
-      <div class="float-add-btn" id="floatAddBtn" title="长按拖动，点击加入未学习单词">
-        <span class="float-add-icon">+</span>
-        <span class="float-add-text">未学习</span>
+        <button class="btn-secondary" id="btnLearnAddNew">+ 未学习</button>
+        <button class="btn-secondary" id="btnLearnReviewToday">翻今天所有</button>
       </div>
       <!-- 测验模式操作按钮 -->
       <div class="card-actions" id="quizActions" style="display:none">
@@ -509,6 +505,10 @@
         <button class="rating-btn rating-next" id="btnReviewNext" data-action="next">
           <span class="rating-label">下一个</span>
         </button>
+      </div>
+      <!-- 复习页额外按钮：加入新词 -->
+      <div class="card-actions card-actions-extra" id="reviewExtraActions" style="display:none">
+        <button class="btn-secondary" id="btnReviewAddNew">+ 未学习</button>
       </div>
       <!-- 测验模式操作按钮 -->
       <div class="card-actions" id="reviewQuizActions" style="display:none">
@@ -919,7 +919,7 @@
     </div>
   </div>
 
-  <script src="assets/app.js?v=20260802a"></script>
+  <script src="assets/app.js?v=20260802b"></script>
   <!-- PWA service worker 注册：仅在 HTTPS/localhost 生效 -->
   <script>
     if ('serviceWorker' in navigator) {

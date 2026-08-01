@@ -154,6 +154,30 @@ class WordAPI {
     });
   }
 
+  // 批量更新单词状态
+  batchUpdateStatus(wordIds, status) {
+    return this.request('/words/batch-update-status', {
+      method: 'POST',
+      body: JSON.stringify({ word_ids: wordIds, status: status })
+    });
+  }
+
+  // 批量移动单词到词本
+  batchMoveWords(wordIds, wordbookId) {
+    return this.request('/words/batch-move', {
+      method: 'POST',
+      body: JSON.stringify({ word_ids: wordIds, wordbook_id: wordbookId })
+    });
+  }
+
+  // 批量删除单词
+  batchDeleteWords(wordIds) {
+    return this.request('/words/batch-delete', {
+      method: 'POST',
+      body: JSON.stringify({ word_ids: wordIds })
+    });
+  }
+
   // 删除单词
   deleteWord(id) {
     return this.request('/words/' + id, { method: 'DELETE' });
@@ -945,10 +969,6 @@ function switchPage(pageName) {
   const target = $('#page-' + pageName);
   if (target) target.classList.add('active');
 
-  // 浮动按钮仅在学习页显示
-  const floatBtn = $('#floatAddBtn');
-  if (floatBtn) floatBtn.style.display = (pageName === 'learn') ? 'flex' : 'none';
-
   // 更新底部 TabBar 高亮
   $$('.tab-item').forEach(t => t.classList.remove('active'));
   const tab = $(`.tab-item[data-page="${pageName}"]`);
@@ -1693,18 +1713,20 @@ function showMultiSelectBar() {
   if (!bar) {
     bar = document.createElement('div');
     bar.id = 'multiSelectBar';
-    bar.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:#fff;box-shadow:0 -2px 10px rgba(0,0,0,0.1);padding:12px 16px;display:flex;align-items:center;gap:12px;z-index:500;max-width:480px;margin:0 auto;';
+    bar.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:#fff;box-shadow:0 -2px 10px rgba(0,0,0,0.1);padding:12px 16px;display:flex;align-items:center;gap:8px;z-index:500;max-width:480px;margin:0 auto;flex-wrap:wrap;';
     bar.innerHTML = `
       <span id="multiSelectCount" style="font-size:14px;color:#333;flex:1;">已选 1 个</span>
-      <button class="btn-secondary btn-sm" id="multiSelectCancel">取消</button>
-      <button class="btn-primary btn-sm" id="multiSelectMove">移动到词本</button>
+      <button class="btn-secondary btn-sm" id="multiSelectStatus">改状态</button>
+      <button class="btn-primary btn-sm" id="multiSelectMove">移动词本</button>
       <button class="btn-secondary btn-sm" id="multiSelectDelete" style="color:#ef4444;border-color:#ef4444">删除</button>
+      <button class="btn-secondary btn-sm" id="multiSelectCancel">取消</button>
     `;
     document.body.appendChild(bar);
     // 绑定事件
     $('#multiSelectCancel').addEventListener('click', exitMultiSelectMode);
     $('#multiSelectMove').addEventListener('click', openMultiMoveModal);
     $('#multiSelectDelete').addEventListener('click', handleMultiDelete);
+    $('#multiSelectStatus').addEventListener('click', openMultiStatusModal);
   }
   bar.style.display = 'flex';
   updateMultiSelectCount();
@@ -1755,17 +1777,13 @@ async function handleMultiMove() {
   const wbId = targetWordbookId ? parseInt(targetWordbookId) : null;
   try {
     showLoading(`正在移动 ${multiSelectIds.size} 个单词...`);
-    let success = 0, fail = 0;
-    for (const id of multiSelectIds) {
-      try {
-        await api.updateWord(id, { wordbook_id: wbId });
-        success++;
-      } catch (e) {
-        fail++;
-      }
-    }
+    // 使用批量API一次性移动，避免逐个请求太慢
+    const ids = Array.from(multiSelectIds);
+    const res = await api.batchMoveWords(ids, wbId);
+    const moved = res.moved || ids.length;
+    const errors = res.errors || 0;
     hideLoading();
-    showToast(`成功移动 ${success} 个单词${fail > 0 ? `，${fail}个失败` : ''}`, 'success');
+    showToast(`成功移动 ${moved} 个单词${errors > 0 ? `，${errors}个失败` : ''}`, 'success');
     closeMoveWordbookModal();
     exitMultiSelectMode();
     // 恢复确认按钮行为
@@ -1784,11 +1802,73 @@ async function handleMultiDelete() {
   if (!confirm(`确定删除选中的 ${multiSelectIds.size} 个单词吗？`)) return;
   try {
     showLoading('删除中...');
-    for (const id of multiSelectIds) {
-      await api.deleteWord(id);
-    }
+    // 使用批量API一次性删除
+    const ids = Array.from(multiSelectIds);
+    const res = await api.batchDeleteWords(ids);
     hideLoading();
     showToast('批量删除成功', 'success');
+    exitMultiSelectMode();
+    if ($('#page-library').classList.contains('active')) renderLibrary();
+    if ($('#page-home').classList.contains('active')) renderHome();
+  } catch (err) {
+    hideLoading();
+    handleError(err);
+  }
+}
+
+// 批量修改单词状态
+function openMultiStatusModal() {
+  if (multiSelectIds.size === 0) return;
+  // 创建弹窗
+  let modal = $('#multiStatusModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'multiStatusModal';
+    modal.className = 'modal-overlay';
+    modal.style.alignItems = 'center';
+    modal.innerHTML = `
+      <div class="modal-content" style="max-width:340px;text-align:center;">
+        <h3 style="margin:0 0 16px;font-size:18px;">修改单词状态</h3>
+        <p style="color:#666;margin:0 0 20px;font-size:14px;">将选中的 <b id="multiStatusCount">0</b> 个单词改为：</p>
+        <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px;">
+          <button class="btn-primary" data-status="new" style="width:100%;">未学习</button>
+          <button class="btn-secondary" data-status="review" style="width:100%;">复习中</button>
+          <button class="btn-secondary" data-status="mastered" style="width:100%;">已掌握</button>
+        </div>
+        <button class="btn-secondary" id="multiStatusCancel" style="width:100%;">取消</button>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    modal.querySelector('#multiStatusCancel').addEventListener('click', () => {
+      modal.style.display = 'none';
+    });
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) modal.style.display = 'none';
+    });
+    modal.querySelectorAll('[data-status]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const st = btn.getAttribute('data-status');
+        modal.style.display = 'none';
+        handleMultiStatus(st);
+      });
+    });
+  }
+  modal.querySelector('#multiStatusCount').textContent = multiSelectIds.size;
+  modal.style.display = 'flex';
+}
+
+async function handleMultiStatus(newStatus) {
+  if (multiSelectIds.size === 0) return;
+  const statusLabel = { new: '未学习', review: '复习中', mastered: '已掌握' }[newStatus] || newStatus;
+  try {
+    showLoading(`正在修改 ${multiSelectIds.size} 个单词状态...`);
+    // 使用批量API一次性更新，避免逐个请求太慢
+    const ids = Array.from(multiSelectIds);
+    const res = await api.batchUpdateStatus(ids, newStatus);
+    const updated = res.updated || ids.length;
+    const errors = res.errors || 0;
+    hideLoading();
+    showToast(`成功修改 ${updated} 个单词为「${statusLabel}」${errors > 0 ? `，${errors}个失败` : ''}`, 'success');
     exitMultiSelectMode();
     if ($('#page-library').classList.contains('active')) renderLibrary();
     if ($('#page-home').classList.contains('active')) renderHome();
@@ -2213,6 +2293,10 @@ async function loadLearnQueue(append = false, addCount = null) {
       showToast(`已加入 ${newWords.length} 个未学习单词`, 'success');
     }
     renderLearnCard();
+    // 加入新词后自动刷新首页统计（非阻塞，不影响当前学习体验）
+    if (append) {
+      renderHome().catch(() => {});
+    }
   } catch (err) {
     handleError(err);
   }
@@ -2258,8 +2342,6 @@ function renderLearnCard() {
     $('#quizActions').style.display = 'none';
     $('#learnEmpty').style.display = 'block';
     $('#learnProgress').textContent = `0 / 0`;
-    const floatBtn = $('#floatAddBtn');
-    if (floatBtn) floatBtn.style.display = 'flex';
     return;
   }
 
@@ -2271,9 +2353,6 @@ function renderLearnCard() {
   const word = learnQueue[learnIndex];
   $('#learnProgress').textContent = `${learnIndex + 1} / ${total}`;
   $('#learnEmpty').style.display = 'none';
-  // 浮动按钮始终显示在学习页
-  const floatBtn = $('#floatAddBtn');
-  if (floatBtn) floatBtn.style.display = 'flex';
 
   // 根据模式显示对应卡片
   if (learnMode === 'flip') {
@@ -2709,6 +2788,7 @@ function renderReviewCard() {
     $('#reviewSpellCard').style.display = 'none';
     $('#ratingActions').style.display = 'none';
     $('#reviewQuizActions').style.display = 'none';
+    $('#reviewExtraActions').style.display = 'none';
     $('#reviewEmpty').style.display = 'block';
     $('#reviewProgress').textContent = `0 / 0`;
     return;
@@ -2732,6 +2812,7 @@ function renderReviewCard() {
     $('#reviewSpellCard').style.display = 'none';
     $('#ratingActions').style.display = 'flex';
     $('#reviewQuizActions').style.display = 'none';
+    $('#reviewExtraActions').style.display = 'flex';
     renderReviewFlipCard(word);
   } else if (reviewMode === 'choice') {
     $('#reviewCard').style.display = 'none';
@@ -2739,6 +2820,7 @@ function renderReviewCard() {
     $('#reviewSpellCard').style.display = 'none';
     $('#ratingActions').style.display = 'none';
     $('#reviewQuizActions').style.display = 'flex';
+    $('#reviewExtraActions').style.display = 'none';
     renderReviewChoiceCard(word);
   } else if (reviewMode === 'spell') {
     $('#reviewCard').style.display = 'none';
@@ -4236,137 +4318,41 @@ function bindEvents() {
       }
     });
   }
-  // 翻卡模式：浮动加入新词按钮（可拖动）
-  const floatAddBtn = $('#floatAddBtn');
-  if (floatAddBtn) {
-    // 恢复上次位置
-    const savedPos = localStorage.getItem('wordmemo_float_btn_pos');
-    if (savedPos) {
-      try {
-        const pos = JSON.parse(savedPos);
-        floatAddBtn.style.right = 'auto';
-        floatAddBtn.style.left = pos.left + 'px';
-        floatAddBtn.style.top = pos.top + 'px';
-      } catch (e) {}
-    }
-
-    // 拖动逻辑
-    let isDragging = false;
-    let hasMoved = false;
-    let startX = 0, startY = 0;
-    let startLeft = 0, startTop = 0;
-
-    // 触摸拖动
-    floatAddBtn.addEventListener('touchstart', (e) => {
-      if (e.touches.length === 0) return;
-      isDragging = true;
-      hasMoved = false;
-      startX = e.touches[0].clientX;
-      startY = e.touches[0].clientY;
-      const rect = floatAddBtn.getBoundingClientRect();
-      startLeft = rect.left;
-      startTop = rect.top;
-      floatAddBtn.style.right = 'auto';
-      floatAddBtn.style.transition = 'none';
-      e.stopPropagation();
-    }, { passive: true });
-
-    floatAddBtn.addEventListener('touchmove', (e) => {
-      if (!isDragging || e.touches.length === 0) return;
-      const dx = e.touches[0].clientX - startX;
-      const dy = e.touches[0].clientY - startY;
-      if (Math.abs(dx) > 5 || Math.abs(dy) > 5) hasMoved = true;
-      let newLeft = startLeft + dx;
-      let newTop = startTop + dy;
-      // 限制在视口内
-      const btnW = floatAddBtn.offsetWidth;
-      const btnH = floatAddBtn.offsetHeight;
-      newLeft = Math.max(8, Math.min(window.innerWidth - btnW - 8, newLeft));
-      newTop = Math.max(60, Math.min(window.innerHeight - btnH - 8, newTop));
-      floatAddBtn.style.left = newLeft + 'px';
-      floatAddBtn.style.top = newTop + 'px';
-      e.stopPropagation();
-    }, { passive: true });
-
-    floatAddBtn.addEventListener('touchend', (e) => {
-      floatAddBtn.style.transition = '';
-      if (isDragging && !hasMoved) {
-        // 没有拖动，视为点击
-        promptAddWords();
+  // 翻卡模式：加入新词按钮（普通按钮）
+  const btnLearnAddNew = $('#btnLearnAddNew');
+  if (btnLearnAddNew) {
+    btnLearnAddNew.addEventListener('click', () => {
+      const countStr = prompt('要加入多少个未学习单词？', '10');
+      if (countStr !== null) {
+        const count = parseInt(countStr, 10);
+        if (!isNaN(count) && count > 0) {
+          loadLearnQueue(true, count);
+        } else if (countStr.trim() !== '') {
+          showToast('请输入有效的数字', 'error');
+        }
       }
-      if (hasMoved) {
-        // 保存位置
-        const rect = floatAddBtn.getBoundingClientRect();
-        localStorage.setItem('wordmemo_float_btn_pos', JSON.stringify({
-          left: rect.left,
-          top: rect.top,
-        }));
-      }
-      isDragging = false;
-      hasMoved = false;
-      e.stopPropagation();
-    });
-
-    // 鼠标拖动（桌面端）
-    let mouseDragging = false;
-    floatAddBtn.addEventListener('mousedown', (e) => {
-      if (e.button !== 0) return;
-      mouseDragging = true;
-      hasMoved = false;
-      startX = e.clientX;
-      startY = e.clientY;
-      const rect = floatAddBtn.getBoundingClientRect();
-      startLeft = rect.left;
-      startTop = rect.top;
-      floatAddBtn.style.right = 'auto';
-      floatAddBtn.style.transition = 'none';
-      e.preventDefault();
-      e.stopPropagation();
-    });
-
-    document.addEventListener('mousemove', (e) => {
-      if (!mouseDragging) return;
-      const dx = e.clientX - startX;
-      const dy = e.clientY - startY;
-      if (Math.abs(dx) > 5 || Math.abs(dy) > 5) hasMoved = true;
-      let newLeft = startLeft + dx;
-      let newTop = startTop + dy;
-      const btnW = floatAddBtn.offsetWidth;
-      const btnH = floatAddBtn.offsetHeight;
-      newLeft = Math.max(8, Math.min(window.innerWidth - btnW - 8, newLeft));
-      newTop = Math.max(60, Math.min(window.innerHeight - btnH - 8, newTop));
-      floatAddBtn.style.left = newLeft + 'px';
-      floatAddBtn.style.top = newTop + 'px';
-    });
-
-    document.addEventListener('mouseup', () => {
-      if (!mouseDragging) return;
-      floatAddBtn.style.transition = '';
-      if (!hasMoved) {
-        promptAddWords();
-      } else {
-        const rect = floatAddBtn.getBoundingClientRect();
-        localStorage.setItem('wordmemo_float_btn_pos', JSON.stringify({
-          left: rect.left,
-          top: rect.top,
-        }));
-      }
-      mouseDragging = false;
-      hasMoved = false;
     });
   }
-
-  // 加入新词的提示函数
-  function promptAddWords() {
-    const countStr = prompt('要加入多少个未学习单词？', '10');
-    if (countStr !== null) {
-      const count = parseInt(countStr, 10);
-      if (!isNaN(count) && count > 0) {
-        loadLearnQueue(true, count);
-      } else if (countStr.trim() !== '') {
-        showToast('请输入有效的数字', 'error');
+  // 复习页：加入新词按钮
+  const btnReviewAddNew = $('#btnReviewAddNew');
+  if (btnReviewAddNew) {
+    btnReviewAddNew.addEventListener('click', () => {
+      // 切到学习页并加入新词
+      switchPage('learn');
+      if (learnWordbookId !== '') {
+        const countStr = prompt('要加入多少个未学习单词？', '10');
+        if (countStr !== null) {
+          const count = parseInt(countStr, 10);
+          if (!isNaN(count) && count > 0) {
+            loadLearnQueue(true, count);
+          } else if (countStr.trim() !== '') {
+            showToast('请输入有效的数字', 'error');
+          }
+        }
+      } else {
+        showToast('请先选择一本词书', 'info');
       }
-    }
+    });
   }
   // 翻卡模式：翻今天所有按钮（卡片中）
   const reviewTodayBtn = $('#btnLearnReviewToday');
