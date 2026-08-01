@@ -9,7 +9,7 @@
   <!-- 预连接：提前建立TCP/TLS连接，减少首字节时间 -->
   <link rel="preconnect" href="/" crossorigin>
   <link rel="dns-prefetch" href="/">
-  <link rel="stylesheet" href="assets/style.css?v=20260802e">
+  <link rel="stylesheet" href="assets/style.css?v=20260802f">
   <!-- PWA 支持：允许"添加到桌面"当App用 -->
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" type="image/png" href="/icons/icon-192.png">
@@ -30,7 +30,11 @@
           <p class="greeting-sub" id="greetingText">早上好，今天也要加油哦</p>
           <h2 class="greeting-title">背单词</h2>
         </div>
-        <div class="streak-badge" id="streakBadge">
+        <div class="streak-badge" id="streakBadge" style="display:flex;align-items:center;gap:8px;">
+          <div class="checkin-area" id="checkinArea">
+            <button class="checkin-btn" id="btnCheckin">签到</button>
+            <span class="checkin-streak" id="checkinStreak" style="display:none"></span>
+          </div>
           <span class="streak-num" id="streakNum">0</span>
           <span class="streak-label">天连续</span>
         </div>
@@ -316,10 +320,6 @@
     <section class="page page-learn" id="page-learn">
       <div class="card-header">
         <span class="card-progress" id="learnProgress">0 / 0</span>
-        <div class="checkin-area" id="checkinArea">
-          <button class="checkin-btn" id="btnCheckin">签到</button>
-          <span class="checkin-streak" id="checkinStreak" style="display:none"></span>
-        </div>
         <span class="card-close" id="learnClose">退出</span>
       </div>
       <!-- 词书选择器 -->
@@ -334,6 +334,7 @@
         <button class="mode-tab active" data-mode="flip">翻卡模式</button>
         <button class="mode-tab" data-mode="choice">看词选义</button>
         <button class="mode-tab" data-mode="spell">拼写默写</button>
+        <button class="order-toggle-btn" id="learnOrderToggle" title="切换翻卡顺序">顺序</button>
       </div>
       <!-- 学习卡片容器 -->
       <div class="flip-card-stage" id="learnStage">
@@ -919,7 +920,7 @@
     </div>
   </div>
 
-  <script src="assets/app.js?v=20260802b"></script>
+  <script src="assets/app.js?v=20260802c"></script>
   <!-- PWA service worker 注册：仅在 HTTPS/localhost 生效 -->
   <script>
     if ('serviceWorker' in navigator) {

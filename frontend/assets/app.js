@@ -876,6 +876,15 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+/** Fisher-Yates 洗牌 */
+function shuffleArray(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
 /**
  * 单词发音
  * 优先使用 Android 原生 TTS（WebView 不支持 Web Speech API）
@@ -989,6 +998,8 @@ function onPageEnter(pageName) {
   switch (pageName) {
     case 'home':
       renderHome();
+      // 进入首页时加载签到状态
+      loadCheckinStatus();
       break;
     case 'library':
       loadWordbooks();
@@ -996,8 +1007,6 @@ function onPageEnter(pageName) {
       break;
     case 'learn':
       initLearnWordbookSelector();
-      // 进入学习页时加载签到状态
-      loadCheckinStatus();
       // 进入学习页时自动加载（必须已选词书）
       if (learnQueue.length === 0 && learnWordbookId !== '') loadLearnQueue();
       break;
@@ -1716,6 +1725,7 @@ function showMultiSelectBar() {
     bar.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:#fff;box-shadow:0 -2px 10px rgba(0,0,0,0.1);padding:12px 16px;display:flex;align-items:center;gap:8px;z-index:500;max-width:480px;margin:0 auto;flex-wrap:wrap;';
     bar.innerHTML = `
       <span id="multiSelectCount" style="font-size:14px;color:#333;flex:1;">已选 1 个</span>
+      <button class="btn-secondary btn-sm" id="multiSelectAll">全选</button>
       <button class="btn-secondary btn-sm" id="multiSelectStatus">改状态</button>
       <button class="btn-primary btn-sm" id="multiSelectMove">移动词本</button>
       <button class="btn-secondary btn-sm" id="multiSelectDelete" style="color:#ef4444;border-color:#ef4444">删除</button>
@@ -1727,6 +1737,7 @@ function showMultiSelectBar() {
     $('#multiSelectMove').addEventListener('click', openMultiMoveModal);
     $('#multiSelectDelete').addEventListener('click', handleMultiDelete);
     $('#multiSelectStatus').addEventListener('click', openMultiStatusModal);
+    $('#multiSelectAll').addEventListener('click', selectAllWords);
   }
   bar.style.display = 'flex';
   updateMultiSelectCount();
@@ -1755,6 +1766,30 @@ function toggleMultiSelect(id, item) {
 function updateMultiSelectCount() {
   const el = $('#multiSelectCount');
   if (el) el.textContent = `已选 ${multiSelectIds.size} 个`;
+}
+
+function selectAllWords() {
+  // 选中当前列表中所有单词
+  const allItems = document.querySelectorAll('.word-item[data-id]');
+  const allBtn = $('#multiSelectAll');
+  const allSelected = allItems.length > 0 && allItems.length === multiSelectIds.size;
+  if (allSelected) {
+    // 如果已经全选了，点击则取消全选
+    multiSelectIds.clear();
+    document.querySelectorAll('.word-item.multi-selected').forEach(el => el.classList.remove('multi-selected'));
+    if (allBtn) allBtn.textContent = '全选';
+  } else {
+    // 全选
+    allItems.forEach(item => {
+      const id = parseInt(item.getAttribute('data-id'), 10);
+      if (!isNaN(id)) {
+        multiSelectIds.add(id);
+        item.classList.add('multi-selected');
+      }
+    });
+    if (allBtn) allBtn.textContent = '取消全选';
+  }
+  updateMultiSelectCount();
 }
 
 async function openMultiMoveModal() {
@@ -2233,6 +2268,8 @@ let reviewRandomMode = false; // 复习随机模式：false=按时间排序（�
 let allLearnedIds = new Set(); // 本次学习会话中所有已学的单词ID（用于"已学会"标记）
 let loadedWordIds = new Set(); // 当前会话中已加载到队列的单词ID（用于"加入新词"排除）
 let learnSessionMode = 'new'; // 学习会话模式：new=未学习学习 / review_today=翻今天所有
+let learnShuffleMode = false; // 学习页翻卡顺序：false=顺序，true=随机（仅打乱当前队列）
+let learnOriginalQueue = []; // 保存原始顺序队列，用于切回顺序模式
 
 // 看词选义正确率统计（仅看词选义模式）
 let learnChoiceCorrect = 0;   // 学习模式答对数
@@ -2265,8 +2302,9 @@ async function loadLearnQueue(append = false, addCount = null) {
     const res = await api.getLearnToday(learnWordbookId, options);
     const newWords = Array.isArray(res) ? res : (res.words || res.data || []);
     if (append) {
-      // 追加模式：新词加到队列末尾，不重置索引
-      learnQueue = learnQueue.concat(newWords);
+      // 加入未学习：只翻新加的词，替换队列（不拼接旧词）
+      learnQueue = newWords;
+      learnIndex = 0;
     } else {
       // 首次加载：替换队列
       learnQueue = newWords;
@@ -2281,6 +2319,13 @@ async function loadLearnQueue(append = false, addCount = null) {
       loadedWordIds = new Set();
     }
     newWords.forEach(w => loadedWordIds.add(w.id));
+    // 保存原始顺序，用于随机/顺序切换
+    learnOriginalQueue = [...learnQueue];
+    // 如果当前是随机模式，打乱队列
+    if (learnShuffleMode && learnQueue.length > 1) {
+      learnQueue = shuffleArray([...learnQueue]);
+      learnIndex = 0;
+    }
     if (autoNextTimer) { clearTimeout(autoNextTimer); autoNextTimer = null; }
     hideLoading();
     if (newWords.length === 0) {
@@ -2315,6 +2360,12 @@ async function loadTodayAllWords() {
     learnQueue = words;
     learnIndex = 0;
     learnedIds = new Set();
+    // 保存原始顺序
+    learnOriginalQueue = [...learnQueue];
+    // 如果当前是随机模式，打乱队列
+    if (learnShuffleMode && learnQueue.length > 1) {
+      learnQueue = shuffleArray([...learnQueue]);
+    }
     if (autoNextTimer) { clearTimeout(autoNextTimer); autoNextTimer = null; }
     hideLoading();
     if (learnQueue.length === 0) {
@@ -4427,6 +4478,32 @@ function bindEvents() {
   $$('#learnModeTabs .mode-tab').forEach(tab => {
     tab.addEventListener('click', () => switchLearnMode(tab.dataset.mode));
   });
+  // 学习页顺序/随机翻卡切换
+  const learnOrderToggle = $('#learnOrderToggle');
+  if (learnOrderToggle) {
+    learnOrderToggle.addEventListener('click', () => {
+      learnShuffleMode = !learnShuffleMode;
+      if (learnShuffleMode) {
+        // 切到随机：打乱当前队列
+        learnOriginalQueue = [...learnQueue];
+        learnQueue = shuffleArray([...learnQueue]);
+        learnIndex = 0;
+        learnOrderToggle.textContent = '随机';
+        learnOrderToggle.classList.add('active');
+        showToast('已切换为随机翻卡', 'success');
+      } else {
+        // 切回顺序：恢复原始顺序
+        if (learnOriginalQueue.length > 0) {
+          learnQueue = [...learnOriginalQueue];
+        }
+        learnIndex = 0;
+        learnOrderToggle.textContent = '顺序';
+        learnOrderToggle.classList.remove('active');
+        showToast('已切换为顺序翻卡', 'success');
+      }
+      renderLearnCard();
+    });
+  }
   // 看词选义发音
   $('#choiceSpeakBtn').addEventListener('click', (e) => {
     const word = learnQueue[learnIndex];
