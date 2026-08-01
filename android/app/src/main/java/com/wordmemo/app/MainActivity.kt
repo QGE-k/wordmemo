@@ -206,8 +206,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
         settings.databaseEnabled = true
-        // 缓存策略：优先使用缓存，无缓存时走网络（配合 SW 实现秒开）
-        settings.cacheMode = WebSettings.LOAD_DEFAULT
+        // 缓存策略：每次从网络加载最新 HTML（SW 负责静态资源缓存）
+        settings.cacheMode = WebSettings.LOAD_NO_CACHE
         // setAppCacheEnabled 已在 API 34 移除，使用 domStorage 替代
         settings.allowFileAccess = true
         settings.allowContentAccess = true
@@ -258,8 +258,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         webView.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                // 等页面加载到 90% 再隐藏加载页，确保 CSS 已应用
-                if (newProgress >= 90) {
+                // 页面加载到 40% 即隐藏加载页，避免闪烁
+                if (newProgress >= 40) {
                     loadingView.visibility = View.GONE
                 }
             }
