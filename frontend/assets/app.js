@@ -250,6 +250,17 @@ class WordAPI {
     return res && res.data ? res.data : [];
   }
 
+  // 获取形近词干扰项（基于拼写相似度）
+  async getSimilarDistractors(word, wordbookId, excludeIds = [], limit = 3) {
+    let params = [`word=${encodeURIComponent(word)}`];
+    if (wordbookId !== '' && wordbookId !== undefined) params.push(`wordbook_id=${wordbookId}`);
+    if (excludeIds.length > 0) params.push(`exclude=${excludeIds.join(',')}`);
+    params.push(`limit=${limit}`);
+    const qs = '?' + params.join('&');
+    const res = await this.request('/words/similar-distractors' + qs);
+    return res && res.data ? res.data : [];
+  }
+
   // 获取今天学过的所有单词
   async getTodayLearnedWords(wordbookId) {
     const qs = wordbookId !== '' && wordbookId !== undefined ? `?wordbook_id=${wordbookId}` : '';
@@ -858,6 +869,10 @@ function switchPage(pageName) {
   // 显示目标页面
   const target = $('#page-' + pageName);
   if (target) target.classList.add('active');
+
+  // 浮动按钮仅在学习页显示
+  const floatBtn = $('#floatAddBtn');
+  if (floatBtn) floatBtn.style.display = (pageName === 'learn') ? 'flex' : 'none';
 
   // 更新顶部标题
   $('#statusTitle').textContent = PAGE_TITLES[pageName] || '背单词';
@@ -1735,16 +1750,51 @@ async function renderLibrary() {
     let selectedIds = new Set();
     
     list.querySelectorAll('.word-item').forEach(item => {
-      // 长按进入多选模式
+      // 长按进入多选模式（改进版：同时支持 touch 和 mouse）
       let pressTimer = null;
+      let isLongPress = false;
+      let startX = 0, startY = 0;
+      let triggered = false;
+
+      // 触摸事件（移动端）
       item.addEventListener('touchstart', (e) => {
+        triggered = false;
+        if (e.touches.length > 0) {
+          startX = e.touches[0].clientX;
+          startY = e.touches[0].clientY;
+        }
         pressTimer = setTimeout(() => {
-          e.preventDefault();
+          triggered = true;
+          isLongPress = true;
+          // 震动反馈
+          if (navigator.vibrate) navigator.vibrate(50);
+          // 视觉反馈
+          item.style.background = '#e0e7ff';
+          setTimeout(() => { item.style.background = ''; }, 300);
           enterMultiSelectMode(item.dataset.id);
-        }, 600);
+        }, 500);
+      }, { passive: true });
+      
+      item.addEventListener('touchend', (e) => {
+        if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+        // 如果是长按触发的，阻止后续 click 事件
+        if (triggered) {
+          e.preventDefault();
+          isLongPress = false;
+        }
       });
-      item.addEventListener('touchend', () => { if (pressTimer) clearTimeout(pressTimer); });
-      item.addEventListener('touchmove', () => { if (pressTimer) clearTimeout(pressTimer); });
+      
+      item.addEventListener('touchmove', (e) => {
+        if (pressTimer && e.touches.length > 0) {
+          const dx = Math.abs(e.touches[0].clientX - startX);
+          const dy = Math.abs(e.touches[0].clientY - startY);
+          // 移动超过 10px 就取消长按（避免滚动时误触发）
+          if (dx > 10 || dy > 10) {
+            clearTimeout(pressTimer);
+            pressTimer = null;
+          }
+        }
+      }, { passive: true });
       
       // 桌面端右键进入多选
       item.addEventListener('contextmenu', (e) => {
@@ -1752,8 +1802,34 @@ async function renderLibrary() {
         enterMultiSelectMode(item.dataset.id);
       });
       
+      // 鼠标长按（桌面端测试用）
+      let mouseTimer = null;
+      item.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return; // 只处理左键
+        triggered = false;
+        mouseTimer = setTimeout(() => {
+          triggered = true;
+          enterMultiSelectMode(item.dataset.id);
+        }, 500);
+      });
+      item.addEventListener('mouseup', (e) => {
+        if (mouseTimer) { clearTimeout(mouseTimer); mouseTimer = null; }
+        if (triggered) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      });
+      item.addEventListener('mouseleave', () => {
+        if (mouseTimer) { clearTimeout(mouseTimer); mouseTimer = null; }
+      });
+      
       // 点击事件
       item.addEventListener('click', (e) => {
+        // 如果是长按触发的，跳过本次 click
+        if (triggered) {
+          triggered = false;
+          return;
+        }
         // 检查是否在多选模式
         if ($('#multiSelectBar') && $('#multiSelectBar').style.display === 'flex') {
           e.stopPropagation();
@@ -2092,6 +2168,8 @@ function renderLearnCard() {
     $('#quizActions').style.display = 'none';
     $('#learnEmpty').style.display = 'block';
     $('#learnProgress').textContent = `0 / 0`;
+    const floatBtn = $('#floatAddBtn');
+    if (floatBtn) floatBtn.style.display = 'flex';
     return;
   }
 
@@ -2103,6 +2181,9 @@ function renderLearnCard() {
   const word = learnQueue[learnIndex];
   $('#learnProgress').textContent = `${learnIndex + 1} / ${total}`;
   $('#learnEmpty').style.display = 'none';
+  // 浮动按钮始终显示在学习页
+  const floatBtn = $('#floatAddBtn');
+  if (floatBtn) floatBtn.style.display = 'flex';
 
   // 根据模式显示对应卡片
   if (learnMode === 'flip') {
@@ -2196,7 +2277,7 @@ function renderFlipCard(word) {
  */
 /**
  * 渲染看词选义卡片
- * 从词书范围内随机抽取干扰项（不再只用当前队列的词）
+ * 优先使用形近词（拼写相似的词）作为干扰项，让选择题更有挑战性
  */
 async function renderChoiceCard(word) {
   quizAnswered = false;
@@ -2205,14 +2286,22 @@ async function renderChoiceCard(word) {
   $('#choiceFeedback').textContent = '';
   $('#choiceFeedback').className = 'quiz-feedback';
 
-  // 从后端获取同词书的随机干扰项释义
+  // 优先从后端获取形近词干扰项（拼写相似的词）
   let distractors = [];
   try {
     const excludeIds = learnQueue.map(w => w.id);
-    const result = await api.getDistractors(learnWordbookId, excludeIds, 3);
+    const result = await api.getSimilarDistractors(word.word, learnWordbookId, excludeIds, 3);
     distractors = result || [];
   } catch (e) {
-    console.warn('获取干扰项失败，使用队列内词', e);
+    console.warn('获取形近词干扰项失败，尝试随机干扰项', e);
+    // 降级：使用随机干扰项
+    try {
+      const excludeIds = learnQueue.map(w => w.id);
+      const result = await api.getDistractors(learnWordbookId, excludeIds, 3);
+      distractors = result || [];
+    } catch (e2) {
+      console.warn('获取随机干扰项也失败，使用队列内词', e2);
+    }
   }
 
   // 如果后端干扰项不够3个，从当前队列补充
@@ -2472,6 +2561,9 @@ function handleLearnDetail() {
 let reviewQueue = [];      // 今日复习队列
 let reviewIndex = 0;       // 当前索引
 let reviewFlipped = false; // 当前卡片是否翻转
+let reviewMode = 'flip';   // 复习模式：flip 翻卡 / choice 看词选义 / spell 拼写默写
+let reviewQuizAnswered = false; // 复习测验题是否已作答
+let reviewAutoNextTimer = null;  // 复习自动下一题定时器
 
 // 加载今日复习队列
 async function loadReviewQueue() {
@@ -2489,11 +2581,16 @@ async function loadReviewQueue() {
 
 // 渲染当前复习卡片
 function renderReviewCard() {
+  // 取消挂起的自动下一题
+  if (reviewAutoNextTimer) { clearTimeout(reviewAutoNextTimer); reviewAutoNextTimer = null; }
   const total = reviewQueue.length;
   // 队列为空：显示空状态
   if (total === 0) {
     $('#reviewCard').style.display = 'none';
+    $('#reviewChoiceCard').style.display = 'none';
+    $('#reviewSpellCard').style.display = 'none';
     $('#ratingActions').style.display = 'none';
+    $('#reviewQuizActions').style.display = 'none';
     $('#reviewEmpty').style.display = 'block';
     $('#reviewProgress').textContent = `0 / 0`;
     return;
@@ -2509,9 +2606,34 @@ function renderReviewCard() {
   const word = reviewQueue[reviewIndex];
   $('#reviewProgress').textContent = `${reviewIndex + 1} / ${total}`;
   $('#reviewEmpty').style.display = 'none';
-  $('#reviewCard').style.display = 'block';
-  $('#ratingActions').style.display = 'flex';
 
+  // 根据模式显示对应卡片
+  if (reviewMode === 'flip') {
+    $('#reviewCard').style.display = 'block';
+    $('#reviewChoiceCard').style.display = 'none';
+    $('#reviewSpellCard').style.display = 'none';
+    $('#ratingActions').style.display = 'flex';
+    $('#reviewQuizActions').style.display = 'none';
+    renderReviewFlipCard(word);
+  } else if (reviewMode === 'choice') {
+    $('#reviewCard').style.display = 'none';
+    $('#reviewChoiceCard').style.display = 'flex';
+    $('#reviewSpellCard').style.display = 'none';
+    $('#ratingActions').style.display = 'none';
+    $('#reviewQuizActions').style.display = 'flex';
+    renderReviewChoiceCard(word);
+  } else if (reviewMode === 'spell') {
+    $('#reviewCard').style.display = 'none';
+    $('#reviewChoiceCard').style.display = 'none';
+    $('#reviewSpellCard').style.display = 'flex';
+    $('#ratingActions').style.display = 'none';
+    $('#reviewQuizActions').style.display = 'flex';
+    renderReviewSpellCard(word);
+  }
+}
+
+// 渲染复习翻卡模式
+function renderReviewFlipCard(word) {
   // 正面
   $('#reviewWord').textContent = word.word;
   $('#reviewPhonetic').textContent = word.phonetic || '';
@@ -2537,6 +2659,194 @@ function renderReviewCard() {
   // 重置翻转
   reviewFlipped = false;
   $('#reviewCard').classList.remove('flipped');
+}
+
+/**
+ * 渲染复习看词选义卡片
+ * 优先使用形近词作为干扰项
+ */
+async function renderReviewChoiceCard(word) {
+  reviewQuizAnswered = false;
+  $('#reviewChoiceWord').textContent = word.word;
+  $('#reviewChoicePhonetic').textContent = word.phonetic || '';
+  $('#reviewChoiceFeedback').textContent = '';
+  $('#reviewChoiceFeedback').className = 'quiz-feedback';
+
+  // 优先获取形近词干扰项
+  let distractors = [];
+  try {
+    const excludeIds = reviewQueue.map(w => w.id);
+    const result = await api.getSimilarDistractors(word.word, reviewWordbookId, excludeIds, 3);
+    distractors = result || [];
+  } catch (e) {
+    console.warn('获取形近词干扰项失败，尝试随机干扰项', e);
+    try {
+      const excludeIds = reviewQueue.map(w => w.id);
+      const result = await api.getDistractors(reviewWordbookId, excludeIds, 3);
+      distractors = result || [];
+    } catch (e2) {
+      console.warn('获取随机干扰项也失败', e2);
+    }
+  }
+
+  // 如果不够3个，从当前队列补充
+  if (distractors.length < 3) {
+    const otherWords = reviewQueue.filter(w => w.word !== word.word && w.id !== word.id);
+    while (distractors.length < 3 && otherWords.length > 0) {
+      const idx = Math.floor(Math.random() * otherWords.length);
+      const w = otherWords[idx];
+      distractors.push({ word: w.word, meaning: w.meaning });
+      otherWords.splice(idx, 1);
+    }
+  }
+  while (distractors.length < 3) {
+    distractors.push({ meaning: '（无）', word: '_dummy' + distractors.length });
+  }
+
+  const options = [{ word: word.word, meaning: word.meaning }, ...distractors];
+  options.sort(() => Math.random() - 0.5);
+
+  const optionsEl = $('#reviewChoiceOptions');
+  optionsEl.innerHTML = options.map(opt => `
+    <button class="quiz-option" data-word="${escapeHtml(opt.word)}">${escapeHtml(opt.meaning || '（无释义）')}</button>
+  `).join('');
+
+  optionsEl.querySelectorAll('.quiz-option').forEach(btn => {
+    btn.addEventListener('click', () => handleReviewChoiceAnswer(btn, word));
+  });
+}
+
+/**
+ * 处理复习选义答题
+ */
+function handleReviewChoiceAnswer(btn, currentWord) {
+  if (reviewQuizAnswered) return;
+  reviewQuizAnswered = true;
+
+  const selectedWord = btn.dataset.word;
+  const isCorrect = selectedWord === currentWord.word;
+  const feedback = $('#reviewChoiceFeedback');
+  const optionsEl = $('#reviewChoiceOptions');
+
+  optionsEl.querySelectorAll('.quiz-option').forEach(b => b.classList.add('disabled'));
+
+  if (isCorrect) {
+    btn.classList.add('correct');
+    feedback.className = 'quiz-feedback correct';
+    feedback.textContent = '回答正确！';
+    playCorrectSound();
+    reviewAutoNextTimer = setTimeout(() => {
+      reviewAutoNextTimer = null;
+      handleReviewQuizNext();
+    }, 900);
+  } else {
+    btn.classList.add('wrong');
+    playWrongSound();
+    optionsEl.querySelectorAll('.quiz-option').forEach(b => {
+      if (b.dataset.word === currentWord.word) b.classList.add('correct');
+    });
+    feedback.className = 'quiz-feedback wrong';
+    feedback.innerHTML = `回答错误<span class="feedback-meaning">正确答案：${escapeHtml(currentWord.meaning || '')}</span>`;
+  }
+}
+
+/**
+ * 渲染复习拼写默写卡片
+ */
+function renderReviewSpellCard(word) {
+  reviewQuizAnswered = false;
+  $('#reviewSpellMeaning').textContent = word.meaning || '暂无释义';
+  $('#reviewSpellPhonetic').textContent = word.phonetic || '';
+  $('#reviewSpellFeedback').textContent = '';
+  $('#reviewSpellFeedback').className = 'quiz-feedback';
+  const input = $('#reviewSpellInput');
+  input.value = '';
+  input.className = 'spell-input';
+  input.disabled = false;
+  setTimeout(() => input.focus(), 100);
+  input.dataset.answer = word.word;
+}
+
+/**
+ * 处理复习拼写提交
+ */
+function handleReviewSpellSubmit() {
+  if (reviewQuizAnswered) return;
+  const input = $('#reviewSpellInput');
+  const answer = input.dataset.answer || '';
+  const userAns = input.value.trim().toLowerCase();
+  const correctAns = answer.toLowerCase();
+
+  if (!userAns) {
+    showToast('请输入单词', 'error');
+    return;
+  }
+
+  reviewQuizAnswered = true;
+  input.disabled = true;
+  const feedback = $('#reviewSpellFeedback');
+
+  if (userAns === correctAns) {
+    input.classList.add('correct');
+    feedback.className = 'quiz-feedback correct';
+    feedback.textContent = '拼写正确！';
+    playCorrectSound();
+    reviewAutoNextTimer = setTimeout(() => {
+      reviewAutoNextTimer = null;
+      handleReviewQuizNext();
+    }, 900);
+  } else {
+    input.classList.add('wrong');
+    playWrongSound();
+    feedback.className = 'quiz-feedback wrong';
+    feedback.innerHTML = `拼写错误<span class="feedback-meaning">正确答案：${escapeHtml(answer)}</span>`;
+  }
+}
+
+/**
+ * 切换复习模式
+ */
+function switchReviewMode(mode) {
+  reviewMode = mode;
+  // 更新 tab 样式
+  $$('#reviewModeTabs .mode-tab').forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.rmode === mode);
+  });
+  // 重新渲染当前词
+  if (reviewQueue.length > 0 && reviewIndex < reviewQueue.length) {
+    renderReviewCard();
+  }
+}
+
+/**
+ * 复习测验模式"下一题"：提交复习评级并跳到下一个（循环）
+ */
+async function handleReviewQuizNext() {
+  if (reviewAutoNextTimer) { clearTimeout(reviewAutoNextTimer); reviewAutoNextTimer = null; }
+  const currentWord = reviewQueue[reviewIndex];
+  if (currentWord) {
+    try {
+      await api.submitReview(currentWord.id, 'good');
+    } catch (e) {
+      console.error(e);
+    }
+  }
+  reviewIndex++;
+  renderReviewCard();
+}
+
+/**
+ * 复习测验模式"上一题"（循环）
+ */
+function handleReviewQuizPrev() {
+  if (reviewQueue.length === 0) return;
+  if (reviewIndex === 0) {
+    reviewIndex = reviewQueue.length - 1;
+    renderReviewCard();
+    return;
+  }
+  reviewIndex--;
+  renderReviewCard();
 }
 
 // 翻转复习卡片
@@ -3665,20 +3975,137 @@ function bindEvents() {
       }
     });
   }
-  // 翻卡模式：加入新词按钮（卡片中）—— 弹出输入框让用户设置加入数量
-  const addMoreBtn = $('#btnLearnAddMore');
-  if (addMoreBtn) {
-    addMoreBtn.addEventListener('click', () => {
-      const countStr = prompt('要加入多少个新词？', '10');
-      if (countStr !== null) {
-        const count = parseInt(countStr, 10);
-        if (!isNaN(count) && count > 0) {
-          loadLearnQueue(true, count);
-        } else if (countStr.trim() !== '') {
-          showToast('请输入有效的数字', 'error');
-        }
+  // 翻卡模式：浮动加入新词按钮（可拖动）
+  const floatAddBtn = $('#floatAddBtn');
+  if (floatAddBtn) {
+    // 恢复上次位置
+    const savedPos = localStorage.getItem('wordmemo_float_btn_pos');
+    if (savedPos) {
+      try {
+        const pos = JSON.parse(savedPos);
+        floatAddBtn.style.right = 'auto';
+        floatAddBtn.style.left = pos.left + 'px';
+        floatAddBtn.style.top = pos.top + 'px';
+      } catch (e) {}
+    }
+
+    // 拖动逻辑
+    let isDragging = false;
+    let hasMoved = false;
+    let startX = 0, startY = 0;
+    let startLeft = 0, startTop = 0;
+
+    // 触摸拖动
+    floatAddBtn.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 0) return;
+      isDragging = true;
+      hasMoved = false;
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      const rect = floatAddBtn.getBoundingClientRect();
+      startLeft = rect.left;
+      startTop = rect.top;
+      floatAddBtn.style.right = 'auto';
+      floatAddBtn.style.transition = 'none';
+      e.stopPropagation();
+    }, { passive: true });
+
+    floatAddBtn.addEventListener('touchmove', (e) => {
+      if (!isDragging || e.touches.length === 0) return;
+      const dx = e.touches[0].clientX - startX;
+      const dy = e.touches[0].clientY - startY;
+      if (Math.abs(dx) > 5 || Math.abs(dy) > 5) hasMoved = true;
+      let newLeft = startLeft + dx;
+      let newTop = startTop + dy;
+      // 限制在视口内
+      const btnW = floatAddBtn.offsetWidth;
+      const btnH = floatAddBtn.offsetHeight;
+      newLeft = Math.max(8, Math.min(window.innerWidth - btnW - 8, newLeft));
+      newTop = Math.max(60, Math.min(window.innerHeight - btnH - 8, newTop));
+      floatAddBtn.style.left = newLeft + 'px';
+      floatAddBtn.style.top = newTop + 'px';
+      e.stopPropagation();
+    }, { passive: true });
+
+    floatAddBtn.addEventListener('touchend', (e) => {
+      floatAddBtn.style.transition = '';
+      if (isDragging && !hasMoved) {
+        // 没有拖动，视为点击
+        promptAddWords();
       }
+      if (hasMoved) {
+        // 保存位置
+        const rect = floatAddBtn.getBoundingClientRect();
+        localStorage.setItem('wordmemo_float_btn_pos', JSON.stringify({
+          left: rect.left,
+          top: rect.top,
+        }));
+      }
+      isDragging = false;
+      hasMoved = false;
+      e.stopPropagation();
     });
+
+    // 鼠标拖动（桌面端）
+    let mouseDragging = false;
+    floatAddBtn.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      mouseDragging = true;
+      hasMoved = false;
+      startX = e.clientX;
+      startY = e.clientY;
+      const rect = floatAddBtn.getBoundingClientRect();
+      startLeft = rect.left;
+      startTop = rect.top;
+      floatAddBtn.style.right = 'auto';
+      floatAddBtn.style.transition = 'none';
+      e.preventDefault();
+      e.stopPropagation();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!mouseDragging) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      if (Math.abs(dx) > 5 || Math.abs(dy) > 5) hasMoved = true;
+      let newLeft = startLeft + dx;
+      let newTop = startTop + dy;
+      const btnW = floatAddBtn.offsetWidth;
+      const btnH = floatAddBtn.offsetHeight;
+      newLeft = Math.max(8, Math.min(window.innerWidth - btnW - 8, newLeft));
+      newTop = Math.max(60, Math.min(window.innerHeight - btnH - 8, newTop));
+      floatAddBtn.style.left = newLeft + 'px';
+      floatAddBtn.style.top = newTop + 'px';
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (!mouseDragging) return;
+      floatAddBtn.style.transition = '';
+      if (!hasMoved) {
+        promptAddWords();
+      } else {
+        const rect = floatAddBtn.getBoundingClientRect();
+        localStorage.setItem('wordmemo_float_btn_pos', JSON.stringify({
+          left: rect.left,
+          top: rect.top,
+        }));
+      }
+      mouseDragging = false;
+      hasMoved = false;
+    });
+  }
+
+  // 加入新词的提示函数
+  function promptAddWords() {
+    const countStr = prompt('要加入多少个新词？', '10');
+    if (countStr !== null) {
+      const count = parseInt(countStr, 10);
+      if (!isNaN(count) && count > 0) {
+        loadLearnQueue(true, count);
+      } else if (countStr.trim() !== '') {
+        showToast('请输入有效的数字', 'error');
+      }
+    }
   }
   // 翻卡模式：翻今天所有按钮（卡片中）
   const reviewTodayBtn = $('#btnLearnReviewToday');
@@ -3749,8 +4176,8 @@ function bindEvents() {
     if (word) speakWord(word.word, e.currentTarget);
   });
 
-  // 学习模式切换
-  $$('.mode-tab').forEach(tab => {
+  // 学习模式切换（仅学习页的 mode-tab）
+  $$('#learnModeTabs .mode-tab').forEach(tab => {
     tab.addEventListener('click', () => switchLearnMode(tab.dataset.mode));
   });
   // 看词选义发音
@@ -3808,6 +4235,52 @@ function bindEvents() {
     const word = reviewQueue[reviewIndex];
     if (word) speakWord(word.word, e.currentTarget);
   });
+
+  // 复习模式切换
+  $$('#reviewModeTabs .mode-tab').forEach(tab => {
+    tab.addEventListener('click', () => switchReviewMode(tab.dataset.rmode));
+  });
+  // 复习看词选义发音
+  $('#reviewChoiceSpeakBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const word = reviewQueue[reviewIndex];
+    if (word) speakWord(word.word, e.currentTarget);
+  });
+  // 复习拼写默写
+  $('#reviewSpellSpeakBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const input = $('#reviewSpellInput');
+    const answer = input.dataset.answer;
+    if (answer) speakWord(answer, e.currentTarget);
+  });
+  $('#reviewSpellSubmitBtn').addEventListener('click', handleReviewSpellSubmit);
+  $('#reviewSpellSkipBtn').addEventListener('click', () => {
+    if (reviewQuizAnswered) return;
+    reviewQuizAnswered = true;
+    const input = $('#reviewSpellInput');
+    const answer = input.dataset.answer || '';
+    input.disabled = true;
+    const feedback = $('#reviewSpellFeedback');
+    feedback.className = 'quiz-feedback wrong';
+    feedback.innerHTML = `已跳过<span class="feedback-meaning">正确答案：${escapeHtml(answer)}</span>`;
+  });
+  $('#reviewSpellInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (reviewQuizAnswered) {
+        handleReviewQuizNext();
+      } else {
+        handleReviewSpellSubmit();
+      }
+    }
+  });
+  // 复习测验操作按钮
+  $('#btnReviewQuizPrev').addEventListener('click', handleReviewQuizPrev);
+  $('#btnReviewQuizDetail').addEventListener('click', () => {
+    const word = reviewQueue[reviewIndex];
+    if (word) openWordDetail(word.id);
+  });
+  $('#btnReviewQuizNext').addEventListener('click', handleReviewQuizNext);
 
   // 音标点击发音（所有音标元素都可点击）
   const phoneticHandler = (getWord) => (e) => {
