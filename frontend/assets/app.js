@@ -75,6 +75,13 @@ class WordAPI {
       headers['Content-Type'] = 'application/json';
     }
 
+    // 根据请求类型设置不同的超时策略
+    // AI 识别类请求需要很长时间（推理模型处理图片），用 60 秒
+    // 普通请求：首次 10 秒 → 超时重试 30 秒
+    const isAIRequest = path.includes('/ai/') || path.includes('/ocr/');
+    const firstTimeout = isAIRequest ? 60000 : 10000;
+    const retryTimeout = isAIRequest ? 90000 : 30000;
+
     // 带超时的单次请求
     const fetchWithTimeout = async (timeoutMs) => {
       const controller = new AbortController();
@@ -101,25 +108,25 @@ class WordAPI {
     };
 
     // 两级超时策略：
-    // 1. 首次请求 10 秒（服务热状态时秒回，Neon 唤醒 2 秒也能覆盖）
-    // 2. 超时后提示用户并重试 30 秒（覆盖 Render 冷启动 15-20 秒）
+    // 1. 首次请求（普通 10 秒 / AI 60 秒）
+    // 2. 超时后提示用户并重试（普通 30 秒 / AI 90 秒，覆盖 Render 冷启动）
     try {
-      return await fetchWithTimeout(10000);
+      return await fetchWithTimeout(firstTimeout);
     } catch (err) {
       const isRetryable = err.name === 'AbortError' ||
         (err instanceof TypeError && err.message.includes('Failed to fetch'));
       if (!isRetryable) throw err;
 
-      // 提示用户服务正在唤醒（非阻塞 toast）
-      if (typeof showToast === 'function') {
+      // 提示用户服务正在唤醒（非阻塞 toast，AI 请求不提示因为有 loading）
+      if (!isAIRequest && typeof showToast === 'function') {
         showToast('服务唤醒中，请稍候...', 'info');
       }
 
       try {
-        return await fetchWithTimeout(30000);
+        return await fetchWithTimeout(retryTimeout);
       } catch (err2) {
         if (err2.name === 'AbortError') {
-          throw new Error('请求超时，请稍后重试');
+          throw new Error(isAIRequest ? 'AI识别超时，请稍后重试' : '请求超时，请稍后重试');
         }
         if (err2 instanceof TypeError && err2.message.includes('Failed to fetch')) {
           throw new Error('无法连接服务器，请检查网络');
