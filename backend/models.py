@@ -167,13 +167,16 @@ class Word(db.Model):
 
 
 class LearnHistory(db.Model):
-    """学习历史记录模型，记录每天学习的单词数量"""
+    """学习历史记录模型，记录每天学习的单词数量（按用户隔离）"""
     __tablename__ = 'learn_history'
+    __table_args__ = (
+        db.UniqueConstraint('date', 'user_id', name='uq_learn_history_date_user'),
+    )
 
     # 主键ID
     id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     # 日期（格式：YYYY-MM-DD）
-    date = db.Column(db.Date, nullable=False, unique=True, index=True)
+    date = db.Column(db.Date, nullable=False, index=True)
     # 当天学习的单词数量
     count = db.Column(db.Integer, default=0)
     # 当天复习正确次数（用于准确率统计）
@@ -182,6 +185,8 @@ class LearnHistory(db.Model):
     total_count = db.Column(db.Integer, default=0)
     # 是否已签到（独立于学习记录，需用户手动点击签到）
     checked_in = db.Column(db.Boolean, default=False)
+    # 所属用户 ID（外键，可空=旧数据/未登录用户）
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
 
     def to_dict(self):
         """转换为字典"""
@@ -191,10 +196,11 @@ class LearnHistory(db.Model):
             'count': self.count,
             'correct_count': self.correct_count or 0,
             'total_count': self.total_count or 0,
+            'user_id': self.user_id,
         }
 
     def __repr__(self):
-        return f'<LearnHistory {self.date}: {self.count}>'
+        return f'<LearnHistory {self.date}: {self.count} (user={self.user_id})>'
 
 
 class LearnSession(db.Model):
@@ -266,17 +272,27 @@ class Wordbook(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     # 所属用户 ID（外键，可空=旧数据/未登录用户）
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
+    # 是否分享到全局词本（True=已分享，其他用户可查看和导入单词）
+    is_shared = db.Column(db.Boolean, default=False)
+    # 分享时间（is_shared 设为 True 时更新）
+    shared_at = db.Column(db.DateTime, nullable=True)
     # 关联单词（反向关系）
     words = db.relationship('Word', backref='wordbook', lazy='dynamic')
 
-    def to_dict(self, include_count=False):
+    def to_dict(self, include_count=False, include_owner=False):
         data = {
             'id': self.id,
             'name': self.name,
             'description': self.description or '',
             'color': self.color or '#4a7fff',
             'created_at': self.created_at.isoformat() if self.created_at else None,
+            'is_shared': self.is_shared if self.is_shared is not None else False,
+            'shared_at': self.shared_at.isoformat() if self.shared_at else None,
         }
         if include_count:
             data['word_count'] = self.words.count()
+        if include_owner and self.user_id:
+            owner = User.query.get(self.user_id)
+            data['owner_name'] = owner.nickname or owner.username if owner else '未知'
+            data['owner_id'] = self.user_id
         return data

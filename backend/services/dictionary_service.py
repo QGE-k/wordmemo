@@ -2,12 +2,44 @@
 本地词典服务模块
 作为AI不可用时的fallback方案
 包含预置的常用单词词典和基于规则的单词分析
+集成 ECDICT 开源词典（77万词条），提供精准释义、音标、词性和变形分析
 """
 import re
+import os
+import sqlite3
+import threading
+import requests
 
 
 class DictionaryService:
     """本地词典服务，提供离线单词查询和规则分析"""
+
+    _online_cache = {}
+
+    # ECDICT 数据库连接（懒加载，线程安全）
+    _ecdict_conn = None
+    _ecdict_lock = threading.Lock()
+
+    @property
+    def _ecdict(self):
+        """懒加载 ECDICT SQLite 数据库连接"""
+        if self._ecdict_conn is None:
+            with self._ecdict_lock:
+                if self._ecdict_conn is None:
+                    db_path = os.path.join(
+                        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        'data', 'stardict.db'
+                    )
+                    if os.path.exists(db_path):
+                        try:
+                            self._ecdict_conn = sqlite3.connect(
+                                db_path, check_same_thread=False
+                            )
+                            self._ecdict_conn.row_factory = sqlite3.Row
+                            print(f'[ecdict] 已加载词典数据库: {db_path}')
+                        except Exception as e:
+                            print(f'[ecdict] 加载失败: {e}')
+        return self._ecdict_conn
 
     # 常见英文前缀
     PREFIXES = {
@@ -678,20 +710,23 @@ class DictionaryService:
     # {word}=英文单词，{zh}=中文释义（从meaning字段提取）
     EXAMPLE_TEMPLATES = {
         'verb': [
-            {'en': 'We should try to {word} as often as possible.', 'zh': '我们应该尽可能经常地去{zh}。'},
-            {'en': 'It is necessary for students to {word} in their studies.', 'zh': '学生在学习中需要{zh}。'},
+            {'en': 'I usually {word} in the morning.', 'zh': '我通常在早上{zh}。'},
+            {'en': 'It is important to {word} every day.', 'zh': '每天{zh}是很重要的。'},
+            {'en': 'She wants to {word} her English skills.', 'zh': '她想{zh}她的英语能力。'},
         ],
         'noun': [
-            {'en': 'This {word} plays an important role in our daily life.', 'zh': '这个{zh}在我们的日常生活中起着重要作用。'},
-            {'en': 'Everyone should understand the value of {word}.', 'zh': '每个人都应该理解{zh}的价值。'},
+            {'en': 'This {word} is very important to us.', 'zh': '这个{zh}对我们来说非常重要。'},
+            {'en': 'I learned a lot from this {word}.', 'zh': '我从这个{zh}中学到了很多。'},
+            {'en': 'The {word} has changed our lives.', 'zh': '{zh}改变了我们的生活。'},
         ],
         'adj': [
-            {'en': 'It is very {word} for college students to learn English well.', 'zh': '对大学生来说学好英语非常{zh}。'},
-            {'en': 'She has made {word} progress in her studies.', 'zh': '她在学习上取得了{zh}的进步。'},
+            {'en': 'She is a very {word} person.', 'zh': '她是一个非常{zh}的人。'},
+            {'en': 'This book is very {word}.', 'zh': '这本书非常{zh}。'},
+            {'en': 'The weather today is quite {word}.', 'zh': '今天的天气相当{zh}。'},
         ],
         'adv': [
-            {'en': 'He finished his homework {word} and went to bed.', 'zh': '他{zh}地完成了作业然后去睡觉了。'},
-            {'en': 'The students listened to the teacher {word}.', 'zh': '学生们{zh}地听老师讲课。'},
+            {'en': 'He spoke {word} at the meeting.', 'zh': '他在会议上{zh}地发言。'},
+            {'en': 'She always listens {word} in class.', 'zh': '她上课时总是{zh}地听讲。'},
         ],
     }
 
@@ -1442,16 +1477,18 @@ class DictionaryService:
             return self.ZHUANSHENBEN_EXAMPLES[word_lower[:-2]]
 
         # 3. 没有专门例句，根据词性用模板生成
+        import re
         meaning_str = (meaning or '').strip()
         meaning_lower = meaning_str.lower()
         pos = None
-        if meaning_lower.startswith('v.') or meaning_lower.startswith('v '):
+        # 检测词性前缀（兼容 ECDICT 的 vi./vt./a. 等格式）
+        if re.match(r'^(v|vi|vt|aux)\.', meaning_lower) or re.match(r'^(v|vi|vt|aux)\s', meaning_lower):
             pos = 'verb'
-        elif meaning_lower.startswith('n.') or meaning_lower.startswith('n '):
+        elif re.match(r'^n\.', meaning_lower) or re.match(r'^n\s', meaning_lower):
             pos = 'noun'
-        elif meaning_lower.startswith('adj.') or meaning_lower.startswith('adj '):
+        elif re.match(r'^(adj|a)\.', meaning_lower) or re.match(r'^adj\s', meaning_lower):
             pos = 'adj'
-        elif meaning_lower.startswith('adv.') or meaning_lower.startswith('adv '):
+        elif re.match(r'^(adv|ad)\.', meaning_lower) or re.match(r'^adv\s', meaning_lower):
             pos = 'adv'
 
         # 4. 如果释义没有标准词性前缀，尝试从单词后缀推断
@@ -1469,11 +1506,28 @@ class DictionaryService:
                 pos = 'noun'
 
         if pos and pos in self.EXAMPLE_TEMPLATES:
-            # 提取中文释义（去掉词性前缀如 "n. ", "v. " 等）
-            import re
-            zh_meaning = re.sub(r'^(n|v|adj|adv|prep|conj|pron|num|art|interj)\.\s*', '', meaning_str)
-            zh_meaning = re.sub(r'^(n|v|adj|adv|prep|conj|pron|num|art|interj)\s+', '', zh_meaning)
-            zh_meaning = zh_meaning.strip() or word_lower
+            # 提取中文释义（去掉词性前缀、括号注释，只取第一条释义）
+            zh_meaning = meaning_str
+            # 只取第一行（ECDICT 多词性释义用换行分隔）
+            zh_meaning = zh_meaning.split('\n')[0].strip()
+            # 去掉所有词性前缀（包括 ECDICT 的 a./vi./vt./aux. 等格式）
+            zh_meaning = re.sub(r'^(vi|vt|aux|n|v|adj|adv|ad|a|prep|conj|pron|num|art|interj)\.\s*', '', zh_meaning)
+            zh_meaning = re.sub(r'^(vi|vt|aux|n|v|adj|adv|ad|a|prep|conj|pron|num|art|interj)\s+', '', zh_meaning)
+            # 去掉方括号注释如 [体] [法] [医]
+            zh_meaning = re.sub(r'\[.*?\]', '', zh_meaning)
+            # 去掉圆括号注释如 (书名)
+            zh_meaning = re.sub(r'（.*?）', '', zh_meaning)
+            zh_meaning = re.sub(r'\(.*?\)', '', zh_meaning)
+            # 只取第一条释义（分号或逗号分隔）
+            zh_meaning = re.split(r'[;；,，]', zh_meaning)[0].strip()
+            # 形容词去掉尾部的"的"，避免模板中出现"好的的人"
+            if pos == 'adj' and zh_meaning.endswith('的'):
+                zh_meaning = zh_meaning[:-1]
+            # 副词去掉尾部的"地"，避免模板中出现"安静地地发言"
+            if pos == 'adv' and zh_meaning.endswith('地'):
+                zh_meaning = zh_meaning[:-1]
+            # 去掉首尾多余空格和标点
+            zh_meaning = zh_meaning.strip('，,。 ') or word_lower
 
             templates = self.EXAMPLE_TEMPLATES[pos]
             examples = []
@@ -1485,6 +1539,810 @@ class DictionaryService:
             return examples
 
         return []
+
+
+    def _query_ecdict(self, word):
+        """查询 ECDICT 词典数据库，返回完整词条数据"""
+        conn = self._ecdict
+        if not conn:
+            return None
+        try:
+            cur = conn.execute(
+                'SELECT word, phonetic, definition, translation, pos, exchange, tag, collins, oxford FROM stardict WHERE word = ? COLLATE NOCASE',
+                (word,)
+            )
+            row = cur.fetchone()
+            if row:
+                return dict(row)
+        except Exception as e:
+            print(f'[ecdict] query error({word}): {e}')
+        return None
+
+    def _convert_phonetic(self, phonetic):
+        """将 ECDICT 音标编码转换为标准 IPA 格式"""
+        if not phonetic:
+            return ''
+        result = phonetic
+        result = result.replace(':', '\u02d0')  # long vowel mark ː
+        result = result.replace("'", '\u02c8')   # primary stress ˈ
+        result = result.replace(',', '\u02cc')   # secondary stress ˌ
+        return '/' + result + '/'
+
+    def _clean_meaning(self, translation):
+        """
+        精简 ECDICT 释义：只保留常用释义（前1-2条），去除过长内容
+        ECDICT translation 格式：用换行分隔不同词性的释义
+        """
+        if not translation:
+            return ''
+        # 按换行分割，取前2条
+        lines = translation.strip().split('\n')
+        # 过滤掉太长的行（可能是专业术语）和包含方括号的行（如 [法] [化]）
+        clean_lines = []
+        for line in lines[:3]:
+            line = line.strip()
+            if not line:
+                continue
+            # 去除行内方括号注释如 [体] [法] [网]
+            import re as _re
+            line = _re.sub(r'\[.*?\]', '', line).strip()
+            if not line:
+                continue
+            # 跳过包含专业领域标记的行
+            if any(line.startswith(f'[{tag}]') for tag in ['法', '化', '医', '药', '生', '计', '经', '农', '商']):
+                continue
+            # 如果一行内用分号或逗号分隔了多个释义，只取前3个
+            parts = _re.split(r'[;；,，]', line)
+            if len(parts) > 3:
+                line = ','.join(parts[:3])
+            # 限制每行长度
+            if len(line) > 50:
+                line = line[:50] + '...'
+            clean_lines.append(line)
+            if len(clean_lines) >= 2:
+                break
+        return '\n'.join(clean_lines) if clean_lines else lines[0].strip()
+
+    def _parse_exchange(self, exchange_str):
+        """
+        解析 ECDICT exchange 字段为结构化变形数据
+        格式: 0:lemma/1:form_type/p:past_form/d:pp_form/i:ing_form/3:3rd_form/s:plural/r:comparative/t:superlative
+        0: 表示原形（lemma），1: 表示当前词的变形类型
+        p/d/i/3/s/r/t: 表示该原形的各种变形形式
+        """
+        if not exchange_str:
+            return {}
+        result = {}
+        for part in exchange_str.split('/'):
+            if ':' in part:
+                key, value = part.split(':', 1)
+                result[key] = value
+        return result
+
+    def _build_tenses_from_exchange(self, word, exchange):
+        """从 ECDICT exchange 字段构建时态/变形数据"""
+        if not exchange:
+            return None
+        # 动词时态：检查是否有 p(过去式)/d(过去分词)/i(现在分词)/3(三单) 字段
+        has_verb_forms = any(k in exchange for k in ('p', 'd', 'i', '3'))
+        if has_verb_forms:
+            return {
+                'base': word,
+                'third_singular': exchange.get('3', ''),
+                'past': exchange.get('p', ''),
+                'past_participle': exchange.get('d', ''),
+                'present_participle': exchange.get('i', ''),
+                'inflection_type': 'tense',
+            }
+        # 名词复数
+        if 's' in exchange:
+            return {
+                'singular': word,
+                'plural': exchange.get('s', ''),
+                'inflection_type': 'plural',
+            }
+        # 形容词比较级/最高级
+        if 'r' in exchange or 't' in exchange:
+            return {
+                'positive': word,
+                'comparative': exchange.get('r', ''),
+                'superlative': exchange.get('t', ''),
+                'inflection_type': 'degree',
+            }
+        return None
+
+    def _try_compound_split(self, word):
+        """
+        第一层拆解：尝试将单词拆分为两个已知独立单词（复合词检测）
+        例如: basketball -> basket + ball
+        质量控制：两部分至少3字符，排除人名/地名/网络用语等非常用词
+        """
+        conn = self._ecdict
+        if not conn:
+            return None
+        # 排除标记：翻译中包含这些标记的词条视为非常用词（人名、地名等）
+        bad_markers = ['[人名]', '[地名]', '[网络]', '[药]', '[化]', '[生]', '[医]']
+        for i in range(3, len(word) - 2):
+            part1 = word[:i]
+            part2 = word[i:]
+            # 两部分都至少3个字符
+            if len(part1) < 3 or len(part2) < 3:
+                continue
+            # 如果任一部分是已知前缀/后缀，不是复合词
+            if part1 in self.PREFIXES or part2 in self.SUFFIXES or part1 in self.SUFFIXES or part2 in self.PREFIXES:
+                continue
+            try:
+                r1 = conn.execute(
+                    'SELECT translation FROM stardict WHERE word = ? COLLATE NOCASE AND translation IS NOT NULL AND translation != ""',
+                    (part1,)
+                ).fetchone()
+                r2 = conn.execute(
+                    'SELECT translation FROM stardict WHERE word = ? COLLATE NOCASE AND translation IS NOT NULL AND translation != ""',
+                    (part2,)
+                ).fetchone()
+                if r1 and r2:
+                    m1 = self._clean_meaning(r1[0] or '')
+                    m2 = self._clean_meaning(r2[0] or '')
+                    # 排除人名/地名/网络用语等
+                    if any(bm in m1 for bm in bad_markers) or any(bm in m2 for bm in bad_markers):
+                        continue
+                    # 排除词条翻译以 suff./pref./abbr. 开头的（这些是词缀或缩写，不是独立单词）
+                    m1_stripped = m1.strip()
+                    m2_stripped = m2.strip()
+                    if m1_stripped.startswith(('suff.', 'pref.', 'abbr.', 'prefix', 'suffix')) or \
+                       m2_stripped.startswith(('suff.', 'pref.', 'abbr.', 'prefix', 'suffix')):
+                        continue
+                    # 翻译至少要有词性标记（如 n. v. adj.）或中文字符
+                    has_meaning_1 = any(c for c in 'nvadjrp.' if c in m1[:5]) or any('\u4e00' <= c <= '\u9fff' for c in m1)
+                    has_meaning_2 = any(c for c in 'nvadjrp.' if c in m2[:5]) or any('\u4e00' <= c <= '\u9fff' for c in m2)
+                    if not has_meaning_1 or not has_meaning_2:
+                        continue
+                    m1 = m1.split('\n')[0][:60]
+                    m2 = m2.split('\n')[0][:60]
+                    return [
+                        {
+                            'part': part1,
+                            'meaning': m1,
+                            'original': part1,
+                            'original_meaning': m1,
+                            'transform': '原形不变',
+                            'explain': '独立单词',
+                        },
+                        {
+                            'part': part2,
+                            'meaning': m2,
+                            'original': part2,
+                            'original_meaning': m2,
+                            'transform': '原形不变',
+                            'explain': '独立单词',
+                        },
+                    ]
+            except Exception:
+                pass
+        return None
+
+    def _decompose_with_ecdict(self, word, ecdict_data):
+        """
+        三层拆解逻辑（核心方法）：
+        第一层：复合词拆解（如 basketball → basket + ball）
+        第二层：变形词拆解（如 running → run + 现在分词变形）
+        第三层：派生词拆解（如 unhappiness → un + happy + ness）
+        如果都不能拆解，返回基础词信息
+        """
+        word_lower = word.lower().strip()
+        exchange = self._parse_exchange(ecdict_data.get('exchange', ''))
+        translation = self._clean_meaning(ecdict_data.get('translation', ''))
+        phonetic = self._convert_phonetic(ecdict_data.get('phonetic', ''))
+        pos_raw = ecdict_data.get('pos', '') or ''
+
+        # 解析词性标签（如 "n:100" → "名词"）
+        pos_label = ''
+        if pos_raw:
+            pos_code = pos_raw.split(':')[0]
+            pos_map = {
+                'n': '名词', 'v': '动词', 'j': '形容词', 'r': '副词',
+                'p': '介词', 'c': '连词', 'u': '代词', 'i': '感叹词',
+                'a': '形容词', 'x': '助动词',
+            }
+            pos_label = pos_map.get(pos_code, '')
+
+        # ===== 第二层：变形词拆解 =====
+        # exchange 中有 0:lemma/1:type 表示当前词是某个原词的变形
+        if '0' in exchange and '1' in exchange:
+            lemma = exchange['0']
+            form_type = exchange['1']
+            form_desc = {
+                'p': '过去式', 'd': '过去分词', 'i': '现在分词/动名词',
+                '3': '第三人称单数', 's': '复数形式',
+                'r': '比较级', 't': '最高级',
+            }
+            transform = form_desc.get(form_type, '变形')
+
+            # 查询原词的释义
+            lemma_data = self._query_ecdict(lemma)
+            lemma_translation = self._clean_meaning(lemma_data.get('translation', '')) if lemma_data else ''
+            lemma_phonetic = self._convert_phonetic(lemma_data.get('phonetic', '')) if lemma_data else ''
+
+            # 查询原词的完整变形信息
+            tenses = None
+            if lemma_data:
+                lemma_exchange = self._parse_exchange(lemma_data.get('exchange', ''))
+                tenses = self._build_tenses_from_exchange(lemma, lemma_exchange)
+
+            meaning = translation or f'{lemma}的{transform}'
+
+            split = [{
+                'part': word_lower,
+                'meaning': meaning,
+                'original': lemma,
+                'original_meaning': lemma_translation or meaning,
+                'transform': transform,
+                'explain': f'是"{lemma}"的{transform}',
+            }]
+
+            # 如果原词也有释义，添加原词信息
+            if lemma_translation and lemma != word_lower:
+                split.append({
+                    'part': lemma,
+                    'meaning': lemma_translation,
+                    'original': lemma,
+                    'original_meaning': lemma_translation,
+                    'transform': '原形',
+                    'explain': '原词',
+                })
+
+            return {
+                'phonetic': phonetic,
+                'meaning': meaning,
+                'type': '变形词',
+                'split': split,
+                'morph': [],
+                'mnemonic': f'"{word_lower}"是"{lemma}"的{transform}',
+                'examples': self._get_zhuanshenben_examples(word_lower, meaning),
+                'tenses': tenses,
+                'pos_label': pos_label,
+            }
+
+        # ===== 前置检查：如果词有明显前缀且词根是已知词，优先走派生词拆解 =====
+        skip_compound = False
+        for prefix in sorted(self.PREFIXES.keys(), key=len, reverse=True):
+            if word_lower.startswith(prefix) and len(word_lower) > len(prefix) + 2:
+                candidate_root = word_lower[len(prefix):]
+                root_check = self._query_ecdict(candidate_root)
+                if root_check and root_check.get('translation'):
+                    skip_compound = True
+                    break
+                # 也检查去后缀后的词根（如 unhappiness → un + happi + ness → happy）
+                for suffix in sorted(self.SUFFIXES.keys(), key=len, reverse=True):
+                    if candidate_root.endswith(suffix) and len(candidate_root) > len(suffix) + 1:
+                        inner_root = candidate_root[:-len(suffix)]
+                        if inner_root != word_lower:
+                            inner_check = self._query_ecdict(inner_root)
+                            if inner_check and inner_check.get('translation'):
+                                skip_compound = True
+                                break
+                        # y/i 变体检查 (happy → happi)
+                        if inner_root and inner_root + 'y' != word_lower:
+                            y_check = self._query_ecdict(inner_root + 'y')
+                            if y_check and y_check.get('translation'):
+                                skip_compound = True
+                                break
+                if skip_compound:
+                    break
+
+        # ===== 第一层：复合词拆解（仅当没有明显前缀词根时）=====
+        compound = None
+        if not skip_compound:
+            compound = self._try_compound_split(word_lower)
+        if compound:
+            # 复合词也可能有变形，尝试获取
+            tenses = self._build_tenses_from_exchange(word_lower, exchange)
+            return {
+                'phonetic': phonetic,
+                'meaning': translation,
+                'type': '复合词',
+                'split': compound,
+                'morph': [],
+                'mnemonic': '',
+                'examples': self._get_zhuanshenben_examples(word_lower, translation),
+                'tenses': tenses,
+                'pos_label': pos_label,
+            }
+
+        # ===== 第三层：派生词拆解（前缀/后缀分析）=====
+        detected_prefix = None
+        detected_root = word_lower
+        detected_suffix = None
+        final_root = word_lower
+
+        # 检测前缀
+        for prefix in sorted(self.PREFIXES.keys(), key=len, reverse=True):
+            if word_lower.startswith(prefix) and len(word_lower) > len(prefix) + 2:
+                candidate = word_lower[len(prefix):]
+                # 检查去掉前缀后的词是否是已知单词（如 rediscover → discover）
+                candidate_data = self._query_ecdict(candidate)
+                if candidate_data and candidate_data.get('translation'):
+                    detected_prefix = prefix
+                    detected_root = candidate
+                    final_root = candidate
+                    break
+                # 如果去掉前缀后的词不是已知单词，尝试进一步去后缀
+                for suffix in sorted(self.SUFFIXES.keys(), key=len, reverse=True):
+                    if candidate.endswith(suffix) and len(candidate) > len(suffix) + 1:
+                        inner = candidate[:-len(suffix)]
+                        # 检查 inner 是否是已知单词
+                        inner_data = self._query_ecdict(inner)
+                        if inner_data and inner_data.get('translation'):
+                            detected_prefix = prefix
+                            detected_root = candidate
+                            detected_suffix = suffix
+                            final_root = inner
+                            break
+                        # y/i 变体检查: happi → happy
+                        if inner and len(inner) >= 2 and inner[-1] == 'i':
+                            y_candidate = inner[:-1] + 'y'
+                            y_data = self._query_ecdict(y_candidate)
+                            if y_data and y_data.get('translation'):
+                                detected_prefix = prefix
+                                detected_root = candidate
+                                detected_suffix = suffix
+                                final_root = y_candidate
+                                break
+                        # e 结尾检查: mak → make
+                        if inner and not inner.endswith('e'):
+                            e_candidate = inner + 'e'
+                            e_data = self._query_ecdict(e_candidate)
+                            if e_data and e_data.get('translation'):
+                                detected_prefix = prefix
+                                detected_root = candidate
+                                detected_suffix = suffix
+                                final_root = e_candidate
+                                break
+                if detected_prefix:
+                    break
+
+        # 如果没有检测到前缀，仅检测后缀
+        if not detected_prefix:
+            for suffix in sorted(self.SUFFIXES.keys(), key=len, reverse=True):
+                if word_lower.endswith(suffix) and len(word_lower) > len(suffix) + 1:
+                    candidate = word_lower[:-len(suffix)]
+                    # 检查去掉后缀后的词是否是已知单词
+                    candidate_data = self._query_ecdict(candidate)
+                    if candidate_data and candidate_data.get('translation'):
+                        detected_suffix = suffix
+                        detected_root = candidate
+                        final_root = candidate
+                        break
+                    # y/i 变体检查: happi → happy
+                    if candidate and len(candidate) >= 2 and candidate[-1] == 'i':
+                        y_candidate = candidate[:-1] + 'y'
+                        y_data = self._query_ecdict(y_candidate)
+                        if y_data and y_data.get('translation'):
+                            detected_suffix = suffix
+                            final_root = y_candidate
+                            break
+                    # 双写辅音检查: runn → run
+                    if candidate and len(candidate) >= 2 and candidate[-1] == candidate[-2]:
+                        short_candidate = candidate[:-1]
+                        short_data = self._query_ecdict(short_candidate)
+                        if short_data and short_data.get('translation'):
+                            detected_suffix = suffix
+                            final_root = short_candidate
+                            break
+                    # e 结尾检查: mak → make
+                    if candidate and not candidate.endswith('e'):
+                        e_candidate = candidate + 'e'
+                        e_data = self._query_ecdict(e_candidate)
+                        if e_data and e_data.get('translation'):
+                            detected_suffix = suffix
+                            final_root = e_candidate
+                            break
+
+        word_type = '基础词'
+        morph = []
+        split = []
+
+        if (detected_prefix or detected_suffix) and final_root and final_root != word_lower:
+            word_type = '派生词'
+
+            # 查询词根的释义
+            root_data = self._query_ecdict(final_root)
+            root_meaning = self._clean_meaning(root_data.get('translation', '')) if root_data else ''
+
+            # 确定变形描述
+            transform_desc = '原形不变'
+            if final_root != detected_root:
+                # 词根经过变形（如 y→i, 双写, 去 e）
+                if final_root.endswith('y') and detected_root.endswith('i'):
+                    transform_desc = '把 y 改成 i'
+                elif len(final_root) > 0 and len(detected_root) > 0 and final_root + detected_root[-1] == detected_root:
+                    transform_desc = '双写词尾辅音字母'
+                elif final_root.endswith('e') and not detected_root.endswith('e'):
+                    transform_desc = '去掉词尾 e'
+
+            if root_meaning:
+                split.append({
+                    'part': final_root,
+                    'meaning': root_meaning,
+                    'original': final_root,
+                    'original_meaning': root_meaning,
+                    'transform': transform_desc,
+                    'explain': '词根',
+                })
+                morph.insert(0, {
+                    'type': 'root',
+                    'word': final_root,
+                    'meaning': root_meaning.split('\n')[0][:30],
+                })
+            else:
+                split.append({
+                    'part': final_root,
+                    'meaning': '词根',
+                    'original': final_root,
+                    'original_meaning': '词根',
+                    'transform': transform_desc,
+                    'explain': '词根',
+                })
+                morph.insert(0, {
+                    'type': 'root',
+                    'word': final_root,
+                    'meaning': '词根',
+                })
+
+            if detected_prefix:
+                prefix_meaning = self.PREFIXES[detected_prefix]
+                split.insert(0, {
+                    'part': detected_prefix,
+                    'meaning': prefix_meaning,
+                    'original': detected_prefix,
+                    'original_meaning': prefix_meaning,
+                    'transform': '本身是前缀',
+                    'explain': '前缀',
+                })
+                morph.append({
+                    'type': 'prefix',
+                    'word': f'{detected_prefix}-',
+                    'meaning': prefix_meaning,
+                })
+
+            if detected_suffix:
+                suffix_meaning = self.SUFFIXES[detected_suffix]
+                split.append({
+                    'part': detected_suffix,
+                    'meaning': suffix_meaning,
+                    'original': detected_suffix,
+                    'original_meaning': suffix_meaning,
+                    'transform': '本身是后缀',
+                    'explain': '后缀',
+                })
+                morph.append({
+                    'type': 'suffix',
+                    'word': f'-{detected_suffix}',
+                    'meaning': suffix_meaning,
+                })
+
+        # 如果没有检测到前后缀，或词根就是原词本身，判断为基础词
+        if not split:
+            word_type = '基础词'
+
+        # 构建变形数据
+        tenses = self._build_tenses_from_exchange(word_lower, exchange)
+
+        # 如果 exchange 没有变形数据但 translation 表明是动词，尝试用旧方法
+        if not tenses and translation:
+            infl = self._get_inflections(word_lower, translation)
+            if infl:
+                tenses = infl
+
+        return {
+            'phonetic': phonetic,
+            'meaning': translation,
+            'type': word_type,
+            'split': split,
+            'morph': morph,
+            'mnemonic': '',
+            'examples': self._get_zhuanshenben_examples(word_lower, translation),
+            'tenses': tenses,
+            'pos_label': pos_label,
+        }
+
+    def _get_phrase_examples(self, phrase, meaning=''):
+        """
+        为短语/词组生成例句
+        将整个短语自然地融入完整英文句子中，而不是机械替换
+
+        参数:
+            phrase: 短语（如 "be good at"）
+            meaning: 短语释义
+
+        返回:
+            list: 例句列表 [{en, zh}, ...]
+        """
+        import re
+
+        # 常见短语的专门例句库
+        PHRASE_EXAMPLES = {
+            'be good at': [
+                {'en': 'You are good at English words.', 'zh': '你擅长英语单词。'},
+                {'en': 'She is good at playing the piano.', 'zh': '她擅长弹钢琴。'},
+                {'en': 'He is good at math and science.', 'zh': '他擅长数学和科学。'},
+            ],
+            'be interested in': [
+                {'en': 'I am interested in learning English.', 'zh': '我对学习英语感兴趣。'},
+                {'en': 'She is interested in Chinese culture.', 'zh': '她对中国文化感兴趣。'},
+            ],
+            'be proud of': [
+                {'en': 'I am proud of my country.', 'zh': '我为我的国家感到自豪。'},
+                {'en': 'She is proud of her achievements.', 'zh': '她为自己的成就感到自豪。'},
+            ],
+            'be afraid of': [
+                {'en': 'He is afraid of dogs.', 'zh': '他害怕狗。'},
+                {'en': 'Don\'t be afraid of making mistakes.', 'zh': '不要害怕犯错。'},
+            ],
+            'look forward to': [
+                {'en': 'I look forward to hearing from you.', 'zh': '我期待你的回复。'},
+                {'en': 'We look forward to the weekend.', 'zh': '我们期待周末的到来。'},
+            ],
+            'give up': [
+                {'en': 'Don\'t give up! You can do it.', 'zh': '不要放弃！你能做到。'},
+                {'en': 'She decided to give up smoking.', 'zh': '她决定戒烟。'},
+            ],
+            'take care of': [
+                {'en': 'Please take care of your health.', 'zh': '请照顾好你的健康。'},
+                {'en': 'She takes care of her little brother.', 'zh': '她照顾她的弟弟。'},
+            ],
+            'be used to': [
+                {'en': 'I am used to getting up early.', 'zh': '我习惯早起。'},
+                {'en': 'She is used to the busy life here.', 'zh': '她习惯了这里忙碌的生活。'},
+            ],
+            'be full of': [
+                {'en': 'The room is full of people.', 'zh': '房间里挤满了人。'},
+                {'en': 'Her eyes were full of tears.', 'zh': '她眼中充满了泪水。'},
+            ],
+            'be famous for': [
+                {'en': 'Hangzhou is famous for its tea.', 'zh': '杭州以茶叶闻名。'},
+                {'en': 'The city is famous for its food.', 'zh': '这座城市因其美食而闻名。'},
+            ],
+            'be strict with': [
+                {'en': 'Our teacher is strict with us.', 'zh': '我们的老师对我们很严格。'},
+                {'en': 'She is strict with her children.', 'zh': '她对自己的孩子很严格。'},
+            ],
+            'be angry with': [
+                {'en': 'He was angry with me.', 'zh': '他生我的气了。'},
+                {'en': 'Don\'t be angry with him.', 'zh': '别生他的气。'},
+            ],
+            'be different from': [
+                {'en': 'This book is different from that one.', 'zh': '这本书和那本不同。'},
+                {'en': 'Chinese is very different from English.', 'zh': '中文和英文有很大不同。'},
+            ],
+            'be similar to': [
+                {'en': 'My opinion is similar to yours.', 'zh': '我的意见和你的相似。'},
+                {'en': 'This dress is similar to hers.', 'zh': '这件裙子和她的很像。'},
+            ],
+            'be tired of': [
+                {'en': 'I am tired of doing the same thing.', 'zh': '我厌倦了做同样的事情。'},
+                {'en': 'She is tired of his excuses.', 'zh': '她厌倦了他的借口。'},
+            ],
+            'be ready for': [
+                {'en': 'Are you ready for the exam?', 'zh': '你准备好考试了吗？'},
+                {'en': 'We are ready for the trip.', 'zh': '我们为旅行做好了准备。'},
+            ],
+            'be good for': [
+                {'en': 'Milk is good for your health.', 'zh': '牛奶对你的健康有益。'},
+                {'en': 'Exercise is good for you.', 'zh': '锻炼对你有好处。'},
+            ],
+            'be under too much pressure': [
+                {'en': 'She is under too much pressure at work.', 'zh': '她在工作中承受了太大的压力。'},
+                {'en': 'Students are under too much pressure before exams.', 'zh': '学生在考试前承受了太大的压力。'},
+                {'en': 'Don\'t put yourself under too much pressure.', 'zh': '不要给自己太大的压力。'},
+            ],
+            'be under pressure': [
+                {'en': 'He is under pressure to finish the project.', 'zh': '他承受着完成项目的压力。'},
+                {'en': 'The team is under pressure to meet the deadline.', 'zh': '团队承受着赶上截止日期的压力。'},
+            ],
+            'be good with': [
+                {'en': 'She is good with children.', 'zh': '她很擅长和孩子打交道。'},
+                {'en': 'He is good with his hands.', 'zh': '他动手能力很强。'},
+            ],
+        }
+
+        # 优先查专门例句库
+        if phrase in PHRASE_EXAMPLES:
+            return PHRASE_EXAMPLES[phrase]
+
+        # 提取中文释义（去掉词性前缀、括号注释，只取第一条释义）
+        zh_meaning = meaning or ''
+        zh_meaning = zh_meaning.split('\n')[0].strip()
+        meaning_lower = zh_meaning.lower()
+        # 检测词性（兼容 ECDICT 的 vi./vt./a. 等格式）
+        is_noun = bool(re.match(r'^n\.', meaning_lower) or re.match(r'^n\s', meaning_lower))
+        is_verb = bool(re.match(r'^(v|vi|vt|aux)\.', meaning_lower) or re.match(r'^(v|vi|vt|aux)\s', meaning_lower))
+        is_adj = bool(re.match(r'^(adj|a)\.', meaning_lower) or re.match(r'^adj\s', meaning_lower))
+
+        # 去掉所有词性前缀（包括 ECDICT 的 a./vi./vt./aux. 等格式）
+        zh_meaning = re.sub(r'^(vi|vt|aux|n|v|adj|adv|ad|a|prep|conj|pron|num|art|interj)\.\s*', '', zh_meaning)
+        zh_meaning = re.sub(r'^(vi|vt|aux|n|v|adj|adv|ad|a|prep|conj|pron|num|art|interj)\s+', '', zh_meaning)
+        zh_meaning = re.sub(r'\[.*?\]', '', zh_meaning)
+        zh_meaning = re.sub(r'（.*?）', '', zh_meaning)
+        zh_meaning = re.sub(r'\(.*?\)', '', zh_meaning)
+        zh_meaning = re.split(r'[;；,，]', zh_meaning)[0].strip()
+        zh_meaning = zh_meaning.strip('，,。 ') or phrase
+
+        phrase_words = phrase.split()
+        phrase_rest = ' '.join(phrase_words[1:])  # 去掉 be 后的部分
+
+        # 根据短语结构生成例句
+        # 1. be 短语：将 be 变位为 am/is/are，根据短语含义生成完整句子
+        if phrase_words[0] == 'be':
+            # 判断 be 短语后面跟的是介词还是形容词
+            # 如 "be good at" → 后接名词作宾语
+            # 如 "be under pressure" → 后接介词短语作表语
+            if phrase_rest.startswith(('at', 'in', 'of', 'for', 'with', 'to', 'about')):
+                # be + adj/prep + 介词 → 后面接名词宾语
+                be_examples = [
+                    {'en': f'She is {phrase_rest} English.', 'zh': f'她{zh_meaning}英语。'},
+                    {'en': f'He is {phrase_rest} math.', 'zh': f'他{zh_meaning}数学。'},
+                    {'en': f'They are {phrase_rest} sports.', 'zh': f'他们{zh_meaning}运动。'},
+                ]
+            else:
+                # be + 名词/形容词短语 → 直接作表语，不需要额外宾语
+                be_examples = [
+                    {'en': f'She is {phrase_rest}.', 'zh': f'她{zh_meaning}。'},
+                    {'en': f'The students are {phrase_rest}.', 'zh': f'学生们{zh_meaning}。'},
+                    {'en': f'I don\'t want to be {phrase_rest}.', 'zh': f'我不想{zh_meaning}。'},
+                ]
+            return be_examples
+
+        # 2. 动词短语：直接用短语作谓语或放在 to 后面
+        if is_verb or (phrase_words[0] not in ('the', 'a', 'an')):
+            # 判断短语是否以动词开头（简单启发式）
+            verb_examples = [
+                {'en': f'Many students want to {phrase} every day.', 'zh': f'很多学生每天想要{zh_meaning}。'},
+                {'en': f'It is important to {phrase} in our daily life.', 'zh': f'在日常生活中{zh_meaning}是很重要的。'},
+                {'en': f'She decided to {phrase} yesterday.', 'zh': f'她昨天决定{zh_meaning}。'},
+            ]
+            return verb_examples
+
+        # 3. 名词短语：作为主语或宾语
+        if is_noun:
+            noun_examples = [
+                {'en': f'The {phrase} is very popular among students.', 'zh': f'{zh_meaning}在学生中很受欢迎。'},
+                {'en': f'I learned a lot from this {phrase}.', 'zh': f'我从这个{zh_meaning}中学到了很多。'},
+            ]
+            return noun_examples
+
+        # 4. 默认：通用模板
+        return [
+            {'en': f'Can you explain what "{phrase}" means?', 'zh': f'你能解释一下"{zh_meaning}"是什么意思吗？'},
+            {'en': f'The phrase "{phrase}" is commonly used in English.', 'zh': f'短语"{zh_meaning}"在英语中很常用。'},
+        ]
+
+    def _handle_phrase(self, phrase):
+        """
+        处理短语/词组（包含空格的输入，如 "be good at"、"sports meeting"）
+        将短语拆分为每个独立单词，分别查询释义，构建 split 数据
+
+        参数:
+            phrase: 短语字符串（已转为小写）
+
+        返回:
+            dict: 分析结果，包含整体释义和每个单词的拆解
+        """
+        parts = phrase.split()
+        if len(parts) < 2:
+            return None
+
+        # 1. 尝试从 ECDICT 查询整个短语的释义
+        phrase_data = self._query_ecdict(phrase)
+        phrase_translation = ''
+        phrase_phonetic = ''
+        if phrase_data and phrase_data.get('translation'):
+            phrase_translation = self._clean_meaning(phrase_data['translation'])
+            phrase_phonetic = self._convert_phonetic(phrase_data.get('phonetic', ''))
+
+        # 如果 ECDICT 没有整个短语的释义，尝试在线查词
+        if not phrase_translation:
+            online_result = self._online_lookup(phrase)
+            if online_result and online_result.get('meaning'):
+                phrase_translation = online_result['meaning']
+
+        # 2. 拆分每个单词，查询各自释义
+        split = []
+        for part in parts:
+            part_data = self._query_ecdict(part)
+            if part_data and part_data.get('translation'):
+                part_meaning = self._clean_meaning(part_data['translation'])
+                part_meaning = part_meaning.split('\n')[0][:60] if part_meaning else ''
+
+                # 检查该单词是否是某个原词的变形（如 sports -> sport 的复数）
+                part_exchange = self._parse_exchange(part_data.get('exchange', ''))
+                original = part
+                original_meaning = part_meaning
+                transform = '原形不变'
+
+                if '0' in part_exchange and '1' in part_exchange:
+                    lemma = part_exchange['0']
+                    form_type = part_exchange['1']
+                    form_desc = {
+                        'p': '过去式', 'd': '过去分词', 'i': '现在分词/动名词',
+                        '3': '第三人称单数', 's': '复数形式',
+                        'r': '比较级', 't': '最高级',
+                        's1': '复数形式', 's2': '复数形式', 's3': '复数形式（作定语）',
+                        'p1': '过去式', 'p2': '过去式',
+                        'd1': '过去分词', 'd2': '过去分词',
+                        'i1': '现在分词/动名词', 'i2': '现在分词/动名词',
+                    }
+                    # 先精确匹配，再前缀匹配（处理 s3, p1 等复合代码）
+                    transform = form_desc.get(form_type, '')
+                    if not transform:
+                        for code, desc in form_desc.items():
+                            if form_type.startswith(code):
+                                transform = desc
+                                break
+                    if not transform:
+                        transform = '变形'
+                    lemma_data = self._query_ecdict(lemma)
+                    if lemma_data and lemma_data.get('translation'):
+                        original = lemma
+                        lemma_meaning = self._clean_meaning(lemma_data['translation'])
+                        original_meaning = lemma_meaning.split('\n')[0][:60] if lemma_meaning else ''
+
+                split.append({
+                    'part': part,
+                    'meaning': part_meaning or f'{part}（暂无释义）',
+                    'original': original,
+                    'original_meaning': original_meaning,
+                    'transform': transform,
+                    'explain': '独立单词',
+                })
+            elif part in self.DICTIONARY:
+                # ECDICT 没有该单词，尝试内置词典
+                part_meaning = self.DICTIONARY[part].get('meaning', '')
+                split.append({
+                    'part': part,
+                    'meaning': part_meaning,
+                    'original': part,
+                    'original_meaning': part_meaning,
+                    'transform': '原形不变',
+                    'explain': '独立单词',
+                })
+            else:
+                split.append({
+                    'part': part,
+                    'meaning': f'{part}（暂无释义）',
+                    'original': part,
+                    'original_meaning': '',
+                    'transform': '原形不变',
+                    'explain': '独立单词',
+                })
+
+        # 3. 如果短语整体没有释义，从各部分拼接一个基础释义
+        if not phrase_translation:
+            phrase_translation = '；'.join(
+                f"{s['part']}: {s['meaning']}" for s in split
+                if s.get('meaning') and '暂无' not in s.get('meaning', '')
+            ) or f'{phrase}（暂无释义）'
+
+        # 4. 短语/词组不提供时态变形（时态仅对单个动词有意义）
+        tenses = None
+
+        # 5. 记忆方法
+        parts_str = ' + '.join(parts)
+        mnemonic = f'"{phrase}"由{" ".join(parts)}组成，即{parts_str}的组合。'
+
+        # 6. 为短语生成合适的例句（不用单词模板，避免语法错误）
+        examples = self._get_phrase_examples(phrase, phrase_translation)
+
+        return {
+            'phonetic': phrase_phonetic,
+            'meaning': phrase_translation,
+            'type': '复合词',
+            'split': split,
+            'morph': [],
+            'mnemonic': mnemonic,
+            'examples': examples,
+            'tenses': tenses,
+        }
 
     def lookup(self, word):
         """
@@ -1498,6 +2356,12 @@ class DictionaryService:
         """
         # 统一转为小写进行查询
         word_lower = word.lower().strip()
+
+        # ===== 短语/词组处理（包含空格的输入，如 "be good at"）=====
+        if ' ' in word_lower:
+            phrase_result = self._handle_phrase(word_lower)
+            if phrase_result:
+                return phrase_result
 
         # 先精确匹配
         if word_lower in self.DICTIONARY:
@@ -1569,8 +2433,99 @@ class DictionaryService:
             result['tenses']['inflection_type'] = 'tense'
             return result
 
+        # 内置词典未找到，尝试 ECDICT 词典
+        ecdict_data = self._query_ecdict(word_lower)
+        if ecdict_data and ecdict_data.get('translation'):
+            result = self._decompose_with_ecdict(word_lower, ecdict_data)
+            if result:
+                return result
+
+        # ECDICT 未找到，尝试在线查词
+        online_result = self._online_lookup(word_lower)
+        if online_result:
+            return online_result
+
         # 未找到返回None
         return None
+
+    def _online_lookup(self, word):
+        """在线查词：调用有道词典获取中文释义和音标"""
+        if word in self._online_cache:
+            return self._online_cache[word]
+        result = None
+        try:
+            resp = requests.get(
+                'https://fanyi.youdao.com/translate',
+                params={'doctype': 'json', 'type': 'EN2ZH_CN', 'i': word},
+                headers={'User-Agent': 'Mozilla/5.0'},
+                timeout=5
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                tr = data.get('translateResult', [])
+                if tr and tr[0]:
+                    tgt = tr[0][0].get('tgt', '')
+                    if tgt and tgt.lower() != word.lower():
+                        meaning = tgt
+                        web = data.get('web', [])
+                        if web:
+                            for item in web:
+                                if item.get('key', '').lower() == word.lower():
+                                    vals = item.get('value', [])
+                                    if vals:
+                                        meaning = '; '.join(vals[:3])
+                                        break
+                        result = {
+                            'phonetic': '',
+                            'meaning': meaning,
+                            'type': '基础词',
+                            'split': [],
+                            'morph': [],
+                            'mnemonic': '',
+                            'examples': self._get_zhuanshenben_examples(word, meaning),
+                            'tenses': None,
+                        }
+        except Exception as e:
+            print(f'[dict] youdao fail({word}): {e}')
+        if not result:
+            try:
+                resp = requests.get(
+                    f'https://api.dictionaryapi.dev/api/v2/entries/en/{word}',
+                    headers={'User-Agent': 'Mozilla/5.0'},
+                    timeout=5
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if isinstance(data, list) and len(data) > 0:
+                        entry = data[0]
+                        phonetic = ''
+                        for p in entry.get('phonetics', []):
+                            if p.get('text'):
+                                phonetic = p['text']
+                                break
+                        mtexts = []
+                        for m in entry.get('meanings', [])[:3]:
+                            pos = m.get('partOfSpeech', '')
+                            for d in m.get('definitions', [])[:2]:
+                                dt = d.get('definition', '')
+                                if dt:
+                                    mtexts.append(f'{pos}. {dt}')
+                        if mtexts:
+                            meaning = '; '.join(mtexts[:5])
+                            result = {
+                                'phonetic': phonetic,
+                                'meaning': meaning,
+                                'type': '基础词',
+                                'split': [],
+                                'morph': [],
+                                'mnemonic': '',
+                                'examples': self._get_zhuanshenben_examples(word, meaning),
+                                'tenses': None,
+                            }
+            except Exception as e:
+                print(f'[dict] freeapi fail({word}): {e}')
+        self._online_cache[word] = result
+        return result
 
     def analyze_with_rules(self, word):
         """
@@ -1656,8 +2611,13 @@ class DictionaryService:
                 break
 
         # 构建返回结果
-        # 根据前后缀推断基础释义（避免返回空 meaning）
-        meaning = self._infer_meaning(word_lower, detected_prefix, detected_suffix, final_root)
+        # 优先从 ECDICT 获取释义
+        meaning = ''
+        ecdict_data = self._query_ecdict(word_lower)
+        if ecdict_data and ecdict_data.get('translation'):
+            meaning = self._clean_meaning(ecdict_data['translation'])
+        if not meaning:
+            meaning = self._infer_meaning(word_lower, detected_prefix, detected_suffix, final_root)
 
         # 检查动词时态：原词或词根是已知动词时，补充 tenses
         tenses = self._lookup_tenses(word_lower, detected_suffix, final_root)
@@ -1770,7 +2730,14 @@ class DictionaryService:
 
         if parts:
             return '，'.join(parts) + f'（词根: {root}，建议手动确认完整释义）' if root else '，'.join(parts)
-        # 完全无法推断时给出提示
+        # 完全无法推断时，尝试 ECDICT 词典
+        ecdict_data = self._query_ecdict(word)
+        if ecdict_data and ecdict_data.get('translation'):
+            return self._clean_meaning(ecdict_data['translation'])
+        # ECDICT 也没有，尝试在线查词
+        online = self._online_lookup(word)
+        if online and online.get('meaning'):
+            return online['meaning']
         return f'{word}（暂无释义，建议点击编辑手动补充）'
 
     def _build_derivative_split(self, word, prefix, suffix, root):

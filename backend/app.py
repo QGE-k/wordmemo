@@ -4,6 +4,8 @@ WordMemo 背单词应用 - Flask主应用
 """
 import os
 import re
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, date
 
@@ -39,6 +41,26 @@ db.init_app(app)
 ocr_service = OCRService()
 ai_service = AIService()
 dictionary_service = DictionaryService()
+
+
+# ==================== Neon 数据库保活 ====================
+# Neon 免费版计算节点 5 分钟无活动后休眠，下次查询需 3-5 秒唤醒。
+# 后台线程每 4 分钟执行一次轻量查询，保持计算节点热度。
+def _neon_keepalive():
+    while True:
+        time.sleep(240)  # 每 4 分钟
+        try:
+            with app.app_context():
+                db.session.execute(db.text('SELECT 1'))
+                db.session.commit()
+        except Exception:
+            pass  # 保活失败不影响正常使用
+
+
+# 仅在使用远程数据库（Neon/PostgreSQL）时启动保活线程
+if Config.DATABASE_URL:
+    _keepalive_thread = threading.Thread(target=_neon_keepalive, daemon=True)
+    _keepalive_thread.start()
 
 
 # ==================== 工具函数 ====================
@@ -357,11 +379,12 @@ def admin_user_stats(user_id):
     # 单词本统计
     wordbooks = Wordbook.query.filter_by(user_id=user_id).all()
 
-    # 最近 7 天学习历史
+    # 最近 7 天学习历史（按目标用户过滤）
     today = date.today()
     seven_days_ago = today - timedelta(days=6)
     history = LearnHistory.query.filter(
-        LearnHistory.date >= seven_days_ago
+        LearnHistory.date >= seven_days_ago,
+        LearnHistory.user_id == user_id,
     ).order_by(LearnHistory.date).all()
     history_data = []
     for i in range(7):
@@ -417,7 +440,7 @@ def admin_user_stats(user_id):
 
 def analyze_word_with_fallback(word):
     """
-    分析单词：优先使用AI，AI不可用时降级到本地词典，再降级到规则分析
+    分析单词：优先使用本地词典（ECDICT，毫秒级），词典没有再调 AI，最后规则分析
 
     参数:
         word: 要分析的单词
@@ -425,23 +448,22 @@ def analyze_word_with_fallback(word):
     返回:
         dict: 分析结果，包含 phonetic, meaning, type, split, morph, examples
     """
-    # 优先尝试AI服务
+    # 1. 先查本地词典（ECDICT + 内置词典，毫秒级，覆盖 77 万词条）
+    result = dictionary_service.lookup(word)
+    if result:
+        return result, 'dictionary'
+
+    # 2. 词典没有的词，尝试 AI 服务（慢，但能处理生僻词和新词）
     if ai_service.is_available():
         try:
             result = ai_service.analyze_word(word)
             return result, 'ai'
         except Exception as e:
-            print(f"[警告] AI分析失败，降级到本地词典: {e}")
+            print(f"[警告] AI分析失败，降级到规则分析: {e}")
 
-    # 尝试本地词典查询
-    result = dictionary_service.lookup(word)
-    if result:
-        return result, 'dictionary'
-
-    # 最后使用规则分析
+    # 3. 最后使用规则分析
     result = dictionary_service.analyze_with_rules(word)
     return result, 'rules'
-
 
 def init_demo_data():
     """初始化演示数据：在数据库为空时插入预置单词"""
@@ -552,13 +574,14 @@ def fix_empty_meanings():
 
 
 def update_learn_history(count=1):
-    """更新今日学习历史记录"""
+    """更新今日学习历史记录（按用户隔离）"""
     today = date.today()
-    history = LearnHistory.query.filter_by(date=today).first()
+    user_id = get_current_user_id()
+    history = LearnHistory.query.filter_by(date=today, user_id=user_id).first()
     if history:
         history.count += count
     else:
-        history = LearnHistory(date=today, count=count)
+        history = LearnHistory(date=today, count=count, user_id=user_id)
         db.session.add(history)
     db.session.commit()
 
@@ -569,9 +592,10 @@ def update_review_accuracy(is_correct):
         is_correct: 本次复习是否正确（rating 为 good/easy 视为正确，again/hard 视为错误）
     """
     today = date.today()
-    history = LearnHistory.query.filter_by(date=today).first()
+    user_id = get_current_user_id()
+    history = LearnHistory.query.filter_by(date=today, user_id=user_id).first()
     if not history:
-        history = LearnHistory(date=today, count=0)
+        history = LearnHistory(date=today, count=0, user_id=user_id)
         db.session.add(history)
     history.total_count = (history.total_count or 0) + 1
     if is_correct:
@@ -580,7 +604,7 @@ def update_review_accuracy(is_correct):
 
 
 def get_checkin_status():
-    """获取今日签到状态和连续签到天数
+    """获取今日签到状态和连续签到天数（按用户隔离）
     签到状态基于 checked_in 字段（用户手动点击签到），而非学习记录
     连续天数逻辑：
       - 今天已签到：从今天往前数连续签到天数
@@ -588,11 +612,15 @@ def get_checkin_status():
       - 最后一次签到在2天前或更早：streak=0（已断签）
     """
     today = date.today()
-    today_history = LearnHistory.query.filter_by(date=today).first()
+    user_id = get_current_user_id()
+    today_history = LearnHistory.query.filter_by(date=today, user_id=user_id).first()
     checked_in = today_history is not None and today_history.checked_in == True
 
-    # 获取所有已签到记录（按日期降序）
-    all_checkins = LearnHistory.query.filter(LearnHistory.checked_in == True).order_by(LearnHistory.date.desc()).all()
+    # 获取当前用户的已签到记录（按日期降序）
+    checkin_query = LearnHistory.query.filter(LearnHistory.checked_in == True)
+    if user_id:
+        checkin_query = checkin_query.filter_by(user_id=user_id)
+    all_checkins = checkin_query.order_by(LearnHistory.date.desc()).all()
 
     streak_days = 0
     if checked_in:
@@ -719,11 +747,13 @@ def get_words():
     - status: 按状态过滤（new/review/mastered）
     - search: 按单词或释义搜索
     - wordbook_id: 按单词本过滤（传 0 或不传=全部，传具体 id=该单词本）
+    - starred: 按重点标记过滤（传 1=只看重点单词）
     """
     # 获取查询参数
     status = request.args.get('status', '').strip()
     search = request.args.get('search', '').strip()
     wordbook_id = request.args.get('wordbook_id', '').strip()
+    starred = request.args.get('starred', '').strip()
 
     # 构建查询
     query = Word.query
@@ -739,11 +769,17 @@ def get_words():
                 Word.meaning.contains(search),
             )
         )
-    if wordbook_id and wordbook_id != '0':
-        try:
-            query = query.filter(Word.wordbook_id == int(wordbook_id))
-        except ValueError:
-            pass
+    if wordbook_id:
+        if wordbook_id == '0':
+            # 未归类：wordbook_id 为 NULL
+            query = query.filter(Word.wordbook_id.is_(None))
+        else:
+            try:
+                query = query.filter(Word.wordbook_id == int(wordbook_id))
+            except ValueError:
+                pass
+    if starred == '1':
+        query = query.filter(Word.is_starred == True)
 
     # 按添加时间倒序排列
     words = query.order_by(Word.added_at.desc()).all()
@@ -820,9 +856,6 @@ def add_word():
     db.session.add(word)
     db.session.commit()
 
-    # 更新今日学习历史
-    update_learn_history(1)
-
     return jsonify({
         'success': True,
         'data': word.to_dict(),
@@ -853,12 +886,15 @@ def batch_add_words():
     # 可选：单词本 ID
     user_id = get_current_user_id()
     wordbook_id = data.get('wordbook_id')
-    if wordbook_id is not None:
+    if wordbook_id is not None and wordbook_id != '' and wordbook_id != 0:
+        wordbook_id = int(wordbook_id)
         book = Wordbook.query.get(wordbook_id)
         if not book:
             return jsonify({'success': False, 'error': '指定的单词本不存在'}), 400
         if user_id and book.user_id and book.user_id != user_id:
             return jsonify({'success': False, 'error': '无权访问该单词本'}), 403
+    else:
+        wordbook_id = None
 
     added = []
     skipped = []
@@ -871,9 +907,11 @@ def batch_add_words():
         if isinstance(raw_word, dict):
             word_text = str(raw_word.get('word', '')).strip().lower()
             is_starred = bool(raw_word.get('starred', False))
+            client_meaning = str(raw_word.get('meaning', '')).strip()
         else:
             word_text = str(raw_word).strip().lower()
             is_starred = False
+            client_meaning = ''
         if not word_text:
             continue
         # 校验：只允许英文单词/短语
@@ -899,41 +937,49 @@ def batch_add_words():
         # 先查本地词典（毫秒级，不耗时间）
         dict_result = dictionary_service.lookup(word_text)
         if dict_result:
-            pending.append((word_text, dict_result, is_starred))
+            # 如果客户端传了释义（扫描识别的），优先使用客户端释义
+            if client_meaning:
+                dict_result['meaning'] = client_meaning
+            pending.append((word_text, dict_result, is_starred, client_meaning))
         else:
-            pending.append((word_text, None, is_starred))
+            pending.append((word_text, None, is_starred, client_meaning))
 
     # 第二步：对本地词典没有的词，用线程池并发调 AI
-    ai_pending = [(w, None) for w, a, _ in pending if a is None]
+    ai_pending = [(w, m) for w, a, _, m in pending if a is None]
     if ai_pending:
-        def _analyze(word_text):
+        def _analyze(args):
+            word_text, client_meaning = args
             try:
-                return word_text, analyze_word_with_fallback(word_text)
+                result = analyze_word_with_fallback(word_text)
+                # 如果客户端传了释义，覆盖 AI/词典的释义
+                if client_meaning and isinstance(result, tuple):
+                    result[0]['meaning'] = client_meaning
+                return word_text, result
             except Exception as e:
                 return word_text, e
 
         # 最多 5 个并发线程
         with ThreadPoolExecutor(max_workers=5) as executor:
-            results = list(executor.map(_analyze, [w for w, _ in ai_pending]))
+            results = list(executor.map(_analyze, ai_pending))
 
         # 把 AI 结果合并回 pending
         ai_map = {}
         for word_text, result in results:
             ai_map[word_text] = result
         new_pending = []
-        for word_text, _, starred in pending:
+        for word_text, _, starred, client_meaning in pending:
             if word_text in ai_map:
-                new_pending.append((word_text, ai_map[word_text], starred))
+                new_pending.append((word_text, ai_map[word_text], starred, client_meaning))
             else:
                 # 本地词典命中的，保持原样
-                for w, a, s in pending:
+                for w, a, s, m in pending:
                     if w == word_text and a is not None:
-                        new_pending.append((word_text, a, s))
+                        new_pending.append((word_text, a, s, m))
                         break
         pending = new_pending
 
     # 第三步：统一写入数据库
-    for word_text, analysis_or_error, is_starred in pending:
+    for word_text, analysis_or_error, is_starred, _ in pending:
         if isinstance(analysis_or_error, Exception):
             failed.append({'word': word_text, 'error': str(analysis_or_error)})
             continue
@@ -963,8 +1009,6 @@ def batch_add_words():
             failed.append({'word': word_text, 'error': str(e)})
 
     db.session.commit()
-    if added:
-        update_learn_history(len(added))
 
     return jsonify({
         'success': True,
@@ -987,6 +1031,24 @@ def get_word(word_id):
     if user_id and word.user_id and word.user_id != user_id:
         return jsonify({'success': False, 'error': '无权访问'}), 403
     return jsonify({'success': True, 'data': word.to_dict()})
+
+
+@app.route('/api/words/lookup', methods=['GET'])
+def lookup_word():
+    """快速查询单词释义（从ECDICT本地词典，用于OCR扫描后补充释义）"""
+    q = request.args.get('q', '').strip().lower()
+    if not q:
+        return jsonify({'success': True, 'meaning': '', 'phonetic': ''})
+
+    result = dictionary_service.lookup(q)
+    if result and result.get('meaning'):
+        return jsonify({
+            'success': True,
+            'word': q,
+            'meaning': result.get('meaning', ''),
+            'phonetic': result.get('phonetic', ''),
+        })
+    return jsonify({'success': True, 'word': q, 'meaning': '', 'phonetic': ''})
 
 
 @app.route('/api/words/<int:word_id>', methods=['PUT'])
@@ -1523,6 +1585,167 @@ def get_wordbook_words(book_id):
     })
 
 
+# ==================== 全局词本（分享/导入） ====================
+
+@app.route('/api/global-wordbooks', methods=['GET'])
+def list_global_wordbooks():
+    """获取所有已分享到全局的单词本（所有用户可查看）"""
+    err = require_login()
+    if err:
+        return err
+
+    books = Wordbook.query.filter_by(is_shared=True).order_by(Wordbook.shared_at.desc()).all()
+    result = []
+    for b in books:
+        d = b.to_dict(include_count=True, include_owner=True)
+        words = Word.query.filter_by(wordbook_id=b.id).all()
+        d['learned_count'] = sum(1 for w in words if w.status != 'new')
+        d['new_count'] = sum(1 for w in words if w.status == 'new')
+        # 标记当前用户是否是所有者
+        d['is_owner'] = (b.user_id == get_current_user_id())
+        result.append(d)
+    return jsonify({'success': True, 'data': result})
+
+
+@app.route('/api/wordbooks/<int:book_id>/share', methods=['POST'])
+def share_wordbook(book_id):
+    """分享单词本到全局词本（仅所有者可操作）"""
+    err = require_login()
+    if err:
+        return err
+
+    book = Wordbook.query.get(book_id)
+    if not book:
+        return jsonify({'success': False, 'error': '单词本不存在'}), 404
+
+    user_id = get_current_user_id()
+    if not book.user_id or book.user_id != user_id:
+        return jsonify({'success': False, 'error': '无权操作他人的单词本'}), 403
+
+    if book.is_shared:
+        return jsonify({'success': True, 'message': '该单词本已分享', 'data': book.to_dict()})
+
+    book.is_shared = True
+    book.shared_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify({'success': True, 'message': '单词本已分享到全局词本', 'data': book.to_dict()})
+
+
+@app.route('/api/wordbooks/<int:book_id>/share', methods=['DELETE'])
+def unshare_wordbook(book_id):
+    """取消分享单词本（仅所有者可操作）"""
+    err = require_login()
+    if err:
+        return err
+
+    book = Wordbook.query.get(book_id)
+    if not book:
+        return jsonify({'success': False, 'error': '单词本不存在'}), 404
+
+    user_id = get_current_user_id()
+    if not book.user_id or book.user_id != user_id:
+        return jsonify({'success': False, 'error': '无权操作他人的单词本'}), 403
+
+    book.is_shared = False
+    book.shared_at = None
+    db.session.commit()
+    return jsonify({'success': True, 'message': '已取消分享'})
+
+
+@app.route('/api/global-wordbooks/<int:book_id>/words', methods=['GET'])
+def get_global_wordbook_words(book_id):
+    """获取全局词本中的单词列表（所有登录用户可查看）"""
+    err = require_login()
+    if err:
+        return err
+
+    book = Wordbook.query.get(book_id)
+    if not book:
+        return jsonify({'success': False, 'error': '单词本不存在'}), 404
+    if not book.is_shared:
+        return jsonify({'success': False, 'error': '该单词本未分享'}), 403
+
+    words = Word.query.filter_by(wordbook_id=book_id).order_by(Word.added_at.desc()).all()
+    return jsonify({
+        'success': True,
+        'data': {
+            'wordbook': book.to_dict(include_count=True, include_owner=True),
+            'words': [w.to_dict() for w in words]
+        }
+    })
+
+
+@app.route('/api/global-wordbooks/<int:book_id>/import', methods=['POST'])
+def import_global_words(book_id):
+    """从全局词本导入单词到自己的词本
+    请求体: {"word_ids": [1,2,3], "target_wordbook_id": 5}
+    word_ids 为空时导入全部单词
+    """
+    err = require_login()
+    if err:
+        return err
+
+    book = Wordbook.query.get(book_id)
+    if not book:
+        return jsonify({'success': False, 'error': '单词本不存在'}), 404
+    if not book.is_shared:
+        return jsonify({'success': False, 'error': '该单词本未分享'}), 403
+
+    data = request.get_json() or {}
+    word_ids = data.get('word_ids', [])
+    target_wordbook_id = data.get('target_wordbook_id')
+
+    user_id = get_current_user_id()
+
+    # 验证目标词本归属
+    if target_wordbook_id:
+        target_book = Wordbook.query.get(target_wordbook_id)
+        if not target_book or target_book.user_id != user_id:
+            return jsonify({'success': False, 'error': '目标词本无效'}), 400
+
+    # 获取源单词
+    if word_ids:
+        source_words = Word.query.filter(
+            Word.id.in_(word_ids),
+            Word.wordbook_id == book_id
+        ).all()
+    else:
+        source_words = Word.query.filter_by(wordbook_id=book_id).all()
+
+    # 导入：为当前用户创建单词副本（如已存在同名单词则跳过）
+    added = 0
+    skipped = 0
+    for sw in source_words:
+        existing = Word.query.filter_by(word=sw.word, user_id=user_id).first()
+        if existing:
+            skipped += 1
+            continue
+        new_word = Word(
+            word=sw.word,
+            phonetic=sw.phonetic or '',
+            meaning=sw.meaning or '',
+            status='new',
+            split_data=sw.split_data or [],
+            morph_data=sw.morph_data or [],
+            examples=sw.examples or [],
+            word_type=sw.word_type or '基础词',
+            mnemonic=sw.mnemonic or '',
+            tenses=sw.tenses,
+            wordbook_id=target_wordbook_id if target_wordbook_id else None,
+            user_id=user_id,
+        )
+        db.session.add(new_word)
+        added += 1
+
+    db.session.commit()
+    return jsonify({
+        'success': True,
+        'added': added,
+        'skipped': skipped,
+        'message': f'导入完成：新增 {added} 个单词' + (f'，跳过 {skipped} 个已存在' if skipped else '')
+    })
+
+
 @app.route('/api/import/preview', methods=['POST'])
 def import_preview():
     """
@@ -1671,9 +1894,6 @@ def import_confirm():
 
     try:
         db.session.commit()
-        # 更新学习历史
-        if added:
-            update_learn_history(len(added))
     except Exception as e:
         db.session.rollback()
         return jsonify({'success': False, 'error': f'保存失败：{str(e)}'}), 500
@@ -1747,8 +1967,8 @@ def ocr_recognize():
 @app.route('/api/ocr/add-words', methods=['POST'])
 def ocr_add_words():
     """
-    OCR识别并直接添加到词库
-    上传图片 -> OCR识别 -> 分析单词 -> 添加到数据库
+    OCR识别并直接添加到词库（并发优化版）
+    上传图片 -> OCR识别 -> 词典优先+AI并发分析 -> 批量写入数据库
     """
     # 检查是否有文件上传
     if 'image' not in request.files:
@@ -1785,17 +2005,23 @@ def ocr_add_words():
         if not words:
             return jsonify({'success': True, 'words': [], 'message': '未识别到英文单词', 'added': []})
 
-        # 2. 逐个分析并添加到词库
+        # 2. 预处理：去重、过滤已存在的词
         added = []
         skipped = []
         failed = []
         user_id = get_current_user_id()
+        wordbook_id = request.form.get('wordbook_id', type=int)
 
-        for word_text in words:
-            word_text = word_text.strip().lower()
+        pending = []  # [(word_text, dict_result_or_None)]
+        for raw_word in words:
+            word_text = raw_word.strip().lower()
             if not word_text:
                 continue
-
+            # 校验：只允许英文单词
+            if not re.match(r"^[a-z][a-z\s\-']*$", word_text):
+                failed.append({'word': word_text, 'error': '非有效英文单词'})
+                continue
+            # 去重
             if user_id:
                 existing = Word.query.filter_by(word=word_text, user_id=user_id).first()
             else:
@@ -1803,9 +2029,46 @@ def ocr_add_words():
             if existing:
                 skipped.append(word_text)
                 continue
+            # 先查本地词典（毫秒级）
+            dict_result = dictionary_service.lookup(word_text)
+            if dict_result:
+                pending.append((word_text, dict_result))
+            else:
+                pending.append((word_text, None))
+
+        # 3. 对词典没有的词，用线程池并发调 AI
+        ai_pending = [w for w, a in pending if a is None]
+        if ai_pending:
+            def _analyze(word_text):
+                try:
+                    return word_text, analyze_word_with_fallback(word_text)
+                except Exception as e:
+                    return word_text, e
+
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                results = list(executor.map(_analyze, ai_pending))
+
+            ai_map = {}
+            for word_text, result in results:
+                ai_map[word_text] = result
+        else:
+            ai_map = {}
+
+        # 4. 统一写入数据库
+        for word_text, dict_result in pending:
+            if dict_result is not None:
+                analysis = dict_result
+            elif word_text in ai_map:
+                result = ai_map[word_text]
+                if isinstance(result, Exception):
+                    failed.append({'word': word_text, 'error': str(result)})
+                    continue
+                analysis = result[0] if isinstance(result, tuple) else result
+            else:
+                failed.append({'word': word_text, 'error': '分析失败'})
+                continue
 
             try:
-                analysis, source = analyze_word_with_fallback(word_text)
                 word = Word(
                     word=word_text,
                     phonetic=analysis.get('phonetic', ''),
@@ -1818,6 +2081,7 @@ def ocr_add_words():
                     tenses=analysis.get('tenses'),
                     status='new',
                     user_id=user_id,
+                    wordbook_id=wordbook_id,
                 )
                 db.session.add(word)
                 added.append(word_text)
@@ -1825,10 +2089,6 @@ def ocr_add_words():
                 failed.append({'word': word_text, 'error': str(e)})
 
         db.session.commit()
-
-        # 更新今日学习历史
-        if added:
-            update_learn_history(len(added))
 
         return jsonify({
             'success': True,
@@ -1902,16 +2162,17 @@ def get_stats():
         review_query = review_query.filter_by(user_id=user_id)
     today_review = review_query.count()
 
-    # 今日新词数量
+    # 今日新词数量（按用户隔离）
     today = date.today()
-    today_history = LearnHistory.query.filter_by(date=today).first()
+    today_history = LearnHistory.query.filter_by(date=today, user_id=user_id).first()
     today_learned = today_history.count if today_history else 0
 
-    # 最近7天学习历史
+    # 最近7天学习历史（按用户隔离）
     seven_days_ago = today - timedelta(days=6)
-    history = LearnHistory.query.filter(
-        LearnHistory.date >= seven_days_ago
-    ).order_by(LearnHistory.date).all()
+    history_query = LearnHistory.query.filter(LearnHistory.date >= seven_days_ago)
+    if user_id:
+        history_query = history_query.filter_by(user_id=user_id)
+    history = history_query.order_by(LearnHistory.date).all()
 
     history_data = []
     for i in range(7):
@@ -1926,11 +2187,12 @@ def get_stats():
     # 计算 streak_days（连续签到天数）：使用签到状态计算
     checked_in, streak_days = get_checkin_status()
 
-    # 学习热力图数据：最近 35 天（5 周）的学习记录
+    # 学习热力图数据：最近 35 天（5 周）的学习记录（按用户隔离）
     thirty_five_days_ago = today - timedelta(days=34)
-    heatmap_history = LearnHistory.query.filter(
-        LearnHistory.date >= thirty_five_days_ago
-    ).order_by(LearnHistory.date).all()
+    heatmap_query = LearnHistory.query.filter(LearnHistory.date >= thirty_five_days_ago)
+    if user_id:
+        heatmap_query = heatmap_query.filter_by(user_id=user_id)
+    heatmap_history = heatmap_query.order_by(LearnHistory.date).all()
     heatmap_data = []
     for i in range(35):
         d = thirty_five_days_ago + timedelta(days=i)
@@ -1971,9 +2233,10 @@ def get_enhanced_stats():
     seven_days_ago = today - timedelta(days=6)
 
     # ---------- 1. accuracy_trend: 最近 7 天准确率 ----------
-    history = LearnHistory.query.filter(
-        LearnHistory.date >= seven_days_ago
-    ).order_by(LearnHistory.date).all()
+    history_query = LearnHistory.query.filter(LearnHistory.date >= seven_days_ago)
+    if user_id:
+        history_query = history_query.filter_by(user_id=user_id)
+    history = history_query.order_by(LearnHistory.date).all()
     accuracy_trend = []
     for i in range(7):
         d = seven_days_ago + timedelta(days=i)
@@ -2396,8 +2659,12 @@ def get_today_learned_words():
 
 @app.route('/api/stats/calendar', methods=['GET'])
 def get_calendar_stats():
-    """获取日历统计数据：返回所有学习历史记录，用于日历视图"""
-    all_history = LearnHistory.query.order_by(LearnHistory.date).all()
+    """获取日历统计数据：返回所有学习历史记录，用于日历视图（按用户隔离）"""
+    user_id = get_current_user_id()
+    history_query = LearnHistory.query
+    if user_id:
+        history_query = history_query.filter_by(user_id=user_id)
+    all_history = history_query.order_by(LearnHistory.date).all()
     return jsonify({
         'success': True,
         'data': [{'date': h.date.isoformat(), 'count': h.count} for h in all_history],
@@ -2415,7 +2682,8 @@ def checkin():
         return err
 
     today = date.today()
-    history = LearnHistory.query.filter_by(date=today).first()
+    user_id = get_current_user_id()
+    history = LearnHistory.query.filter_by(date=today, user_id=user_id).first()
 
     if history:
         if history.checked_in:
@@ -2435,7 +2703,7 @@ def checkin():
             history.checked_in = True
     else:
         # 今天没有任何记录，创建一条签到记录
-        history = LearnHistory(date=today, count=0, checked_in=True)
+        history = LearnHistory(date=today, count=0, checked_in=True, user_id=user_id)
         db.session.add(history)
 
     db.session.commit()
@@ -2523,12 +2791,13 @@ def clear_all_words():
     try:
         user_id = get_current_user_id()
         if user_id:
-            # 已登录：仅删除当前用户的单词
+            # 已登录：仅删除当前用户的单词和学习历史
             db.session.query(Word).filter_by(user_id=user_id).delete(synchronize_session=False)
+            db.session.query(LearnHistory).filter_by(user_id=user_id).delete(synchronize_session=False)
         else:
             # 未登录：清空所有（向后兼容）
             db.session.query(Word).delete(synchronize_session=False)
-        db.session.query(LearnHistory).delete(synchronize_session=False)
+            db.session.query(LearnHistory).delete(synchronize_session=False)
         db.session.commit()
         return jsonify({'success': True, 'message': '已清空所有数据'})
     except Exception as e:
@@ -2555,6 +2824,7 @@ def export_words_csv():
     wordbook_id = request.args.get('wordbook_id', '').strip()
     status = request.args.get('status', '').strip()
     search = request.args.get('search', '').strip()
+    starred = request.args.get('starred', '').strip()
 
     # 构建查询
     query = Word.query
@@ -2570,6 +2840,8 @@ def export_words_csv():
         query = query.filter(Word.wordbook_id.is_(None))
     if status:
         query = query.filter(Word.status == status)
+    if starred == '1':
+        query = query.filter(Word.is_starred == True)
     if search:
         query = query.filter(
             db.or_(
@@ -2909,6 +3181,101 @@ def ensure_learn_history_checkin_column():
         conn.commit()
 
 
+def ensure_learn_history_user_id_column():
+    """
+    数据库迁移：为 learn_history 表添加 user_id 列（如果不存在）
+    用于多用户数据隔离，每个用户有独立的学习历史记录
+    """
+    from sqlalchemy import text, inspect
+    inspector = inspect(db.engine)
+    columns = [col['name'] for col in inspector.get_columns('learn_history')]
+    if 'user_id' not in columns:
+        print("[迁移] 检测到 learn_history 表缺少 user_id 列，正在添加...")
+        with db.engine.connect() as conn:
+            conn.execute(text("ALTER TABLE learn_history ADD COLUMN user_id INTEGER"))
+            conn.commit()
+        print("[迁移] learn_history.user_id 列添加完成")
+
+
+def fix_learn_history_unique_constraint():
+    """
+    数据库迁移：移除 learn_history 表 date 列上的旧唯一约束
+    改为 (date, user_id) 联合唯一，允许多用户同一天各有记录
+    """
+    from sqlalchemy import text, inspect
+    inspector = inspect(db.engine)
+
+    # 检查是否有 user_id 列（前置依赖）
+    columns = [col['name'] for col in inspector.get_columns('learn_history')]
+    if 'user_id' not in columns:
+        return  # 还没添加 user_id 列，跳过
+
+    # 查找 date 列上的唯一索引/约束
+    indexes = inspector.get_indexes('learn_history')
+    old_unique_indexes = [
+        idx for idx in indexes
+        if idx.get('unique') and 'date' in idx.get('column_names', [])
+    ]
+
+    if old_unique_indexes:
+        print("[迁移] 检测到 learn_history.date 上的旧唯一索引，正在移除...")
+        with db.engine.connect() as conn:
+            for idx in old_unique_indexes:
+                idx_name = idx['name']
+                try:
+                    conn.execute(text(f"DROP INDEX IF EXISTS {idx_name}"))
+                except Exception:
+                    pass
+            conn.commit()
+        print(f"[迁移] 已移除 {len(old_unique_indexes)} 个旧唯一索引")
+
+    # 检查表级唯一约束（SQLite 的 unique=True 在列定义上）
+    # PostgreSQL: 检查唯一约束
+    try:
+        constraints = inspector.get_unique_constraints('learn_history')
+        for uc in constraints:
+            if 'date' in uc.get('column_names', []) and 'user_id' not in uc.get('column_names', []):
+                # 旧的 date 唯一约束，需要删除（PostgreSQL）
+                constraint_name = uc.get('name', '')
+                if constraint_name:
+                    print(f"[迁移] 尝试移除旧唯一约束: {constraint_name}")
+                    with db.engine.connect() as conn:
+                        try:
+                            conn.execute(text(f"ALTER TABLE learn_history DROP CONSTRAINT IF EXISTS {constraint_name}"))
+                            conn.commit()
+                        except Exception:
+                            pass
+    except Exception:
+        pass
+
+    # 创建新的联合唯一索引
+    with db.engine.connect() as conn:
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_learn_history_date_user ON learn_history(date, user_id)"))
+        conn.commit()
+    print("[迁移] learn_history (date, user_id) 联合唯一索引已就绪")
+
+
+def ensure_wordbook_shared_columns():
+    """
+    数据库迁移：为 wordbooks 表添加 is_shared 和 shared_at 列（如果不存在）
+    用于全局词本分享功能
+    """
+    from sqlalchemy import text, inspect
+    inspector = inspect(db.engine)
+    columns = [col['name'] for col in inspector.get_columns('wordbooks')]
+    new_cols = [
+        ('is_shared', 'BOOLEAN DEFAULT FALSE'),
+        ('shared_at', 'DATETIME'),
+    ]
+    for col_name, col_def in new_cols:
+        if col_name not in columns:
+            print(f"[迁移] 检测到 wordbooks 表缺少 {col_name} 列，正在添加...")
+            with db.engine.connect() as conn:
+                conn.execute(text(f"ALTER TABLE wordbooks ADD COLUMN {col_name} {col_def}"))
+                conn.commit()
+            print(f"[迁移] wordbooks.{col_name} 列添加完成")
+
+
 with app.app_context():
     # 创建数据库表（含新的 wordbooks 表）
     db.create_all()
@@ -2936,6 +3303,12 @@ with app.app_context():
     ensure_learn_history_accuracy_columns()
     # 迁移：为 learn_history 表添加 checked_in 列（独立签到状态）
     ensure_learn_history_checkin_column()
+    # 迁移：为 learn_history 表添加 user_id 列（多用户数据隔离）
+    ensure_learn_history_user_id_column()
+    # 迁移：移除 learn_history.date 旧唯一约束，改为 (date, user_id) 联合唯一
+    fix_learn_history_unique_constraint()
+    # 迁移：为 wordbooks 表添加 is_shared / shared_at 列（全局词本分享）
+    ensure_wordbook_shared_columns()
     # 插入演示数据
     init_demo_data()
     # 升级已有单词的拆解数据和记忆方法到新结构

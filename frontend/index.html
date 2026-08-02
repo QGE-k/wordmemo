@@ -9,7 +9,7 @@
   <!-- 预连接：提前建立TCP/TLS连接，减少首字节时间 -->
   <link rel="preconnect" href="/" crossorigin>
   <link rel="dns-prefetch" href="/">
-  <link rel="stylesheet" href="assets/style.css?v=20260802i">
+  <link rel="stylesheet" href="assets/style.css?v=20260803e">
   <!-- PWA 支持：允许"添加到桌面"当App用 -->
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" type="image/png" href="/icons/icon-192.png">
@@ -115,7 +115,7 @@
               <h3 class="block-title">今日单词</h3>
               <span class="block-more" id="goLibraryFromHome">查看全部</span>
             </div>
-            <div class="word-list" id="todayWordList">
+            <div class="word-list word-list-scroll" id="todayWordList">
               <div class="empty-state">
                 <p>暂无单词，快去添加吧</p>
               </div>
@@ -220,24 +220,28 @@
 
       <!-- 扫描录入 -->
       <div class="input-panel" id="panel-scan">
-        <p class="panel-tip">拍照或选择图片，AI自动识别单词和释义</p>
+        <p class="panel-tip">拍照或选择图片，AI自动识别单词和释义（支持多张图片）</p>
         <div class="form-group">
           <label class="form-label">导入到单词本</label>
           <select class="form-select" id="scanWordbookSelect">
             <option value="">默认（不归类）</option>
           </select>
         </div>
+        <!-- 空状态：点击选图 -->
         <div class="scan-area" id="scanArea">
           <div class="scan-placeholder">
             <span class="scan-icon">相机</span>
             <p>点击拍照 / 选择图片</p>
           </div>
-          <img class="scan-preview" id="scanPreview" alt="预览" style="display:none">
-          <button class="scan-cancel-btn" id="scanCancelBtn" type="button">×</button>
         </div>
-        <!-- multiple 支持多选，capture 支持拍照 -->
+        <!-- 多图缩略图网格（选中图片后显示） -->
+        <div class="scan-thumbs" id="scanThumbs" style="display:none">
+          <div class="scan-thumbs-list" id="scanThumbsList"></div>
+        </div>
+        <!-- 操作按钮区 -->
         <input type="file" accept="image/*" multiple id="scanInput" style="display:none">
-        <div class="scan-actions">
+        <div class="scan-actions" id="scanActions" style="display:none">
+          <button class="btn-secondary" id="btnScanAddMore">+ 添加更多图片</button>
           <button class="btn-primary" id="btnScanRecognize">识别单词</button>
         </div>
         <!-- 识别结果：单词确认列表 -->
@@ -311,6 +315,7 @@
         <button class="filter-tab" data-status="new">未学习</button>
         <button class="filter-tab" data-status="review">复习中</button>
         <button class="filter-tab" data-status="mastered">已掌握</button>
+        <button class="filter-tab" data-status="starred">⭐ 重点</button>
         <select class="sort-select" id="sortSelect" title="排序方式">
           <option value="added_desc">最近添加</option>
           <option value="added_asc">最早添加</option>
@@ -791,7 +796,10 @@
       <div class="modal-handle"></div>
       <div class="modal-header">
         <div class="modal-word-wrap">
-          <h3 class="modal-word" id="modalWord"></h3>
+          <div class="modal-word-row">
+            <h3 class="modal-word" id="modalWord"></h3>
+            <span class="word-type-badge" id="modalWordTypeBadge" style="display:none"></span>
+          </div>
           <span class="modal-phonetic" id="modalPhonetic"></span>
         </div>
         <div class="modal-header-actions">
@@ -840,6 +848,7 @@
       </div>
       <div class="modal-footer">
         <button class="btn-secondary" id="modalDeleteBtn">删除</button>
+        <button class="btn-secondary" id="modalStarBtn">☆ 标重点</button>
         <button class="btn-secondary" id="modalMoveBtn">移动到词本</button>
         <button class="btn-primary" id="modalEditBtn">编辑</button>
       </div>
@@ -940,6 +949,22 @@
         <button class="btn-secondary" id="wordbookCancelBtn">取消</button>
         <button class="btn-primary" id="wordbookSaveBtn">保存</button>
         <button class="setting-btn setting-btn-danger" id="wordbookDeleteBtn" style="display:none">删除</button>
+        <button class="btn-secondary btn-share" id="wordbookShareBtn" style="display:none">分享到全局词本</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 全局词本详情弹窗 -->
+  <div class="modal-overlay" id="globalWordbookModal">
+    <div class="modal-sheet global-wordbook-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-header">
+        <h3 class="modal-word" id="globalWordbookModalTitle">全局词本</h3>
+        <button class="modal-close" id="globalWordbookCloseBtn">×</button>
+      </div>
+      <div class="modal-body" id="globalWordbookList">
+      </div>
+      <div class="modal-footer" id="globalWordbookImportArea">
       </div>
     </div>
   </div>
@@ -999,7 +1024,28 @@
     </div>
   </div>
 
-  <script src="assets/app.js?v=20260802m"></script>
+  <!-- ============ 词本选择弹窗（首次进入强制选择） ============ -->
+  <div class="modal-overlay" id="wordbookSelectModal">
+    <div class="modal-sheet" style="max-width:380px">
+      <div class="modal-handle"></div>
+      <div class="modal-header">
+        <h3 class="modal-word">选择词本</h3>
+      </div>
+      <div class="modal-body" style="padding:16px 20px">
+        <p style="color:#666;font-size:14px;margin-bottom:16px">请先选择一个词本，或创建新词本后再开始学习</p>
+        <div id="wordbookSelectList" style="max-height:300px;overflow-y:auto;margin-bottom:16px"></div>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:16px">
+          <input type="text" class="form-input" id="wordbookSelectNewName" placeholder="新词本名称" style="flex:1">
+          <button class="btn-primary btn-sm" id="wordbookSelectCreate">创建</button>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn-primary" id="wordbookSelectConfirm" style="flex:1">确认选择</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="assets/app.js?v=20260803f"></script>
   <!-- PWA service worker 注册：仅在 HTTPS/localhost 生效 -->
   <script>
     if ('serviceWorker' in navigator) {
