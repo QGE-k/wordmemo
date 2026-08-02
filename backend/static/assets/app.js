@@ -5704,10 +5704,17 @@ async function init() {
   initBackButtonHandler();
 
   // 后台预热请求：唤醒 Render 服务（不阻塞 UI）
-  // 用 30 秒超时确保能等到冷启动完成
   fetch(api.baseURL + '/api/stats', { credentials: 'include' })
     .then(() => console.log('[warmup] 服务已唤醒'))
     .catch(() => {});
+
+  // 保活心跳：每 3 分钟静默请求一次 /api/stats
+  // 同时保持 Render 服务和 Neon 数据库处于热状态，避免用户操作时等待唤醒
+  setInterval(() => {
+    fetch(api.baseURL + '/api/stats', { credentials: 'include' })
+      .then(() => console.log('[keepalive] 心跳'))
+      .catch(() => {});
+  }, 3 * 60 * 1000); // 3 分钟
 
   // 乐观渲染：先用缓存用户信息显示状态栏，再用缓存数据渲染首页
   const cachedUser = loadUserCache();
