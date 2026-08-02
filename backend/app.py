@@ -3259,13 +3259,17 @@ def ensure_wordbook_shared_columns():
     """
     数据库迁移：为 wordbooks 表添加 is_shared 和 shared_at 列（如果不存在）
     用于全局词本分享功能
+    兼容 SQLite (DATETIME) 和 PostgreSQL (TIMESTAMP)
     """
     from sqlalchemy import text, inspect
     inspector = inspect(db.engine)
     columns = [col['name'] for col in inspector.get_columns('wordbooks')]
+    # PostgreSQL 用 TIMESTAMP，SQLite 用 DATETIME
+    dialect_name = db.engine.dialect.name
+    timestamp_type = 'TIMESTAMP' if dialect_name == 'postgresql' else 'DATETIME'
     new_cols = [
         ('is_shared', 'BOOLEAN DEFAULT FALSE'),
-        ('shared_at', 'DATETIME'),
+        ('shared_at', timestamp_type),
     ]
     for col_name, col_def in new_cols:
         if col_name not in columns:
