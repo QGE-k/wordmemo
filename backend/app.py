@@ -60,15 +60,18 @@ dictionary_service = DictionaryService()
 
 # ==================== Neon 数据库保活 ====================
 # Neon 免费版计算节点 5 分钟无活动后休眠，下次查询需 3-5 秒唤醒。
-# 后台线程每 4 分钟执行一次轻量查询，保持计算节点热度。
+# 后台线程每 3分50秒 执行一次轻量查询，保持计算节点热度。
+# 优化：更频繁保活（小于5分钟休眠阈值），确保随时响应
 def _neon_keepalive():
     while True:
-        time.sleep(240)  # 每 4 分钟
+        time.sleep(230)  # 3分50秒，小于 Neon 5分钟休眠阈值
         try:
             with app.app_context():
-                db.session.execute(db.text('SELECT 1'))
+                result = db.session.execute(db.text('SELECT 1'))
                 db.session.commit()
-        except Exception:
+                print('[neon-keepalive] OK - 保活成功')
+        except Exception as e:
+            print(f'[neon-keepalive] Error: {e}')
             pass  # 保活失败不影响正常使用
 
 

@@ -34,15 +34,15 @@ class Config:
         SQLALCHEMY_DATABASE_URI = 'sqlite:///wordmemo.db'
 
     SQLALCHEMY_TRACK_MODIFICATIONS = False
-    # 连接池优化：适配 Neon 免费版（计算节点5分钟无活动会休眠）
+    # 连接池优化：适配 Neon 免费版 + gunicorn 多线程
     # pool_pre_ping：每次取连接前先 ping，避免拿到已断开的连接报错
     # pool_recycle：每 270 秒回收连接（小于 Neon 的 5 分钟休眠阈值），保持连接新鲜
-    # pool_size：4个连接足够4人使用，减少内存占用
+    # pool_size / max_overflow：匹配 gunicorn threads=8，保证并发请求不阻塞
     SQLALCHEMY_ENGINE_OPTIONS = {
         'pool_pre_ping': True,
         'pool_recycle': 270,
-        'pool_size': 4,
-        'max_overflow': 2,
+        'pool_size': 8,
+        'max_overflow': 4,
     }
 
     # 上传文件配置
