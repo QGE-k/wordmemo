@@ -159,7 +159,7 @@ class WordAPI {
   // 返回值：{success, data, source}
   async addWord(word, phonetic = '', meaning = '', wordbookId = null) {
     const payload = { word, phonetic, meaning };
-    if (wordbookId) payload.wordbook_id = wordbookId;
+    if (wordbookId && wordbookId !== '0' && wordbookId !== 0) payload.wordbook_id = wordbookId;
     const res = await this.request('/words', {
       method: 'POST',
       body: JSON.stringify(payload)
@@ -171,7 +171,7 @@ class WordAPI {
   // 返回值：{success, added, skipped, failed, added_count, ...}
   async addWordsBatch(words, wordbookId) {
     const payload = { words };
-    if (wordbookId) payload.wordbook_id = wordbookId;
+    if (wordbookId && wordbookId !== '0' && wordbookId !== 0) payload.wordbook_id = wordbookId;
     const res = await this.request('/words/batch', {
       method: 'POST',
       body: JSON.stringify(payload)
@@ -246,6 +246,18 @@ class WordAPI {
     return this.request('/ocr/add-words', { method: 'POST', body: fd });
   }
 
+  // 极速OCR扫描预览（OCR提取文字 + ECDICT查释义，不写入词库）
+  ocrScanPreview(file) {
+    const fd = new FormData();
+    fd.append('image', file);
+    return this.request('/ocr/scan-preview', { method: 'POST', body: fd });
+  }
+
+  // 查询当月OCR用量
+  ocrUsage() {
+    return this.request('/ocr/usage', { method: 'GET' });
+  }
+
   /* ---- AI 视觉识别 ---- */
 
   // AI视觉识别图片中的单词（仅识别，返回单词+释义列表）
@@ -267,8 +279,10 @@ class WordAPI {
 
   // 获取统计数据
   // 返回值：{total, new, review, mastered, today_review, today_learned, history}
-  async getStats() {
-    const res = await this.request('/stats');
+  // wordbookId: 按词书过滤（空=全部，0=未归类，具体id=该词书）
+  async getStats(wordbookId) {
+    const qs = (wordbookId !== undefined && wordbookId !== '') ? `?wordbook_id=${wordbookId}` : '';
+    const res = await this.request('/stats' + qs);
     return res && res.data ? res.data : res;
   }
 
@@ -281,6 +295,7 @@ class WordAPI {
     let params = [];
     if (wordbookId !== '' && wordbookId !== undefined) params.push(`wordbook_id=${wordbookId}`);
     if (options.random) params.push('random=1');
+    if (options.starred) params.push('starred=1');
     const qs = params.length > 0 ? '?' + params.join('&') : '';
     const res = await this.request('/review/today' + qs);
     return res && res.data ? res.data : (Array.isArray(res) ? res : []);
@@ -305,6 +320,7 @@ class WordAPI {
     if (options.exclude && options.exclude.length > 0) params.push(`exclude=${options.exclude.join(',')}`);
     if (options.limit) params.push(`limit=${options.limit}`);
     if (options.new_only) params.push('new_only=1');
+    if (options.starred) params.push('starred=1');
     const qs = params.length > 0 ? '?' + params.join('&') : '';
     const res = await this.request('/learn/today' + qs);
     return res && res.data ? res.data : (Array.isArray(res) ? res : []);
@@ -488,6 +504,32 @@ class WordAPI {
   async adminDeleteUser(userId) {
     return this.request(`/admin/users/${userId}`, { method: 'DELETE' });
   }
+
+  async adminResetPassword(userId, newPassword) {
+    return this.request('/admin/reset_user_password', {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId, new_password: newPassword }),
+    });
+  }
+
+  async adminToggleUser(userId, isActive) {
+    return this.request('/admin/toggle_user', {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId, is_active: isActive }),
+    });
+  }
+
+  // ===== 个人信息 API =====
+  async updateProfile(data) {
+    return this.request('/auth/profile', { method: 'PUT', body: JSON.stringify(data) });
+  }
+
+  async changePassword(oldPassword, newPassword) {
+    return this.request('/auth/change-password', {
+      method: 'PUT',
+      body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
+    });
+  }
 }
 
 // 创建全局 API 实例
@@ -552,10 +594,40 @@ function onLoginSuccess() {
   if (settingsUserEl && currentUser) {
     settingsUserEl.textContent = currentUser.nickname || currentUser.username || '已登录';
   }
+  // 填充个人信息表单
+  const nicknameInput = document.getElementById('nicknameInput');
+  const secQuestionInput = document.getElementById('secQuestionInput');
+  const secAnswerInput = document.getElementById('secAnswerInput');
+  if (nicknameInput && currentUser) nicknameInput.value = currentUser.nickname || '';
+  if (secQuestionInput && currentUser) secQuestionInput.value = currentUser.security_question || '';
+  if (secAnswerInput && currentUser) secAnswerInput.value = '';
+  // 加载OCR用量
+  loadOcrUsage();
   // 管理员显示管理 Tab
   const adminTab = document.querySelector('.tab-admin-only');
   if (adminTab) {
     adminTab.style.display = currentUser.role === 'admin' ? 'flex' : 'none';
+  }
+}
+
+/** 加载并显示OCR用量 */
+async function loadOcrUsage() {
+  const el = document.getElementById('ocrUsageText');
+  if (!el) return;
+  try {
+    const usage = await api.ocrUsage();
+    if (usage && usage.success) {
+      const isAdmin = usage.is_admin;
+      const globalText = `全局 ${usage.global_count}/${usage.global_limit}`;
+      const userText = isAdmin
+        ? '管理员不限'
+        : `个人 ${usage.user_count}/${usage.user_limit}`;
+      el.textContent = `${globalText}（${userText}）｜每月重置`;
+    } else {
+      el.textContent = '无法获取';
+    }
+  } catch {
+    el.textContent = '无法获取';
   }
 }
 
@@ -768,6 +840,7 @@ async function renderAdminPage() {
         <div class="admin-user-header">
           <span class="admin-user-name">${escapeHtml(user.nickname || user.username)}</span>
           <span class="admin-role-badge ${user.role}">${user.role === 'admin' ? '管理员' : '普通用户'}</span>
+          ${!user.is_active ? '<span class="admin-role-badge" style="background:var(--danger);color:#fff;">已禁用</span>' : ''}
         </div>
         <div class="admin-user-stats">
           <div class="admin-stat-item">
@@ -784,8 +857,16 @@ async function renderAdminPage() {
           </div>
         </div>
         <div class="admin-user-date">注册时间：${user.created_at ? user.created_at.substring(0, 10) : '未知'}</div>
+        <div class="admin-user-info" style="font-size:12px;color:var(--text-tertiary);margin:4px 0;line-height:1.6;">
+          <div>用户名：${escapeHtml(user.username)}</div>
+          <div>安全问题：${escapeHtml(user.security_question || '未设置')}</div>
+          <div>安全答案：${escapeHtml(user.security_answer || '未设置')}</div>
+          <div>密码哈希：<code style="font-size:11px;word-break:break-all;">${escapeHtml(user.password_hash ? user.password_hash.substring(0, 32) + '...' : '无')}</code></div>
+        </div>
         <div class="admin-user-actions">
           <button class="btn-secondary btn-sm admin-detail-btn" data-user-id="${user.id}">查看详情</button>
+          <button class="btn-secondary btn-sm admin-reset-pwd-btn" data-user-id="${user.id}" data-username="${escapeHtml(user.username)}">重置密码</button>
+          ${user.role !== 'admin' ? `<button class="btn-secondary btn-sm admin-toggle-btn" data-user-id="${user.id}" data-active="${user.is_active}">${user.is_active ? '禁用' : '启用'}</button>` : ''}
           ${user.role !== 'admin' ? `<button class="btn-danger btn-sm admin-delete-btn" data-user-id="${user.id}" data-username="${escapeHtml(user.username)}">删除账号</button>` : ''}
         </div>
         <div class="admin-user-detail" id="adminDetail_${user.id}"></div>
@@ -797,6 +878,46 @@ async function renderAdminPage() {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         loadUserDetail(parseInt(btn.dataset.userId));
+      });
+    });
+    // 绑定重置密码按钮
+    listEl.querySelectorAll('.admin-reset-pwd-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const userId = parseInt(btn.dataset.userId);
+        const username = btn.dataset.username;
+        const newPwd = prompt(`重置用户「${username}」的密码：\n请输入新密码（至少6位）：`);
+        if (!newPwd) return;
+        if (newPwd.length < 6) { showToast('新密码至少6位', 'warning'); return; }
+        try {
+          btn.disabled = true;
+          btn.textContent = '重置中...';
+          await api.adminResetPassword(userId, newPwd);
+          showToast(`已重置用户 ${username} 的密码`, 'success');
+          btn.disabled = false;
+          btn.textContent = '重置密码';
+        } catch (err) {
+          btn.disabled = false;
+          btn.textContent = '重置密码';
+          handleError(err);
+        }
+      });
+    });
+    // 绑定启用/禁用按钮
+    listEl.querySelectorAll('.admin-toggle-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const userId = parseInt(btn.dataset.userId);
+        const currentActive = btn.dataset.active === 'true';
+        try {
+          btn.disabled = true;
+          await api.adminToggleUser(userId, !currentActive);
+          showToast(!currentActive ? '已启用' : '已禁用', 'success');
+          renderAdminPage();
+        } catch (err) {
+          btn.disabled = false;
+          handleError(err);
+        }
       });
     });
     // 绑定删除账号按钮
@@ -1433,10 +1554,14 @@ let homeStatsCache = null; // 缓存统计数据
 
 async function renderHome() {
   try {
-    // 并行请求统计与今日单词
+    // 通知 Service Worker 清空 API 缓存，确保拿到最新数据
+    if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+      navigator.serviceWorker.controller.postMessage({ type: 'CLEAR_API_CACHE' });
+    }
+    // 并行请求统计与今日单词（按当前选中词书过滤）
     const wbParam = learnWordbookId !== '' ? { wordbook_id: learnWordbookId } : {};
     const [stats, words] = await Promise.all([
-      api.getStats(),
+      api.getStats(learnWordbookId),
       api.getWords(wbParam)
     ]);
     homeStatsCache = stats;
@@ -1452,12 +1577,20 @@ async function renderHome() {
     // 今日概览
     $('#todayLearned').textContent = stats.today_learned || 0;
     $('#todayReviewCount').textContent = stats.today_review || 0;
-    // today_new 后端用 new 字段（新单词总数）代替
-    $('#todayNewCount').textContent = stats.new || 0;
+    // 待学 = 每日目标 - 今日已学（最低0）
+    $('#todayNewCount').textContent = stats.pending_today !== undefined ? stats.pending_today : (stats.new || 0);
 
     // 操作按钮描述：显示每天计划学多少 + 还有多少待学/待复习
     const dailyGoal = stats.daily_goal || 20;
-    $('#learnDesc').textContent = `每天学${dailyGoal}个，还有${stats.new || 0}个待学`;
+    const pendingToday = stats.pending_today !== undefined ? stats.pending_today : Math.max(0, dailyGoal - (stats.today_learned || 0));
+    const newWordsLeft = stats.new || 0;
+    if (newWordsLeft > 0) {
+      $('#learnDesc').textContent = `每天学${dailyGoal}个，还有${pendingToday}个待学`;
+    } else if (pendingToday > 0) {
+      $('#learnDesc').textContent = `每天学${dailyGoal}个，词本已学完`;
+    } else {
+      $('#learnDesc').textContent = `每天学${dailyGoal}个，今日已完成`;
+    }
     $('#reviewDesc').textContent = `${stats.today_review || 0}个单词待复习`;
 
     // 统计卡片
@@ -1466,40 +1599,10 @@ async function renderHome() {
     $('#statReview').textContent = stats.review || 0;
     $('#statMastered').textContent = stats.mastered || 0;
 
-    // 首页概览数字可点击跳转
-    const overviewItems = document.querySelectorAll('.overview-item');
-    if (overviewItems.length >= 3) {
-      // 今日已学 → 跳转学习页
-      overviewItems[0].style.cursor = 'pointer';
-      overviewItems[0].onclick = () => {
-        learnQueue = [];
-        switchPage('learn');
-      };
-      // 待复习 → 跳转复习页
-      overviewItems[1].style.cursor = 'pointer';
-      overviewItems[1].onclick = () => {
-        reviewQueue = [];
-        switchPage('review');
-      };
-      // 待学新词 → 跳转学习页
-      overviewItems[2].style.cursor = 'pointer';
-      overviewItems[2].onclick = () => {
-        learnQueue = [];
-        switchPage('learn');
-      };
-    }
-    // 统计卡片也可点击
-    const statCards = document.querySelectorAll('.stat-card');
-    if (statCards.length >= 4) {
-      statCards[0].style.cursor = 'pointer'; // 总词数 → 词库
-      statCards[0].onclick = () => switchPage('library');
-      statCards[1].style.cursor = 'pointer'; // 新词 → 学习
-      statCards[1].onclick = () => { learnQueue = []; switchPage('learn'); };
-      statCards[2].style.cursor = 'pointer'; // 复习中 → 复习
-      statCards[2].onclick = () => { reviewQueue = []; switchPage('review'); };
-      statCards[3].style.cursor = 'pointer'; // 已掌握 → 词库
-      statCards[3].onclick = () => switchPage('library');
-    }
+    // 概览数字点击跳转
+    bindOverviewClicks();
+    // 统计卡片点击跳转
+    bindStatCardClicks();
 
     // 学习曲线折线图
     // 后端 history 格式：[{date, count}, ...]，需转为数字数组
@@ -1528,20 +1631,33 @@ async function renderHome() {
 /**
  * 轻量刷新首页统计数据（不重新拉取单词列表）
  * 在添加/删除单词后调用，确保首页数字实时更新
+ * 会先清除 Service Worker 的 API 缓存，确保拿到最新数据
  */
 async function refreshHomeStats() {
+  // 通知 Service Worker 清空 API 缓存，确保下次请求拿到最新数据
+  if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+    navigator.serviceWorker.controller.postMessage({ type: 'CLEAR_API_CACHE' });
+  }
   try {
-    const stats = await api.getStats();
+    const stats = await api.getStats(learnWordbookId);
     homeStatsCache = stats;
     $('#todayLearned').textContent = stats.today_learned || 0;
     $('#todayReviewCount').textContent = stats.today_review || 0;
-    $('#todayNewCount').textContent = stats.new || 0;
+    $('#todayNewCount').textContent = stats.pending_today !== undefined ? stats.pending_today : (stats.new || 0);
     $('#statTotal').textContent = stats.total || 0;
     $('#statNew').textContent = stats.new || 0;
     $('#statReview').textContent = stats.review || 0;
     $('#statMastered').textContent = stats.mastered || 0;
     const dailyGoal = stats.daily_goal || 20;
-    $('#learnDesc').textContent = `每天学${dailyGoal}个，还有${stats.new || 0}个待学`;
+    const pendingToday = stats.pending_today !== undefined ? stats.pending_today : Math.max(0, dailyGoal - (stats.today_learned || 0));
+    const newWordsLeft = stats.new || 0;
+    if (newWordsLeft > 0) {
+      $('#learnDesc').textContent = `每天学${dailyGoal}个，还有${pendingToday}个待学`;
+    } else if (pendingToday > 0) {
+      $('#learnDesc').textContent = `每天学${dailyGoal}个，词本已学完`;
+    } else {
+      $('#learnDesc').textContent = `每天学${dailyGoal}个，今日已完成`;
+    }
     $('#reviewDesc').textContent = `${stats.today_review || 0}个单词待复习`;
     // 更新学习曲线
     const historyArr = (stats.history || []).map(h => h.count || 0);
@@ -1549,6 +1665,52 @@ async function refreshHomeStats() {
   } catch (e) {
     // 静默失败，不影响用户操作
     console.warn('刷新首页统计失败:', e);
+  }
+}
+
+/**
+ * 绑定首页概览数字点击跳转
+ * 今日已学 → 学习页，待复习 → 复习页，待学 → 学习页
+ */
+function bindOverviewClicks() {
+  const overviewItems = document.querySelectorAll('.overview-item');
+  if (overviewItems.length >= 3) {
+    // 今日已学 → 跳转学习页
+    overviewItems[0].style.cursor = 'pointer';
+    overviewItems[0].onclick = () => {
+      learnQueue = [];
+      switchPage('learn');
+    };
+    // 待复习 → 跳转复习页
+    overviewItems[1].style.cursor = 'pointer';
+    overviewItems[1].onclick = () => {
+      reviewQueue = [];
+      switchPage('review');
+    };
+    // 待学 → 跳转学习页
+    overviewItems[2].style.cursor = 'pointer';
+    overviewItems[2].onclick = () => {
+      learnQueue = [];
+      switchPage('learn');
+    };
+  }
+}
+
+/**
+ * 绑定统计卡片点击跳转
+ * 总词数 → 词库，新词 → 学习，复习中 → 复习，已掌握 → 词库
+ */
+function bindStatCardClicks() {
+  const statCards = document.querySelectorAll('.stat-card');
+  if (statCards.length >= 4) {
+    statCards[0].style.cursor = 'pointer';
+    statCards[0].onclick = () => switchPage('library');
+    statCards[1].style.cursor = 'pointer';
+    statCards[1].onclick = () => { learnQueue = []; switchPage('learn'); };
+    statCards[2].style.cursor = 'pointer';
+    statCards[2].onclick = () => { reviewQueue = []; switchPage('review'); };
+    statCards[3].style.cursor = 'pointer';
+    statCards[3].onclick = () => switchPage('library');
   }
 }
 
@@ -1992,18 +2154,20 @@ function resetScan() {
 
 let scanFiles = []; // 多张图片文件数组
 let scanRecognizedWords = []; // AI识别到的单词列表 [{word, meaning, checked}]
+let scanMode = 'ocr'; // 扫描模式：'ocr'（极速OCR）或 'ai'（AI精准）
 
-// AI识别图片中的单词 - 使用后端大模型视觉识别（准确率远高于本地OCR）
+// AI/OCR识别图片中的单词
 async function handleScanRecognize() {
   if (scanFiles.length === 0) {
     showToast('请先选择图片', 'warning');
     return;
   }
   try {
-    // 逐张识别（并行请求后端AI，但限制并发为3避免超时）
-    showLoading(`AI识别中... (1/${scanFiles.length})`);
+    const modeLabel = scanMode === 'ocr' ? 'OCR极速识别' : 'AI识别';
+    // OCR模式并发5（快速），AI模式并发3（避免超时）
+    const concurrency = scanMode === 'ocr' ? 5 : 3;
+    showLoading(`${modeLabel}中... (1/${scanFiles.length})`);
 
-    const concurrency = 3;
     let allWords = [];
     let completed = 0;
 
@@ -2012,17 +2176,32 @@ async function handleScanRecognize() {
       const batchResults = await Promise.all(batch.map(async (file, batchIdx) => {
         const globalIdx = i + batchIdx;
         try {
-          showLoading(`AI识别中... (${globalIdx + 1}/${scanFiles.length})`);
-          const res = await api.aiRecognizeImage(file);
+          showLoading(`${modeLabel}中... (${globalIdx + 1}/${scanFiles.length})`);
+          // 根据模式调用不同接口
+          const res = scanMode === 'ocr'
+            ? await api.ocrScanPreview(file)
+            : await api.aiRecognizeImage(file);
           completed++;
-          showLoading(`AI识别中... (${completed}/${scanFiles.length})`);
+          showLoading(`${modeLabel}中... (${completed}/${scanFiles.length})`);
           if (res && res.success && res.words) {
             return res.words;
           }
           return [];
         } catch (err) {
-          console.error(`AI识别第${globalIdx + 1}张图片失败:`, err);
+          console.error(`${modeLabel}第${globalIdx + 1}张图片失败:`, err);
           completed++;
+          // OCR超限时提示切换AI模式
+          if (err && err.quota_exceeded) {
+            showToast('当月OCR识别次数已达上限，已自动切换到AI精准模式', 'warning');
+            scanMode = 'ai';
+            $$('.scan-mode-item').forEach(b => {
+              b.classList.toggle('active', b.dataset.scanMode === 'ai');
+            });
+            const tip = $('#scanModeTip');
+            if (tip) tip.textContent = '拍照或选择图片，AI视觉识别单词和手写内容（每张约20秒）';
+            const recognizeBtn = $('#btnScanRecognize');
+            if (recognizeBtn) recognizeBtn.textContent = 'AI识别';
+          }
           return [];
         }
       }));
@@ -3192,6 +3371,8 @@ let learnedIds = new Set(); // 已标记为"已学会"的单词 ID，避免返�
 let autoNextTimer = null;   // 自动下一题的定时器（用于取消）
 let learnRandomMode = false; // 学习随机模式：false=按顺序，true=随机（从设置页读取）
 let reviewRandomMode = false; // 复习随机模式：false=按时间排序（昨天先于更早），true=随机
+let learnStarredOnly = false; // 学习：仅看重点单词
+let reviewStarredOnly = false; // 复习：仅看重点单词
 let allLearnedIds = new Set(); // 本次学习会话中所有已学的单词ID（用于"已学会"标记）
 let loadedWordIds = new Set(); // 当前会话中已加载到队列的单词ID（用于"加入新词"排除）
 let learnSessionMode = 'new'; // 学习会话模式：new=未学习学习 / review_today=翻今天所有
@@ -3218,6 +3399,7 @@ async function loadLearnQueue(append = false, addCount = null) {
     const options = {
       random: learnRandomMode,
     };
+    if (learnStarredOnly) options.starred = true;
     if (append) {
       // 加入未学习：只加载没学过的词(new状态)，排除已加载的
       options.new_only = true;
@@ -3838,6 +4020,8 @@ async function handleLearnKnown() {
       await api.submitReview(word.id, 'good');
       learnedIds.add(word.id);
       allLearnedIds.add(word.id); // 记录到全局已学集合
+      // 实时刷新首页统计（非阻塞）
+      refreshHomeStats();
     }
     // 跳到下一个，翻完循环
     learnIndex++;
@@ -3909,7 +4093,9 @@ function restoreReviewPosition() {
 async function loadReviewQueue() {
   try {
     showLoading();
-    const res = await api.getReviewToday(reviewWordbookId, { random: reviewRandomMode });
+    const reviewOpts = { random: reviewRandomMode };
+    if (reviewStarredOnly) reviewOpts.starred = true;
+    const res = await api.getReviewToday(reviewWordbookId, reviewOpts);
     reviewQueue = Array.isArray(res) ? res : (res.words || res.data || []);
     // 尝试恢复上次复习位置
     const restored = restoreReviewPosition();
@@ -3943,6 +4129,16 @@ function renderReviewCard() {
     $('#reviewExtraActions').style.display = 'none';
     $('#reviewEmpty').style.display = 'block';
     $('#reviewProgress').textContent = `0 / 0`;
+    // 根据是否有复习中的单词显示不同提示
+    const reviewTotal = homeStatsCache ? (homeStatsCache.review || 0) + (homeStatsCache.mastered || 0) : 0;
+    const reviewEmptyEl = $('#reviewEmpty');
+    if (reviewEmptyEl) {
+      if (reviewTotal > 0) {
+        reviewEmptyEl.innerHTML = '<p>今日复习已完成</p><p class="empty-sub">没有到期的单词，' + reviewTotal + '个单词按艾宾浩斯曲线安排复习中，继续保持！</p>';
+      } else {
+        reviewEmptyEl.innerHTML = '<p>今日复习已完成</p><p class="empty-sub">没有到期的单词，继续保持！</p>';
+      }
+    }
     return;
   }
   // 循环：翻完从头再来
@@ -4314,6 +4510,8 @@ async function handleReviewQuizNext() {
   if (currentWord) {
     try {
       await api.submitReview(currentWord.id, 'good');
+      // 实时刷新首页统计（非阻塞）
+      refreshHomeStats();
     } catch (e) {
       console.error(e);
     }
@@ -4458,7 +4656,7 @@ async function renderStats() {
     showLoading();
     let stats = homeStatsCache;
     if (!stats) {
-      stats = await api.getStats();
+      stats = await api.getStats(learnWordbookId);
       homeStatsCache = stats;
     }
     hideLoading();
@@ -5012,6 +5210,46 @@ async function handleToggleStar() {
   }
 }
 
+async function handleRefreshExamples() {
+  if (!currentDetailWord) return;
+  const btn = $('#modalRefreshExamplesBtn');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'AI生成中...';
+  }
+  try {
+    const res = await fetch(`/api/words/${currentDetailWord.id}/refresh-examples`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    const data = await res.json();
+    if (data.success && data.examples) {
+      currentDetailWord.examples = data.examples;
+      // 更新例句显示
+      const exampleSection = $('#modalExampleSection');
+      if (exampleSection) {
+        exampleSection.style.display = 'block';
+        $('#modalExamples').innerHTML = data.examples.map(ex => `
+          <div class="example-item">
+            <p class="example-en">${escapeHtml(ex.en || '')}</p>
+            <p class="example-zh">${escapeHtml(ex.zh || '')}</p>
+          </div>
+        `).join('');
+      }
+      showToast('例句已更新', 'success');
+    } else {
+      showToast(data.error || '生成失败，请稍后重试', 'error');
+    }
+  } catch (err) {
+    handleError(err);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = 'AI生成更好的例句';
+    }
+  }
+}
+
 // 打开移动到词本弹窗（单个单词，从详情弹窗触发）
 function openMoveWordbookModal() {
   if (!currentDetailWord) return;
@@ -5339,12 +5577,32 @@ function bindEvents() {
   // 首页操作按钮
   $('#btnStartLearn').addEventListener('click', () => {
     learnQueue = []; // 重置队列以重新加载
+    learnStarredOnly = false; // 普通学习
     switchPage('learn');
   });
   $('#btnStartReview').addEventListener('click', () => {
     reviewQueue = [];
+    reviewStarredOnly = false; // 普通复习
     switchPage('review');
   });
+
+  // 重点单词学习/复习
+  const btnLearnStarred = $('#btnLearnStarred');
+  if (btnLearnStarred) {
+    btnLearnStarred.addEventListener('click', () => {
+      learnQueue = [];
+      learnStarredOnly = true; // 仅重点单词
+      switchPage('learn');
+    });
+  }
+  const btnReviewStarred = $('#btnReviewStarred');
+  if (btnReviewStarred) {
+    btnReviewStarred.addEventListener('click', () => {
+      reviewQueue = [];
+      reviewStarredOnly = true; // 仅重点单词
+      switchPage('review');
+    });
+  }
   $('#goLibraryFromHome').addEventListener('click', () => switchPage('library'));
 
   // 录入方式切换
@@ -5411,12 +5669,70 @@ function bindEvents() {
     });
   });
 
-  // 扫描录入（AI识图）
+  // 扫描录入（AI/OCR识图）
   $('#scanArea').addEventListener('click', handleScanPick);
   $('#scanInput').addEventListener('change', handleScanChange);
   $('#btnScanRecognize').addEventListener('click', handleScanRecognize);
   $('#btnScanCheckAll').addEventListener('click', (e) => { e.stopPropagation(); handleScanCheckAll(); });
   $('#btnScanAddSelected').addEventListener('click', handleScanAddSelected);
+
+  // 扫描模式切换（极速OCR / AI精准）
+  $$('.scan-mode-item').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      $$('.scan-mode-item').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      scanMode = btn.dataset.scanMode;
+      // 更新提示文字
+      const tip = $('#scanModeTip');
+      if (tip) {
+        if (scanMode === 'ocr') {
+          // 查询当月OCR用量并显示
+          try {
+            const usage = await api.ocrUsage();
+            if (usage && usage.success) {
+              const userRem = usage.user_remaining;
+              const globalRem = usage.global_remaining;
+              // 优先检查全局是否用完
+              if (globalRem <= 0) {
+                tip.textContent = `全局OCR次数已用完（${usage.global_limit}次/月），请使用AI精准模式`;
+                showToast('全局OCR次数已用完，已切换到AI精准模式', 'warning');
+                scanMode = 'ai';
+                $$('.scan-mode-item').forEach(b => {
+                  b.classList.toggle('active', b.dataset.scanMode === 'ai');
+                });
+                tip.textContent = '拍照或选择图片，AI视觉识别单词和手写内容（每张约20秒）';
+              } else if (!usage.is_admin && userRem <= 0) {
+                tip.textContent = `您本月OCR次数已用完（${usage.user_limit}次），请使用AI精准模式`;
+                showToast('个人OCR次数已用完，已切换到AI精准模式', 'warning');
+                scanMode = 'ai';
+                $$('.scan-mode-item').forEach(b => {
+                  b.classList.toggle('active', b.dataset.scanMode === 'ai');
+                });
+                tip.textContent = '拍照或选择图片，AI视觉识别单词和手写内容（每张约20秒）';
+              } else {
+                const userText = usage.is_admin
+                  ? `管理员不限`
+                  : `个人剩余 ${userRem}/${usage.user_limit}`;
+                tip.textContent = `OCR极速识别（每张约2秒）｜全局 ${usage.global_count}/${usage.global_limit}，${userText}`;
+              }
+            } else {
+              tip.textContent = '拍照或选择图片，OCR极速识别单词+本地词典释义（每张约2秒）';
+            }
+          } catch {
+            tip.textContent = '拍照或选择图片，OCR极速识别单词+本地词典释义（每张约2秒）';
+          }
+        } else {
+          tip.textContent = '拍照或选择图片，AI视觉识别单词和手写内容（每张约20秒）';
+        }
+      }
+      // 更新识别按钮文字
+      const recognizeBtn = $('#btnScanRecognize');
+      if (recognizeBtn) {
+        recognizeBtn.textContent = scanMode === 'ocr' ? '极速识别' : 'AI识别';
+      }
+    });
+  });
 
   // 添加更多图片按钮
   const btnScanAddMore = $('#btnScanAddMore');
@@ -5982,6 +6298,11 @@ function bindEvents() {
   if (modalStarBtn) {
     modalStarBtn.addEventListener('click', handleToggleStar);
   }
+  // AI刷新例句按钮
+  const refreshExBtn = $('#modalRefreshExamplesBtn');
+  if (refreshExBtn) {
+    refreshExBtn.addEventListener('click', handleRefreshExamples);
+  }
   $('#moveCloseBtn').addEventListener('click', closeMoveWordbookModal);
   $('#moveCancelBtn').addEventListener('click', closeMoveWordbookModal);
   $('#moveWordbookModal').addEventListener('click', (e) => {
@@ -6075,6 +6396,84 @@ function bindEvents() {
   if (btnLogoutSettings) {
     btnLogoutSettings.addEventListener('click', () => {
       if (confirm('确定退出登录吗？')) handleLogout();
+    });
+  }
+
+  // 保存昵称
+  const btnSaveNickname = $('#btnSaveNickname');
+  if (btnSaveNickname) {
+    btnSaveNickname.addEventListener('click', async () => {
+      const nickname = $('#nicknameInput').value.trim();
+      try {
+        btnSaveNickname.disabled = true;
+        btnSaveNickname.textContent = '保存中...';
+        const res = await api.updateProfile({ nickname });
+        if (res && res.success) {
+          currentUser = res.data;
+          saveUserCache(currentUser);
+          $('#settingsUsername').textContent = currentUser.nickname || currentUser.username;
+          showToast('昵称已保存', 'success');
+        }
+      } catch (err) {
+        handleError(err);
+      } finally {
+        btnSaveNickname.disabled = false;
+        btnSaveNickname.textContent = '保存';
+      }
+    });
+  }
+
+  // 保存安全问题
+  const btnSaveSecurity = $('#btnSaveSecurity');
+  if (btnSaveSecurity) {
+    btnSaveSecurity.addEventListener('click', async () => {
+      const question = $('#secQuestionInput').value.trim();
+      const answer = $('#secAnswerInput').value.trim();
+      if (!answer) { showToast('请输入安全问题答案', 'warning'); return; }
+      try {
+        btnSaveSecurity.disabled = true;
+        btnSaveSecurity.textContent = '保存中...';
+        const res = await api.updateProfile({ security_question: question, security_answer: answer });
+        if (res && res.success) {
+          currentUser = res.data;
+          saveUserCache(currentUser);
+          showToast('安全问题已保存', 'success');
+        }
+      } catch (err) {
+        handleError(err);
+      } finally {
+        btnSaveSecurity.disabled = false;
+        btnSaveSecurity.textContent = '保存';
+      }
+    });
+  }
+
+  // 修改密码
+  const btnChangePassword = $('#btnChangePassword');
+  if (btnChangePassword) {
+    btnChangePassword.addEventListener('click', async () => {
+      const oldPwd = $('#oldPasswordInput').value;
+      const newPwd = $('#newPasswordInput').value;
+      const confirmPwd = $('#confirmPasswordInput').value;
+      if (!oldPwd) { showToast('请输入旧密码', 'warning'); return; }
+      if (newPwd.length < 6) { showToast('新密码至少6位', 'warning'); return; }
+      if (newPwd !== confirmPwd) { showToast('两次输入的新密码不一致', 'warning'); return; }
+      try {
+        btnChangePassword.disabled = true;
+        btnChangePassword.textContent = '修改中...';
+        const res = await api.changePassword(oldPwd, newPwd);
+        if (res && res.success) {
+          showToast('密码修改成功', 'success');
+          $('#oldPasswordInput').value = '';
+          $('#newPasswordInput').value = '';
+          $('#confirmPasswordInput').value = '';
+        }
+      } catch (err) {
+        handleError(err);
+      } finally {
+        btnChangePassword.disabled = false;
+        btnChangePassword.textContent = '修改密码';
+      }
     });
   }
 
@@ -6198,10 +6597,19 @@ function renderHomeFromCache() {
   // 今日概览
   $('#todayLearned').textContent = stats.today_learned || 0;
   $('#todayReviewCount').textContent = stats.today_review || 0;
-  $('#todayNewCount').textContent = stats.new || 0;
+  $('#todayNewCount').textContent = stats.pending_today !== undefined ? stats.pending_today : (stats.new || 0);
 
   // 操作按钮描述
-  $('#learnDesc').textContent = `${stats.new || 0}个待学`;
+  const mDailyGoal = stats.daily_goal || 20;
+  const mPendingToday = stats.pending_today !== undefined ? stats.pending_today : Math.max(0, mDailyGoal - (stats.today_learned || 0));
+  const mNewWordsLeft = stats.new || 0;
+  if (mNewWordsLeft > 0) {
+    $('#learnDesc').textContent = `${mPendingToday}个待学`;
+  } else if (mPendingToday > 0) {
+    $('#learnDesc').textContent = `词本已学完`;
+  } else {
+    $('#learnDesc').textContent = `今日已完成`;
+  }
   $('#reviewDesc').textContent = `${stats.today_review || 0}个单词待复习`;
 
   // 统计卡片
@@ -6209,6 +6617,12 @@ function renderHomeFromCache() {
   $('#statNew').textContent = stats.new || 0;
   $('#statReview').textContent = stats.review || 0;
   $('#statMastered').textContent = stats.mastered || 0;
+
+  // 概览数字点击跳转
+  bindOverviewClicks();
+
+  // 统计卡片点击跳转
+  bindStatCardClicks();
 
   // 学习曲线
   const historyArr = (stats.history || []).map(h => h.count || 0);
@@ -6234,7 +6648,7 @@ function renderHomeFromCache() {
  */
 async function refreshHomeDataSilently() {
   try {
-    const stats = await api.getStats();
+    const stats = await api.getStats(learnWordbookId);
     if (!stats) return;
 
     // 保存最新缓存
@@ -6249,7 +6663,7 @@ async function refreshHomeDataSilently() {
     updateText('streakNum', stats.streak_days || 0);
     updateText('todayLearned', stats.today_learned || 0);
     updateText('todayReviewCount', stats.today_review || 0);
-    updateText('todayNewCount', stats.new || 0);
+    updateText('todayNewCount', stats.pending_today !== undefined ? stats.pending_today : (stats.new || 0));
     updateText('statTotal', stats.total || 0);
     updateText('statNew', stats.new || 0);
     updateText('statReview', stats.review || 0);
@@ -6260,8 +6674,18 @@ async function refreshHomeDataSilently() {
 
     // 更新操作按钮描述
     const dailyGoal = stats.daily_goal || 20;
+    const sPendingToday = stats.pending_today !== undefined ? stats.pending_today : Math.max(0, dailyGoal - (stats.today_learned || 0));
+    const sNewWordsLeft = stats.new || 0;
     const learnDesc = $('#learnDesc');
-    if (learnDesc) learnDesc.textContent = `${stats.new || 0}个待学`;
+    if (learnDesc) {
+      if (sNewWordsLeft > 0) {
+        learnDesc.textContent = `${sPendingToday}个待学`;
+      } else if (sPendingToday > 0) {
+        learnDesc.textContent = `词本已学完`;
+      } else {
+        learnDesc.textContent = `今日已完成`;
+      }
+    }
     const reviewDesc = $('#reviewDesc');
     if (reviewDesc) reviewDesc.textContent = `${stats.today_review || 0}个单词待复习`;
   } catch (e) {

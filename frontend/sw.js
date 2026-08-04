@@ -6,8 +6,8 @@
    - 写操作 API（POST/PUT/DELETE）：纯网络，不缓存
    - 用户切换时清空 API 缓存（防止新用户看到旧用户数据）
    ==================================================== */
-const CACHE_NAME = 'wordmemo-v46';
-const API_CACHE_NAME = 'wordmemo-api-v46';
+const CACHE_NAME = 'wordmemo-v59';
+const API_CACHE_NAME = 'wordmemo-api-v58';
 const CORE_ASSETS = [
   '/',
   '/index.html',
@@ -37,27 +37,38 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
-// 激活：清理所有旧缓存
+// 激活：清理所有旧缓存（包括旧版本的 CACHE_NAME 和 API_CACHE_NAME）
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(keys.map((k) => {
+        // 删除所有不匹配当前版本的缓存
         if (k !== CACHE_NAME && k !== API_CACHE_NAME) {
+          console.log('[SW] 删除旧缓存:', k);
           return caches.delete(k);
         }
         return null;
       }))
-    )
+    ).then(() => {
+      // 通知所有客户端刷新
+      self.clients.matchAll().then(clients => {
+        clients.forEach(client => client.postMessage({ type: 'SW_UPDATED' }));
+      });
+    })
   );
   self.clients.claim();
 });
 
-// === 消息监听：用户登录/注册/退出时清空 API 缓存 ===
+// === 消息监听 ===
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'CLEAR_API_CACHE') {
     caches.delete(API_CACHE_NAME).then(() => {
       console.log('[SW] API 缓存已清空（用户切换）');
     });
+  }
+  // 强制跳过等待，立即接管
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
   }
 });
 
@@ -122,9 +133,9 @@ self.addEventListener('fetch', (event) => {
   if (isCacheableApi(url.pathname)) {
     event.respondWith(
       (async () => {
-        // 先尝试网络
+        // 先尝试网络（cache: 'no-store' 绕过浏览器 HTTP 缓存，确保拿到最新数据）
         try {
-          const networkResp = await fetch(event.request);
+          const networkResp = await fetch(event.request, { cache: 'no-store' });
           if (networkResp && networkResp.ok) {
             // 缓存成功的 API 响应
             await putApiCache(event.request, networkResp);
@@ -147,20 +158,23 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // === 静态资源：stale-while-revalidate ===
+  // === 静态资源：网络优先，缓存兜底（确保总是拿到最新版本） ===
   event.respondWith(
-    caches.match(event.request).then((cached) => {
-      const fetchPromise = fetch(event.request)
-        .then((resp) => {
-          if (resp && resp.ok) {
-            const respClone = resp.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, respClone));
-          }
-          return resp;
-        })
-        .catch(() => cached);
-
-      return cached || fetchPromise;
-    })
+    (async () => {
+      try {
+        // 先尝试网络（确保拿到最新版本）
+        const networkResp = await fetch(event.request, { cache: 'no-store' });
+        if (networkResp && networkResp.ok) {
+          const respClone = networkResp.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, respClone));
+        }
+        return networkResp;
+      } catch (e) {
+        // 网络失败：尝试缓存
+        const cached = await caches.match(event.request);
+        if (cached) return cached;
+        return new Response('网络不可用', { status: 503 });
+      }
+    })()
   );
 });

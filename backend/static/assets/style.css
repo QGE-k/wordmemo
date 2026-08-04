@@ -391,6 +391,19 @@ input, textarea, select {
   flex: 1;
   text-align: center;
   color: #fff;
+  transition: transform 0.15s, opacity 0.15s;
+  border-radius: var(--radius-md);
+  padding: 6px 4px;
+}
+
+.overview-item:hover {
+  transform: scale(1.08);
+  opacity: 0.9;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.overview-item:active {
+  transform: scale(0.95);
 }
 
 .overview-num {
@@ -418,7 +431,30 @@ input, textarea, select {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  margin-bottom: 12px;
+}
+
+.starred-quick-actions {
+  display: flex;
+  gap: 10px;
   margin-bottom: 20px;
+}
+
+.starred-btn {
+  flex: 1;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, #fff8e1, #fff3c4);
+  border: 1px solid #ffd54f;
+  color: #f57f17;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.starred-btn:active {
+  transform: scale(0.97);
 }
 
 .action-btn {
@@ -495,6 +531,10 @@ input, textarea, select {
 }
 .stat-card:active {
   transform: scale(0.96);
+}
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
 }
 /* 统计卡片顶部统一主色细条，简约 */
 .stat-card::before {
@@ -832,6 +872,33 @@ input, textarea, select {
 }
 
 /* 扫描区域 */
+.scan-mode-switch {
+  display: flex;
+  background: var(--bg-input);
+  border-radius: var(--radius-md);
+  padding: 4px;
+  margin-bottom: 12px;
+}
+
+.scan-mode-item {
+  flex: 1;
+  padding: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  border-radius: 8px;
+  transition: all 0.2s;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+.scan-mode-item.active {
+  background: var(--bg-card);
+  color: var(--primary);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+
 .scan-area {
   width: 100%;
   aspect-ratio: 4/3;

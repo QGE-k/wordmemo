@@ -100,6 +100,14 @@ class DictionaryService:
         'ward': '副词后缀，表示方向',
         's': '复数或第三人称单数后缀',
         'es': '复数或第三人称单数后缀',
+        'ure': '名词后缀，表示行为、状态或结果',
+        'ance': '名词后缀，表示行为或状态',
+        'ence': '名词后缀，表示行为或状态',
+        'age': '名词后缀，表示行为或结果',
+        'ish': '形容词后缀，表示"...似的"',
+        'like': '形容词后缀，表示"...般的"',
+        'hood': '名词后缀，表示时期或状态',
+        'th': '名词后缀，表示状态或性质',
     }
 
     # 常见动词的时态变形表（五种形态：原形/第三人称单数/过去式/过去分词/现在分词）
@@ -293,12 +301,25 @@ class DictionaryService:
         'old': {'comparative': 'older/elder', 'superlative': 'oldest/eldest'},
     }
 
+    # 反向映射：比较级/最高级 → 原级（用于查询 worse/better/best 等变形词）
+    # 手动指定优先映射到更常见的原级词（如 worse→bad 而非 worse→ill）
+    REVERSE_ADJ_DEGREES = {
+        'better': 'good', 'best': 'good',
+        'worse': 'bad', 'worst': 'bad',
+        'more': 'many', 'most': 'many',
+        'less': 'little', 'least': 'little',
+        'farther': 'far', 'further': 'far',
+        'farthest': 'far', 'furthest': 'far',
+        'older': 'old', 'elder': 'old',
+        'oldest': 'old', 'eldest': 'old',
+    }
+
     # 江西专升本常见词汇例句库
     # 这些例句模拟专升本英语考试中的常见用法
     ZHUANSHENBEN_EXAMPLES = {
         'do': [
             {'en': 'What do you plan to do after graduation?', 'zh': '你毕业后打算做什么？'},
-            {'en': 'We should do our best to pass the exam.', 'zh': '我们应该尽最大努力通过考试。'},
+            {'en': 'He does his homework in the library every evening.', 'zh': '他每天晚上在图书馆做作业。'},
         ],
         'go': [
             {'en': 'She wants to go to college in Beijing.', 'zh': '她想去北京上大学。'},
@@ -342,7 +363,7 @@ class DictionaryService:
         ],
         'work': [
             {'en': 'He works part-time to support his studies.', 'zh': '他兼职工作来资助学业。'},
-            {'en': 'Team work is very important in modern society.', 'zh': '团队合作在现代社会中非常重要。'},
+            {'en': 'Team work plays a vital role in modern society.', 'zh': '团队合作在现代社会中起着至关重要的作用。'},
         ],
         'live': [
             {'en': 'Many students live on campus during college.', 'zh': '许多学生在大学期间住在校园里。'},
@@ -357,7 +378,7 @@ class DictionaryService:
             {'en': 'I want to know more about this program.', 'zh': '我想了解更多关于这个项目的信息。'},
         ],
         'ability': [
-            {'en': 'She has the ability to learn English well.', 'zh': '她有能力学好英语。'},
+            {'en': 'She has the ability to speak fluent English.', 'zh': '她有能力说流利的英语。'},
             {'en': 'We should improve our communication abilities.', 'zh': '我们应该提高我们的沟通能力。'},
         ],
         'abroad': [
@@ -433,7 +454,7 @@ class DictionaryService:
             {'en': 'We should face challenges with courage.', 'zh': '我们应该勇敢地面对挑战。'},
         ],
         'communicate': [
-            {'en': 'It is important to communicate with others effectively.', 'zh': '与他人有效沟通很重要。'},
+            {'en': 'Good leaders communicate their ideas clearly.', 'zh': '好的领导者能清楚地表达自己的想法。'},
             {'en': 'We can communicate with people online.', 'zh': '我们可以在线与人交流。'},
         ],
         'compare': [
@@ -582,7 +603,7 @@ class DictionaryService:
         ],
         'understand': [
             {'en': 'I cannot understand this difficult sentence.', 'zh': '我无法理解这个难句。'},
-            {'en': 'It is important to understand the main idea.', 'zh': '理解主旨很重要。'},
+            {'en': 'Can you understand what the author wants to say?', 'zh': '你能理解作者想表达什么吗？'},
         ],
         'thing': [
             {'en': 'The most important thing is to never give up.', 'zh': '最重要的事情是永远不要放弃。'},
@@ -669,8 +690,8 @@ class DictionaryService:
             {'en': 'An apple a day keeps the doctor away.', 'zh': '一天一苹果，医生远离我。'},
         ],
         'important': [
-            {'en': 'It is important to learn English well for your future.', 'zh': '为你的未来学好英语很重要。'},
-            {'en': 'Education plays an important role in our life.', 'zh': '教育在我们生活中起着重要作用。'},
+            {'en': 'Family is more important than anything else.', 'zh': '家庭比其他任何事情都重要。'},
+            {'en': 'What is the most important thing in learning English?', 'zh': '学英语中最重要的事情是什么？'},
         ],
         'education': [
             {'en': 'Education is the key to success in life.', 'zh': '教育是人生成功的关键。'},
@@ -704,31 +725,339 @@ class DictionaryService:
             {'en': 'Everyone should contribute to society.', 'zh': '每个人都应该为社会做贡献。'},
             {'en': 'In modern society, English is widely used.', 'zh': '在现代社会中，英语被广泛使用。'},
         ],
+        # 常见核心词精选例句
+        'nerve': [
+            {'en': 'The doctor examined the patient\'s nerve carefully.', 'zh': '医生仔细检查了病人的神经。'},
+            {'en': 'It takes a lot of nerve to speak in front of many people.', 'zh': '在很多人面前讲话需要很大的勇气。'},
+        ],
+        'pressure': [
+            {'en': 'Students are under great pressure before exams.', 'zh': '学生在考试前承受着巨大的压力。'},
+            {'en': 'The pressure of the water caused the pipe to burst.', 'zh': '水的压力导致管道破裂。'},
+        ],
+        'culture': [
+            {'en': 'Chinese culture has a long history of over 5000 years.', 'zh': '中国文化有五千多年的悠久历史。'},
+            {'en': 'We should respect different cultures around the world.', 'zh': '我们应该尊重世界上不同的文化。'},
+        ],
+        'nature': [
+            {'en': 'It is human nature to seek happiness.', 'zh': '追求幸福是人的本性。'},
+            {'en': 'We should live in harmony with nature.', 'zh': '我们应该与自然和谐相处。'},
+        ],
+        'development': [
+            {'en': 'The city has seen rapid development in recent years.', 'zh': '这座城市近年来发展迅速。'},
+            {'en': 'Education plays a key role in personal development.', 'zh': '教育在个人发展中起着关键作用。'},
+        ],
+        'stress': [
+            {'en': 'Too much stress can affect your health.', 'zh': '过多的压力会影响你的健康。'},
+            {'en': 'The teacher stressed the importance of reading.', 'zh': '老师强调了阅读的重要性。'},
+        ],
+        'nervous': [
+            {'en': 'She felt nervous before the interview.', 'zh': '她在面试前感到紧张。'},
+            {'en': 'Public speaking makes many people nervous.', 'zh': '公众演讲让很多人感到紧张。'},
+        ],
+        'tense': [
+            {'en': 'The atmosphere in the room was very tense.', 'zh': '房间里的气氛非常紧张。'},
+            {'en': 'He used the wrong tense in his essay.', 'zh': '他在作文中用错了时态。'},
+        ],
+        'good': [
+            {'en': 'She is a good student who always helps others.', 'zh': '她是一个总是帮助别人的好学生。'},
+            {'en': 'This book is good for improving your vocabulary.', 'zh': '这本书对提高词汇量很有帮助。'},
+        ],
+        'worse': [
+            {'en': 'The weather became worse in the afternoon.', 'zh': '下午天气变得更糟了。'},
+            {'en': 'His condition is getting worse day by day.', 'zh': '他的状况一天天恶化。'},
+        ],
+        'press': [
+            {'en': 'Press the button to start the machine.', 'zh': '按下按钮启动机器。'},
+            {'en': 'The press reported the event in detail.', 'zh': '新闻界详细报道了这一事件。'},
+        ],
+        'chef': [
+            {'en': 'The chef prepared a delicious meal for us.', 'zh': '厨师为我们准备了一顿美味的饭菜。'},
+            {'en': 'She dreams of becoming a famous chef.', 'zh': '她梦想成为一名著名的厨师。'},
+        ],
+        'cooker': [
+            {'en': 'I bought a new rice cooker yesterday.', 'zh': '我昨天买了一个新电饭煲。'},
+            {'en': 'A pressure cooker can save a lot of cooking time.', 'zh': '高压锅可以节省很多烹饪时间。'},
+        ],
+        'stressful': [
+            {'en': 'Moving to a new city can be very stressful.', 'zh': '搬到新城市可能会非常有压力。'},
+            {'en': 'She finds her new job quite stressful.', 'zh': '她觉得新工作压力很大。'},
+        ],
+        'failure': [
+            {'en': 'Failure is the mother of success.', 'zh': '失败是成功之母。'},
+            {'en': 'The power failure caused the machine to stop.', 'zh': '电力故障导致机器停止运转。'},
+        ],
+        'pleasure': [
+            {'en': 'It\'s a pleasure to meet you.', 'zh': '很高兴认识你。'},
+            {'en': 'Reading brings me great pleasure.', 'zh': '阅读给我带来很大的快乐。'},
+        ],
+        # ===== 数据库中需要修复的单词例句 =====
+        'understand': [
+            {'en': 'I couldn\'t understand the passage until I read it twice.', 'zh': '直到读了两遍我才理解这篇文章。'},
+            {'en': 'Can you understand what the author wants to say?', 'zh': '你能理解作者想表达什么吗？'},
+        ],
+        'rewrite': [
+            {'en': 'The teacher asked him to rewrite the composition.', 'zh': '老师让他重写作文。'},
+            {'en': 'She had to rewrite the report because of the errors.', 'zh': '因为有些错误，她不得不重写报告。'},
+        ],
+        'teacher': [
+            {'en': 'Our English teacher encourages us to speak more in class.', 'zh': '我们的英语老师鼓励我们在课堂上多发言。'},
+            {'en': 'She has been a teacher for over twenty years.', 'zh': '她当老师已经二十多年了。'},
+        ],
+        'reading': [
+            {'en': 'Extensive reading can broaden your horizons.', 'zh': '广泛阅读可以开阔你的视野。'},
+            {'en': 'The reading comprehension test was quite difficult.', 'zh': '阅读理解测试相当难。'},
+        ],
+        'homework': [
+            {'en': 'Remember to finish your homework before the deadline.', 'zh': '记得在截止日期前完成作业。'},
+            {'en': 'The teacher assigned too much homework this weekend.', 'zh': '老师这个周末布置了太多作业。'},
+        ],
+        'careful': [
+            {'en': 'You should be careful with your spelling in the exam.', 'zh': '考试时你应该注意拼写。'},
+            {'en': 'A careful reader can find the details in the text.', 'zh': '细心的读者能发现文章中的细节。'},
+        ],
+        'kindness': [
+            {'en': 'She showed great kindness to the new students.', 'zh': '她对新生表现出了极大的善意。'},
+            {'en': 'An act of kindness can brighten someone\'s day.', 'zh': '一个善举可以照亮某人的一天。'},
+        ],
+        'look forward to': [
+            {'en': 'I look forward to hearing from you soon.', 'zh': '我期待早日收到你的回复。'},
+            {'en': 'We are looking forward to the summer holiday.', 'zh': '我们正期待着暑假的到来。'},
+        ],
+        'look up to': [
+            {'en': 'Many students look up to their teachers as role models.', 'zh': '许多学生把老师当作榜样来敬仰。'},
+            {'en': 'She has always looked up to her older sister.', 'zh': '她一直敬仰她的姐姐。'},
+        ],
+        'tension': [
+            {'en': 'There was a lot of tension in the room during the exam.', 'zh': '考试期间教室里气氛很紧张。'},
+            {'en': 'The tension between the two countries has increased.', 'zh': '两国之间的紧张关系加剧了。'},
+        ],
+        'the best': [
+            {'en': 'She is one of the best students in our class.', 'zh': '她是我们班最优秀的学生之一。'},
+            {'en': 'Who do you think is the best candidate for this position?', 'zh': '你认为谁是这个职位的最佳人选？'},
+        ],
+        'test': [
+            {'en': 'The final test will cover all the chapters we learned.', 'zh': '期末考试将涵盖我们学过的所有章节。'},
+            {'en': 'You need to test the hypothesis before drawing a conclusion.', 'zh': '在得出结论之前，你需要检验这个假设。'},
+        ],
+        'be under too much pressure': [
+            {'en': 'Many students are under too much pressure nowadays.', 'zh': '如今许多学生承受着太大的压力。'},
+            {'en': 'Being under too much pressure can lead to health problems.', 'zh': '承受过大压力可能导致健康问题。'},
+        ],
+        'water': [
+            {'en': 'Drinking enough water every day is good for your health.', 'zh': '每天喝足够的水对健康有益。'},
+            {'en': 'Please water the flowers before you leave.', 'zh': '离开前请给花浇水。'},
+        ],
+        'thing': [
+            {'en': 'The most important thing is to believe in yourself.', 'zh': '最重要的事情是相信自己。'},
+            {'en': 'There are many things we can do to improve our English.', 'zh': '我们可以做很多事情来提高英语水平。'},
+        ],
+        'information': [
+            {'en': 'You can find more information on the school website.', 'zh': '你可以在学校网站上找到更多信息。'},
+            {'en': 'The book provides useful information about career planning.', 'zh': '这本书提供了关于职业规划的有用信息。'},
+        ],
+        'apple': [
+            {'en': 'An apple a day keeps the doctor away.', 'zh': '一天一个苹果，医生远离我。'},
+            {'en': 'She bought some fresh apples at the market.', 'zh': '她在市场上买了一些新鲜的苹果。'},
+        ],
+        'headphone': [
+            {'en': 'He listens to English podcasts with his headphones.', 'zh': '他用耳机听英语播客。'},
+            {'en': 'Please put on your headphones for the listening test.', 'zh': '请戴上耳机准备听力考试。'},
+        ],
+        'breakthrough': [
+            {'en': 'Scientists have made a major breakthrough in cancer research.', 'zh': '科学家在癌症研究方面取得了重大突破。'},
+            {'en': 'The new technology represents a breakthrough in communication.', 'zh': '这项新技术代表了通讯领域的突破。'},
+        ],
+        'playfulness': [
+            {'en': 'The children\'s playfulness filled the room with laughter.', 'zh': '孩子们的活泼让房间里充满了笑声。'},
+            {'en': 'Her playfulness made the learning process more enjoyable.', 'zh': '她的活泼让学习过程更加愉快。'},
+        ],
+        'beautiful': [
+            {'en': 'The campus looks especially beautiful in spring.', 'zh': '春天校园显得格外美丽。'},
+            {'en': 'What a beautiful poem she wrote for the competition!', 'zh': '她为比赛写了一首多美的诗啊！'},
+        ],
+        'quickly': [
+            {'en': 'The economy of this city has grown quickly in recent years.', 'zh': '近年来这座城市的经济发展很快。'},
+            {'en': 'Please answer the question as quickly as possible.', 'zh': '请尽快回答这个问题。'},
+        ],
+        'running': [
+            {'en': 'Running every morning helps him stay energetic.', 'zh': '每天早上跑步帮助他保持精力充沛。'},
+            {'en': 'The running water in the river sounds like music.', 'zh': '河里流淌的水声如同音乐。'},
+        ],
+        'football': [
+            {'en': 'Football is the most popular sport in the world.', 'zh': '足球是世界上最受欢迎的运动。'},
+            {'en': 'He was injured during the football match last week.', 'zh': '他在上周的足球比赛中受伤了。'},
+        ],
+        'basketball': [
+            {'en': 'Yao Ming is one of the greatest basketball players in China.', 'zh': '姚明是中国最伟大的篮球运动员之一。'},
+            {'en': 'They practice basketball every afternoon after school.', 'zh': '他们每天放学后练习篮球。'},
+        ],
+        'sunglasses': [
+            {'en': 'She wore a pair of sunglasses to protect her eyes from the sun.', 'zh': '她戴了一副太阳镜来保护眼睛免受阳光照射。'},
+            {'en': 'He forgot his sunglasses when he went to the beach.', 'zh': '他去海滩时忘了带太阳镜。'},
+        ],
+        'playground': [
+            {'en': 'The children were playing happily on the playground.', 'zh': '孩子们在操场上快乐地玩耍。'},
+            {'en': 'Our school is planning to build a new playground.', 'zh': '我们学校计划建一个新操场。'},
+        ],
+        'careless': [
+            {'en': 'He made several careless mistakes in the math exam.', 'zh': '他在数学考试中犯了几处粗心的错误。'},
+            {'en': 'A careless driver may cause serious accidents.', 'zh': '粗心的驾驶员可能引发严重事故。'},
+        ],
+        'friendship': [
+            {'en': 'True friendship is more valuable than money.', 'zh': '真正的友谊比金钱更有价值。'},
+            {'en': 'Their friendship began when they were in primary school.', 'zh': '他们的友谊始于小学时期。'},
+        ],
+        'agreement': [
+            {'en': 'After a long discussion, they finally reached an agreement.', 'zh': '经过长时间的讨论，他们终于达成了协议。'},
+            {'en': 'Please read the agreement carefully before signing it.', 'zh': '签署前请仔细阅读协议。'},
+        ],
+        'smartphone': [
+            {'en': 'Smartphones have become an essential part of our daily life.', 'zh': '智能手机已成为我们日常生活中不可或缺的一部分。'},
+            {'en': 'Many students use smartphones to look up new words.', 'zh': '许多学生用智能手机查生词。'},
+        ],
+        'happiness': [
+            {'en': 'True happiness comes from within, not from money.', 'zh': '真正的幸福来自内心，而非金钱。'},
+            {'en': 'The birth of her baby brought her great happiness.', 'zh': '孩子的出生给她带来了巨大的幸福。'},
+        ],
+        'classroom': [
+            {'en': 'Every classroom in our school is equipped with a computer.', 'zh': '我们学校每间教室都配有电脑。'},
+            {'en': 'Please keep the classroom clean and tidy.', 'zh': '请保持教室干净整洁。'},
+        ],
+        'talk': [
+            {'en': 'The professor will give a talk on career development.', 'zh': '教授将做一场关于职业发展的讲座。'},
+            {'en': 'We need to have a serious talk about your future.', 'zh': '我们需要认真谈谈你的未来。'},
+        ],
+        'run': [
+            {'en': 'She runs five kilometers every morning to keep fit.', 'zh': '她每天早上跑五公里来保持健康。'},
+            {'en': 'The river runs through the center of the city.', 'zh': '这条河穿过市中心。'},
+        ],
+        'write': [
+            {'en': 'Students are required to write a 300-word essay.', 'zh': '学生需要写一篇300字的短文。'},
+            {'en': 'She writes down new words in her notebook every day.', 'zh': '她每天把生词记在笔记本上。'},
+        ],
+        'study': [
+            {'en': 'She studies hard to pass the entrance exam.', 'zh': '她努力学习以通过入学考试。'},
+            {'en': 'Many adults choose to study for a degree.', 'zh': '许多成年人选择攻读学位。'},
+        ],
+        'take care of': [
+            {'en': 'She takes care of her elderly mother.', 'zh': '她照顾年迈的母亲。'},
+            {'en': 'Please take care of your belongings.', 'zh': '请照看好您的随身物品。'},
+        ],
+        'sports meeting': [
+            {'en': 'Our school will hold a sports meeting next month.', 'zh': '我们学校将在下个月举办运动会。'},
+            {'en': 'Many students signed up for the sports meeting.', 'zh': '许多学生报名参加了运动会。'},
+        ],
+        'traffic regulations': [
+            {'en': 'Drivers must strictly follow all traffic regulations.', 'zh': '驾驶员必须严格遵守所有交通法规。'},
+            {'en': 'The city has updated its traffic regulations to reduce congestion.', 'zh': '该市已更新交通法规以减少拥堵。'},
+        ],
     }
 
-    # 专升本例句模板（当单词没有专门例句时，根据词性生成通用例句）
-    # {word}=英文单词，{zh}=中文释义（从meaning字段提取）
-    EXAMPLE_TEMPLATES = {
-        'verb': [
-            {'en': 'I usually {word} in the morning.', 'zh': '我通常在早上{zh}。'},
-            {'en': 'It is important to {word} every day.', 'zh': '每天{zh}是很重要的。'},
-            {'en': 'She wants to {word} her English skills.', 'zh': '她想{zh}她的英语能力。'},
-        ],
-        'noun': [
-            {'en': 'This {word} is very important to us.', 'zh': '这个{zh}对我们来说非常重要。'},
-            {'en': 'I learned a lot from this {word}.', 'zh': '我从这个{zh}中学到了很多。'},
-            {'en': 'The {word} has changed our lives.', 'zh': '{zh}改变了我们的生活。'},
-        ],
-        'adj': [
-            {'en': 'She is a very {word} person.', 'zh': '她是一个非常{zh}的人。'},
-            {'en': 'This book is very {word}.', 'zh': '这本书非常{zh}。'},
-            {'en': 'The weather today is quite {word}.', 'zh': '今天的天气相当{zh}。'},
-        ],
-        'adv': [
-            {'en': 'He spoke {word} at the meeting.', 'zh': '他在会议上{zh}地发言。'},
-            {'en': 'She always listens {word} in class.', 'zh': '她上课时总是{zh}地听讲。'},
-        ],
+    # 专升本核心词释义覆盖表
+    # 当 ECDICT 的释义排序不符合专升本考试频率时，用此表覆盖
+    # key=单词, value=优选释义（最多2条，用换行分隔）
+    MEANING_OVERRIDES = {
+        'pressure': 'n. 压力，压强\nvt. 迫使',
+        'nerve': 'n. 神经；勇气',
+        'culture': 'n. 文化，修养',
+        'nature': 'n. 自然，本性',
+        'development': 'n. 发展，开发',
+        'failure': 'n. 失败，故障',
+        'pleasure': 'n. 快乐，愉快',
+        'picture': 'n. 图片，照片\nvt. 描绘',
+        'measure': 'n. 措施，测量\nvt. 测量',
+        'treasure': 'n. 财宝，珍品\nvt. 珍爱',
+        'mixture': 'n. 混合，混合物',
+        'furniture': 'n. 家具',
+        'agriculture': 'n. 农业',
+        'architecture': 'n. 建筑学，建筑风格',
+        'literature': 'n. 文学，文献',
+        'manufacture': 'n. 制造，制造业\nvt. 制造',
+        'signature': 'n. 签名',
+        'exposure': 'n. 暴露，揭露',
+        'leisure': 'n. 闲暇，空闲',
+        'capture': 'n. 捕获\nvt. 俘获',
+        'feature': 'n. 特征，特色\nvt. 以...为特色',
+        'venture': 'n. 冒险\nv. 冒险',
+        'creature': 'n. 生物，动物',
+        'fracture': 'n. 骨折，断裂',
+        'sculpture': 'n. 雕塑',
+        'texture': 'n. 质地，纹理',
+        'lecture': 'n. 演讲，讲座\nv. 讲课',
+        # ECDICT 释义排序错误修正
+        'worse': 'adj. 更坏的，更差的\nadv. 更坏地',
+        'stressful': 'adj. 有压力的，紧张的',
+        'press': 'n. 压力，印刷机，新闻界\nv. 压，按',
+        'good': 'adj. 好的，优良的',
+        'nervous': 'adj. 紧张的，神经的',
+        'tense': 'adj. 紧张的，拉紧的\nn. 时态',
+        'stress': 'n. 压力，强调\nvt. 强调',
+        'chef': 'n. 厨师',
+        'cooker': 'n. 炊具，炉灶',
+        # ECDICT 释义质量修正（释义不准确、重复或包含生僻义）
+        'test': 'n. 测试，考试\nv. 测试，检验',
+        'water': 'n. 水\nv. 浇水',
+        'thing': 'n. 事情，东西',
+        'information': 'n. 信息，资料',
+        'apple': 'n. 苹果',
+        'headphone': 'n. 耳机',
+        'breakthrough': 'n. 突破，突破性进展',
+        'playfulness': 'n. 活泼，顽皮',
+        'tension': 'n. 紧张，张力',
+        'understand': 'v. 理解，明白',
+        'rewrite': 'v. 重写，改写',
+        'teacher': 'n. 教师，老师',
+        'reading': 'n. 阅读\nv. read的现在分词',
+        'homework': 'n. 家庭作业',
+        'careful': 'adj. 小心的，仔细的',
+        'kindness': 'n. 仁慈，善良',
+        'happiness': 'n. 幸福，快乐',
+        'beautiful': 'adj. 美丽的，漂亮的',
+        'quickly': 'adv. 快速地，迅速地',
+        'running': 'n. 跑步\nv. run的现在分词',
+        'football': 'n. 足球',
+        'basketball': 'n. 篮球',
+        'sunglasses': 'n. 太阳镜',
+        'playground': 'n. 操场，游乐场',
+        'careless': 'adj. 粗心的，不小心的',
+        'friendship': 'n. 友谊，友情',
+        'agreement': 'n. 同意，协议',
+        'smartphone': 'n. 智能手机',
+        'talk': 'v. 谈话，交谈\nn. 谈话',
+        'run': 'v. 跑，运行',
+        'thing': 'n. 事情，东西',
+        'write': 'v. 写，书写',
+        # 短语释义覆盖
+        'look up to': 'v. 尊敬，敬仰',
+        'the best': '最好的（人或物）',
+        'be under too much pressure': '承受太大压力',
+        # 短语中常见单词的释义覆盖（ECDICT可能返回生僻释义，这里确保用常用释义）
+        'be': 'v. 是，存在',
+        'take': 'v. 拿，取',
+        'care': 'n. 关心，照顾',
+        'of': 'prep. 关于',
+        'look': 'v. 看',
+        'forward': 'adv. 向前',
+        'up': 'adv. 向上',
+        'to': 'prep. 朝向',
+        'the': 'art. 定冠词，表示特指',
+        'best': 'adj. 最好的',
+        'much': 'adj./adv. 多，大量',
+        'under': 'prep. 在...之下',
+        'too': 'adv. 太，过于',
+        'pressure': 'n. 压力',
+        'cooker': 'n. 炊具，炉灶',
+        'traffic': 'n. 交通',
+        'regulations': 'n. 规则，法规',
+        'regulation': 'n. 规则，法规',
+        'meeting': 'n. 聚会，集会',
+        'sports': 'n. 运动',
+        'sport': 'n. 运动',
     }
+
+    # 【已废弃】专升本例句模板 - 模板生成的例句质量差、句式雷同，尤其对短语会产生语法错误
+    # 现在改用三重保障：1. ZHUANSHENBEN_EXAMPLES精选例句库 2. AI生成例句 3. 在线词典API
+    EXAMPLE_TEMPLATES = {}
 
     # 预置词典：20个常见单词的完整解析
     # split 每项包含：part(当前部分), meaning(这部分的意思), original(原词),
@@ -1370,6 +1699,1418 @@ class DictionaryService:
                 {'en': 'That sounds like a good idea.', 'zh': '那听起来是个好主意。'},
             ],
         },
+        # ===== 拆解修正词条（基于权威词源字典 etymonline.com） =====
+        'breakthrough': {
+            'phonetic': '/ˈbreɪkθruː/',
+            'meaning': 'n. 突破，突破性进展',
+            'type': '复合词',
+            'split': [
+                {'part': 'break', 'meaning': 'v. 打破，突破', 'original': 'break', 'original_meaning': 'v. 打破，突破', 'transform': '原形不变', 'explain': '表示"打破"障碍'},
+                {'part': 'through', 'meaning': 'prep./adv. 穿过，通过', 'original': 'through', 'original_meaning': 'prep./adv. 穿过，通过', 'transform': '原形不变', 'explain': '表示"穿过"障碍'},
+            ],
+            'morph': [],
+            'mnemonic': '突破就是"打破(break)"障碍并"穿过(through)"去，break + through = breakthrough。',
+            'examples': [
+                {'en': 'Scientists have made a major breakthrough in cancer research.', 'zh': '科学家在癌症研究方面取得了重大突破。'},
+                {'en': 'The new technology represents a breakthrough in communication.', 'zh': '这项新技术代表了通讯领域的突破。'},
+            ],
+        },
+        'smartphone': {
+            'phonetic': '/ˈsmɑːrtfoʊn/',
+            'meaning': 'n. 智能手机',
+            'type': '复合词',
+            'split': [
+                {'part': 'smart', 'meaning': 'adj. 智能的，聪明的', 'original': 'smart', 'original_meaning': 'adj. 智能的，聪明的', 'transform': '原形不变', 'explain': '表示"智能的"'},
+                {'part': 'phone', 'meaning': 'n. 电话，手机', 'original': 'phone', 'original_meaning': 'n. 电话（源自希腊语 phone"声音"）', 'transform': '原形不变', 'explain': '表示通讯设备'},
+            ],
+            'morph': [],
+            'mnemonic': '智能手机就是"智能(smart)"的"电话(phone)"，smart + phone = smartphone。',
+            'examples': [
+                {'en': 'Smartphones have become an essential part of our daily life.', 'zh': '智能手机已成为我们日常生活中不可或缺的一部分。'},
+                {'en': 'Many students use smartphones to look up new words.', 'zh': '许多学生用智能手机查生词。'},
+            ],
+        },
+        'headphone': {
+            'phonetic': '/ˈhedfoʊn/',
+            'meaning': 'n. 耳机',
+            'type': '复合词',
+            'split': [
+                {'part': 'head', 'meaning': 'n. 头', 'original': 'head', 'original_meaning': 'n. 头', 'transform': '原形不变', 'explain': '表示戴在头上的设备'},
+                {'part': 'phone', 'meaning': 'n. 声音（源自希腊语 phone）', 'original': 'phone', 'original_meaning': 'n. 电话（源自希腊语 phone"声音"）', 'transform': '原形不变', 'explain': 'phone 原意为"声音"，戴在头上传声的设备就是耳机'},
+            ],
+            'morph': [],
+            'mnemonic': '耳机就是戴在"头(head)"上发出"声音(phone)"的设备，head + phone = headphone。',
+            'examples': [
+                {'en': 'He listens to English podcasts with his headphones.', 'zh': '他用耳机听英语播客。'},
+                {'en': 'Please put on your headphones for the listening test.', 'zh': '请戴上耳机准备听力考试。'},
+            ],
+        },
+        'important': {
+            'phonetic': '/ɪmˈpɔːrtnt/',
+            'meaning': 'adj. 重要的',
+            'type': '派生词',
+            'split': [
+                {'part': 'im-', 'meaning': '前缀，表示"进入"（in- 在 p/b/m 前的变体）', 'original': 'in-', 'original_meaning': '前缀，表示"进入"', 'transform': 'in- 变为 im-（在 p 前同化）', 'explain': '前缀，表示"带入"'},
+                {'part': 'port', 'meaning': 'v. 搬运，携带', 'original': 'port', 'original_meaning': 'v. 搬运，携带（拉丁语 portare）', 'transform': '原形不变', 'explain': '词根，表示"搬运"，"带入分量"引申为"重要的"'},
+                {'part': '-ant', 'meaning': '形容词后缀，表示"具有...性质的"', 'original': '-ant', 'original_meaning': '形容词后缀，表示"具有...性质的"', 'transform': '本身是后缀，无变形', 'explain': '把动词变成形容词'},
+            ],
+            'morph': [
+                {'type': 'prefix', 'word': 'im-', 'meaning': '前缀，表示"进入"（in-的变体）'},
+                {'type': 'root', 'word': 'port', 'meaning': 'v. 搬运，携带'},
+                {'type': 'suffix', 'word': '-ant', 'meaning': '形容词后缀'},
+            ],
+            'mnemonic': 'im（进入）+ port（搬运）→ "带入分量"的东西 → 有分量的 → 重要的。联想同根词：import(进口)、transport(运输)。',
+            'examples': [
+                {'en': 'Family is more important than anything else.', 'zh': '家庭比其他任何事情都重要。'},
+                {'en': 'What is the most important thing in learning English?', 'zh': '学英语中最重要的事情是什么？'},
+            ],
+        },
+        'tension': {
+            'phonetic': '/ˈtenʃn/',
+            'meaning': 'n. 紧张，张力',
+            'type': '派生词',
+            'split': [
+                {'part': 'tense', 'meaning': 'adj. 紧张的，拉紧的', 'original': 'tense', 'original_meaning': 'adj. 紧张的，拉紧的（拉丁语 tendere"拉伸"）', 'transform': '去掉词尾 e', 'explain': '词根，表示"拉紧"'},
+                {'part': '-ion', 'meaning': '名词后缀，表示动作或状态', 'original': '-ion', 'original_meaning': '名词后缀，表示动作或状态', 'transform': '本身是后缀，无变形', 'explain': '把形容词变成名词，表示"拉紧的状态"即紧张、张力'},
+            ],
+            'morph': [
+                {'type': 'root', 'word': 'tense', 'meaning': 'adj. 紧张的，拉紧的'},
+                {'type': 'suffix', 'word': '-ion', 'meaning': '名词后缀'},
+            ],
+            'mnemonic': 'tense（拉紧）+ ion（名词后缀）→ 拉紧的状态 → 紧张、张力。联想同根词：extend(延伸)、contain(包含)。',
+            'examples': [
+                {'en': 'There was a lot of tension in the room during the exam.', 'zh': '考试期间教室里气氛很紧张。'},
+                {'en': 'The tension between the two countries has increased.', 'zh': '两国之间的紧张关系加剧了。'},
+            ],
+        },
+        'nervous': {
+            'phonetic': '/ˈnɜːrvəs/',
+            'meaning': 'adj. 紧张的，神经的',
+            'type': '派生词',
+            'split': [
+                {'part': 'nerve', 'meaning': 'n. 神经', 'original': 'nerve', 'original_meaning': 'n. 神经', 'transform': '去掉词尾 e', 'explain': '词根，表示"神经"'},
+                {'part': '-ous', 'meaning': '形容词后缀，表示"充满...的、具有...特性的"', 'original': '-ous', 'original_meaning': '形容词后缀，表示"充满...的"', 'transform': '本身是后缀，无变形', 'explain': '把名词变成形容词，表示"神经紧绷的"即紧张的'},
+            ],
+            'morph': [
+                {'type': 'root', 'word': 'nerve', 'meaning': 'n. 神经'},
+                {'type': 'suffix', 'word': '-ous', 'meaning': '形容词后缀'},
+            ],
+            'mnemonic': 'nerve（神经）+ ous（充满...的）→ 神经紧绷的 → 紧张的。联想：考试前"神经"绷紧就是"紧张的"。',
+            'examples': [
+                {'en': 'She felt nervous before the interview.', 'zh': '她在面试前感到紧张。'},
+                {'en': 'Public speaking makes many people nervous.', 'zh': '公众演讲让很多人感到紧张。'},
+            ],
+        },
+        'information': {
+            'phonetic': '/ˌɪnfərˈmeɪʃn/',
+            'meaning': 'n. 信息，资料',
+            'type': '派生词',
+            'split': [
+                {'part': 'in-', 'meaning': '前缀，表示"进入"', 'original': 'in-', 'original_meaning': '前缀，表示"进入"', 'transform': '本身是前缀，无变形', 'explain': '前缀，表示"注入"'},
+                {'part': 'form', 'meaning': 'n. 形式，形状', 'original': 'form', 'original_meaning': 'n. 形式，形状（拉丁语 forma）', 'transform': '原形不变', 'explain': '词根，表示"形成"，"注入形式"引申为"告知"'},
+                {'part': '-ation', 'meaning': '名词后缀，表示动作或状态', 'original': '-ation', 'original_meaning': '名词后缀，表示动作或状态', 'transform': '本身是后缀，无变形', 'explain': '把动词变成名词，表示"告知的内容"即信息'},
+            ],
+            'morph': [
+                {'type': 'prefix', 'word': 'in-', 'meaning': '前缀，表示"进入"'},
+                {'type': 'root', 'word': 'form', 'meaning': 'n. 形式，形状'},
+                {'type': 'suffix', 'word': '-ation', 'meaning': '名词后缀'},
+            ],
+            'mnemonic': 'in（进入）+ form（形式）+ ation（名词后缀）→ 将知识"注入形式"的过程 → 告知 → 信息。联想：form(形式)、reform(改革)。',
+            'examples': [
+                {'en': 'You can find more information on the school website.', 'zh': '你可以在学校网站上找到更多信息。'},
+                {'en': 'The book provides useful information about career planning.', 'zh': '这本书提供了关于职业规划的有用信息。'},
+            ],
+        },
+        'cooker': {
+            'phonetic': '/ˈkʊkər/',
+            'meaning': 'n. 炊具，炉灶',
+            'type': '派生词',
+            'split': [
+                {'part': 'cook', 'meaning': 'v. 烹调，做饭', 'original': 'cook', 'original_meaning': 'v. 烹调，做饭', 'transform': '原形不变', 'explain': '词根，表示"烹饪"'},
+                {'part': '-er', 'meaning': '名词后缀，表示"做...的器具"', 'original': '-er', 'original_meaning': '名词后缀，表示"做...的人或物"', 'transform': '本身是后缀，无变形', 'explain': '此处表"器具"而非"人"，用来烹饪的器具即炊具'},
+            ],
+            'morph': [
+                {'type': 'root', 'word': 'cook', 'meaning': 'v. 烹调'},
+                {'type': 'suffix', 'word': '-er', 'meaning': '名词后缀，表器具'},
+            ],
+            'mnemonic': 'cook（烹饪）+ er（做...的器具）→ 用来烹饪的器具 → 炊具。注意：cook 本身可指厨师，cooker 指炊具。',
+            'examples': [
+                {'en': 'I bought a new rice cooker yesterday.', 'zh': '我昨天买了一个新电饭煲。'},
+                {'en': 'A pressure cooker can save a lot of cooking time.', 'zh': '高压锅可以节省很多烹饪时间。'},
+            ],
+        },
+        'playfulness': {
+            'phonetic': '/ˈpleɪflnəs/',
+            'meaning': 'n. 活泼，顽皮',
+            'type': '派生词',
+            'split': [
+                {'part': 'play', 'meaning': 'v. 玩，游戏', 'original': 'play', 'original_meaning': 'v. 玩，游戏', 'transform': '原形不变', 'explain': '词根，表示"玩"'},
+                {'part': '-ful', 'meaning': '形容词后缀，表示"充满...的"', 'original': 'full', 'original_meaning': 'adj. 满的', 'transform': '缩略为后缀 -ful', 'explain': '源自 full（满的），把动词变成形容词，表示"充满玩的"'},
+                {'part': '-ness', 'meaning': '名词后缀，表示状态或性质', 'original': '-ness', 'original_meaning': '名词后缀，表示状态或性质', 'transform': '本身是后缀，无变形', 'explain': '把形容词变成名词，表示"爱玩的状态"即顽皮'},
+            ],
+            'morph': [
+                {'type': 'root', 'word': 'play', 'meaning': 'v. 玩'},
+                {'type': 'suffix', 'word': '-ful', 'meaning': '形容词后缀'},
+                {'type': 'suffix', 'word': '-ness', 'meaning': '名词后缀'},
+            ],
+            'mnemonic': 'play（玩）+ ful（充满）→ playful（爱玩的）+ ness（状态）→ 爱玩的状态 → 顽皮、活泼。',
+            'examples': [
+                {'en': "The children's playfulness filled the room with laughter.", 'zh': '孩子们的活泼让房间里充满了笑声。'},
+                {'en': 'Her playfulness made the learning process more enjoyable.', 'zh': '她的活泼让学习过程更加愉快。'},
+            ],
+        },
+        'pressure': {
+            'phonetic': '/ˈpreʃər/',
+            'meaning': 'n. 压力，压强\nvt. 迫使',
+            'type': '派生词',
+            'split': [
+                {'part': 'press', 'meaning': 'v. 压，按', 'original': 'press', 'original_meaning': 'v. 压，按', 'transform': '原形不变', 'explain': '词根，表示"按压"'},
+                {'part': '-ure', 'meaning': '名词后缀，表示行为、状态或结果', 'original': '-ure', 'original_meaning': '名词后缀，表示行为、状态或结果', 'transform': '本身是后缀，无变形', 'explain': '把动词变成名词，表示"按压的状态"即压力'},
+            ],
+            'morph': [
+                {'type': 'root', 'word': 'press', 'meaning': 'v. 压，按'},
+                {'type': 'suffix', 'word': '-ure', 'meaning': '名词后缀'},
+            ],
+            'mnemonic': 'press（压）+ ure（名词后缀）→ 按压的状态 → 压力。联想：press 是词根，pressure 是它的名词形式。',
+            'examples': [
+                {'en': 'Students are under great pressure before exams.', 'zh': '学生在考试前承受着巨大的压力。'},
+                {'en': 'The pressure of the water caused the pipe to burst.', 'zh': '水的压力导致管道破裂。'},
+            ],
+        },
+        'stressful': {
+            'phonetic': '/ˈstresfl/',
+            'meaning': 'adj. 有压力的，紧张的',
+            'type': '派生词',
+            'split': [
+                {'part': 'stress', 'meaning': 'n. 压力', 'original': 'stress', 'original_meaning': 'n. 压力', 'transform': '原形不变', 'explain': '词根，表示"压力"'},
+                {'part': '-ful', 'meaning': '形容词后缀，表示"充满...的"', 'original': 'full', 'original_meaning': 'adj. 满的', 'transform': '缩略为后缀 -ful', 'explain': '源自 full（满的），把名词变成形容词，表示"充满压力的"'},
+            ],
+            'morph': [
+                {'type': 'root', 'word': 'stress', 'meaning': 'n. 压力'},
+                {'type': 'suffix', 'word': '-ful', 'meaning': '形容词后缀'},
+            ],
+            'mnemonic': 'stress（压力）+ ful（充满...的）→ 充满压力的 → 有压力的、紧张的。',
+            'examples': [
+                {'en': 'Moving to a new city can be very stressful.', 'zh': '搬到新城市可能会非常有压力。'},
+                {'en': 'She finds her new job quite stressful.', 'zh': '她觉得新工作压力很大。'},
+            ],
+        },
+        # ===== 基础词（不应拆解，但需要记忆方法） =====
+        'press': {
+            'phonetic': '/pres/',
+            'meaning': 'n. 压力，印刷机，新闻界\nv. 压，按',
+            'type': '基础词',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'press 是词根，意思是"按压"。记住它就能推出 pressure(压力)、compress(压缩)、express(表达=向外压出)。',
+            'examples': [
+                {'en': 'Press the button to start the machine.', 'zh': '按下按钮启动机器。'},
+                {'en': 'The press reported the event in detail.', 'zh': '新闻界详细报道了这一事件。'},
+            ],
+        },
+        'stress': {
+            'phonetic': '/stres/',
+            'meaning': 'n. 压力，强调\nvt. 强调',
+            'type': '基础词',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'stress 是 distress（痛苦）的缩略形式，表示"压力、强调"。联想 s(死) + tress(丝) = 像被丝线勒住一样的"压力"。',
+            'examples': [
+                {'en': 'Too much stress can affect your health.', 'zh': '过多的压力会影响你的健康。'},
+                {'en': 'The teacher stressed the importance of reading.', 'zh': '老师强调了阅读的重要性。'},
+            ],
+        },
+        'thing': {
+            'phonetic': '/θɪŋ/',
+            'meaning': 'n. 事情，东西',
+            'type': '基础词',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'think（思考）去掉 k 就是 thing，表示"被思考的东西"即"事情、东西"。',
+            'examples': [
+                {'en': 'The most important thing is to believe in yourself.', 'zh': '最重要的事情是相信自己。'},
+                {'en': 'There are many things we can do to improve our English.', 'zh': '我们可以做很多事情来提高英语水平。'},
+            ],
+        },
+        'water': {
+            'phonetic': '/ˈwɔːtər/',
+            'meaning': 'n. 水\nv. 浇水',
+            'type': '基础词',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'water 是最古老的基础词之一，联想 w(波) + a(一) + ter(特) = "一个特别的波浪"就是水。',
+            'examples': [
+                {'en': 'Drinking enough water every day is good for your health.', 'zh': '每天喝足够的水对健康有益。'},
+                {'en': 'Please water the flowers before you leave.', 'zh': '离开前请给花浇水。'},
+            ],
+        },
+        'tense': {
+            'phonetic': '/tens/',
+            'meaning': 'adj. 紧张的，拉紧的\nn. 时态',
+            'type': '基础词',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'tense 来自拉丁语 tendere（拉伸），拉紧的弦 → "紧张的"。同时也有"时态"的意思。',
+            'examples': [
+                {'en': 'The atmosphere in the room was very tense.', 'zh': '房间里的气氛非常紧张。'},
+                {'en': 'He used the wrong tense in his essay.', 'zh': '他在作文中用错了时态。'},
+            ],
+        },
+        'nerve': {
+            'phonetic': '/nɜːrv/',
+            'meaning': 'n. 神经；勇气',
+            'type': '基础词',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'nerve 来自拉丁语 nervus（神经/肌腱）。联想"那芙"——神话中的精灵，浑身充满"勇气"和"神经"的力量。',
+            'examples': [
+                {'en': 'The doctor examined the patient\'s nerve carefully.', 'zh': '医生仔细检查了病人的神经。'},
+                {'en': 'It takes a lot of nerve to speak in front of many people.', 'zh': '在很多人面前讲话需要很大的勇气。'},
+            ],
+        },
+        'chef': {
+            'phonetic': '/ʃef/',
+            'meaning': 'n. 厨师',
+            'type': '基础词',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'chef 来自法语，意思是"主厨、厨师"。联想"谢夫"——感谢厨师为你做饭。',
+            'examples': [
+                {'en': 'The chef prepared a delicious meal for us.', 'zh': '厨师为我们准备了一顿美味的饭菜。'},
+                {'en': 'She dreams of becoming a famous chef.', 'zh': '她梦想成为一名著名的厨师。'},
+            ],
+        },
+        'good': {
+            'phonetic': '/ɡʊd/',
+            'meaning': 'adj. 好的，优良的',
+            'type': '基础词',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'good 是最基础的正向形容词。联想"顾的"——顾及到别人的就是"好的"。',
+            'examples': [
+                {'en': 'She is a good student who always helps others.', 'zh': '她是一个总是帮助别人的好学生。'},
+                {'en': 'This book is good for improving your vocabulary.', 'zh': '这本书对提高词汇量很有帮助。'},
+            ],
+        },
+        'talk': {
+            'phonetic': '/tɔːk/',
+            'meaning': 'v. 谈话，交谈\nn. 谈话',
+            'type': '基础词',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'talk 联想"套口"——把心里的话从套口里倒出来，就是交谈聊天。',
+            'examples': [
+                {'en': 'The professor will give a talk on career development.', 'zh': '教授将做一场关于职业发展的讲座。'},
+                {'en': 'We need to have a serious talk about your future.', 'zh': '我们需要认真谈谈你的未来。'},
+            ],
+        },
+        'run': {
+            'phonetic': '/rʌn/',
+            'meaning': 'v. 跑，运行',
+            'type': '基础词',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'run 是最基础的动作词。联想"润"——跑起来像水一样流动，就是"跑、运行"。',
+            'examples': [
+                {'en': 'She runs five kilometers every morning to keep fit.', 'zh': '她每天早上跑五公里来保持健康。'},
+                {'en': 'The river runs through the center of the city.', 'zh': '这条河穿过市中心。'},
+            ],
+        },
+        'go': {
+            'phonetic': '/ɡoʊ/',
+            'meaning': 'v. 去，走',
+            'type': '基础词',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'go 是最基础的动词，表示"去、走"。联想"狗"——狗喜欢到处"跑、去"。',
+            'examples': [
+                {'en': 'She wants to go to college in Beijing.', 'zh': '她想去北京上大学。'},
+                {'en': 'Time goes by quickly when you are busy.', 'zh': '忙碌的时候时间过得很快。'},
+            ],
+        },
+        'do': {
+            'phonetic': '/duː/',
+            'meaning': 'v. 做，干',
+            'type': '基础词',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'do 是英语中最基础的动词，想象你正在动手做事（do something），就像说"做吧！"一样简单直接。',
+            'examples': [
+                {'en': 'What do you plan to do after graduation?', 'zh': '你毕业后打算做什么？'},
+                {'en': 'He does his homework in the library every evening.', 'zh': '他每天晚上在图书馆做作业。'},
+            ],
+        },
+        'write': {
+            'phonetic': '/raɪt/',
+            'meaning': 'v. 写，书写',
+            'type': '基础词',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'write 联想"赖特"——赖特兄弟在飞机上写字记录飞行数据，帮助记忆"写"这个动作。',
+            'examples': [
+                {'en': 'Students are required to write a 300-word essay.', 'zh': '学生需要写一篇300字的短文。'},
+                {'en': 'She writes down new words in her notebook every day.', 'zh': '她每天把生词记在笔记本上。'},
+            ],
+        },
+        'study': {
+            'phonetic': '/ˈstʌdi/',
+            'meaning': 'v. 学习',
+            'type': '基础词',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'study 联想"死呆地"——死死呆在书桌前，就是在"学习"。',
+            'examples': [
+                {'en': 'She studies hard to pass the entrance exam.', 'zh': '她努力学习以通过入学考试。'},
+                {'en': 'Many adults choose to study for a degree.', 'zh': '许多成年人选择攻读学位。'},
+            ],
+        },
+        'test': {
+            'phonetic': '/test/',
+            'meaning': 'n. 测试，考试\nv. 测试，检验',
+            'type': '基础词',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'test 联想"太死他"——考试太难了，太死他了（太要命了），就是"测试、考试"。',
+            'examples': [
+                {'en': 'The final test will cover all the chapters we learned.', 'zh': '期末考试将涵盖我们学过的所有章节。'},
+                {'en': 'You need to test the hypothesis before drawing a conclusion.', 'zh': '在得出结论之前，你需要检验这个假设。'},
+            ],
+        },
+        'apple': {
+            'phonetic': '/ˈæpl/',
+            'meaning': 'n. 苹果',
+            'type': '基础词',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'apple 联想"阿婆"——阿婆手里拿着一个红苹果。',
+            'examples': [
+                {'en': 'An apple a day keeps the doctor away.', 'zh': '一天一个苹果，医生远离我。'},
+                {'en': 'She bought some fresh apples at the market.', 'zh': '她在市场上买了一些新鲜的苹果。'},
+            ],
+        },
+        'worse': {
+            'phonetic': '/wɜːrs/',
+            'meaning': 'adj. 更坏的，更差的\nadv. 更坏地',
+            'type': '变形词',
+            'split': [
+                {'part': 'worse', 'meaning': 'adj. 更坏的，更差的', 'original': 'bad', 'original_meaning': 'adj. 坏的', 'transform': '不规则比较级（bad → worse → worst）', 'explain': '是 bad/ill 的不规则比较级形式'},
+            ],
+            'morph': [],
+            'mnemonic': 'worse 是 bad 的不规则比较级，与 worst（最高级）、better（反义比较级）成组记忆。联想"沃死"——更坏了，快要死掉了。',
+            'examples': [
+                {'en': 'The weather became worse in the afternoon.', 'zh': '下午天气变得更糟了。'},
+                {'en': 'His condition is getting worse day by day.', 'zh': '他的状况一天天恶化。'},
+            ],
+        },
+        # ===== 专升本高频词：基于权威词源字典（etymonline.com）的拆解 =====
+        'development': {
+            'phonetic': '/dɪˈveləpmənt/',
+            'meaning': 'n. 发展，开发；发育',
+            'type': '派生词',
+            'split': [
+                {'part': 'develop', 'meaning': 'v. 发展，开发', 'original': 'develop', 'original_meaning': 'v. 发展，开发（源自法语 développer）', 'transform': '原形不变', 'explain': '词根，表示"发展"'},
+                {'part': '-ment', 'meaning': '名词后缀，表示行为或结果', 'original': '-ment', 'original_meaning': '名词后缀，表示行为或结果', 'transform': '本身是后缀，无变形', 'explain': '把动词变成名词，表示"发展的过程或结果"'},
+            ],
+            'morph': [
+                {'type': 'root', 'word': 'develop', 'meaning': 'v. 发展，开发'},
+                {'type': 'suffix', 'word': '-ment', 'meaning': '名词后缀'},
+            ],
+            'mnemonic': 'develop（发展）+ ment（名词后缀）→ 发展的过程或结果 → 发展。联想同根词：develop(发展)、developer(开发者)。',
+            'examples': [
+                {'en': 'The development of technology has changed our lives.', 'zh': '科技的发展改变了我们的生活。'},
+                {'en': 'She is studying the development of children.', 'zh': '她正在研究儿童的发展。'},
+            ],
+        },
+        'develop': {
+            'phonetic': '/dɪˈveləp/',
+            'meaning': 'v. 发展，开发；冲洗（照片）',
+            'type': '基础词',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'develop 来自法语 développer（展开），de-（解除）+ voloper（包裹）→ 解开包裹 → 展开 → 发展。虽然看似有 de- 前缀，但它是作为整体借入英语的基础词。',
+            'examples': [
+                {'en': 'We need to develop a good study habit.', 'zh': '我们需要养成良好的学习习惯。'},
+                {'en': 'The city has developed rapidly in recent years.', 'zh': '这座城市近年来发展迅速。'},
+            ],
+        },
+        'education': {
+            'phonetic': '/ˌedʒuˈkeɪʃn/',
+            'meaning': 'n. 教育',
+            'type': '派生词',
+            'split': [
+                {'part': 'educate', 'meaning': 'v. 教育', 'original': 'educate', 'original_meaning': 'v. 教育（拉丁语 educare "引导出来"）', 'transform': '去掉词尾 e', 'explain': '词根，e-(出)+duc(引导)+-ate(动词后缀)→"引导出来"即教育'},
+                {'part': '-ion', 'meaning': '名词后缀，表示行为或状态', 'original': '-ion', 'original_meaning': '名词后缀，表示行为或状态', 'transform': '本身是后缀，无变形', 'explain': '把动词变成名词，表示"教育的行为或过程"'},
+            ],
+            'morph': [
+                {'type': 'root', 'word': 'educate', 'meaning': 'v. 教育'},
+                {'type': 'suffix', 'word': '-ion', 'meaning': '名词后缀'},
+            ],
+            'mnemonic': 'educate（教育）+ ion（名词后缀）→ 教育。educate 源自拉丁语 e-(出)+ducare(引导)，即"把人引导出来"→教育。联想同根词：educator(教育者)。',
+            'examples': [
+                {'en': 'Education is the key to a better future.', 'zh': '教育是通向美好未来的关键。'},
+                {'en': 'She received a good education in college.', 'zh': '她在大学接受了良好的教育。'},
+            ],
+        },
+        'communicate': {
+            'phonetic': '/kəˈmjuːnɪkeɪt/',
+            'meaning': 'v. 交流，沟通；传达',
+            'type': '派生词',
+            'split': [
+                {'part': 'com-', 'meaning': '前缀，表示"共同、一起"', 'original': 'com-', 'original_meaning': '前缀，表示"共同、一起"', 'transform': '本身是前缀，无变形', 'explain': '前缀，con- 在 m 前的变体，表示"共同的"'},
+                {'part': 'munic', 'meaning': '词根，表示"服务、公共"', 'original': 'munic', 'original_meaning': '词根，源自拉丁语 communis（共同的、公共的）', 'transform': '原形不变', 'explain': '词根，表示"公共、共享"'},
+                {'part': '-ate', 'meaning': '动词后缀', 'original': '-ate', 'original_meaning': '动词后缀', 'transform': '本身是后缀，无变形', 'explain': '把词根变成动词，表示"使共享"即交流'},
+            ],
+            'morph': [
+                {'type': 'prefix', 'word': 'com-', 'meaning': '前缀，表示"共同"'},
+                {'type': 'root', 'word': 'munic', 'meaning': '词根，表示"公共、共享"'},
+                {'type': 'suffix', 'word': '-ate', 'meaning': '动词后缀'},
+            ],
+            'mnemonic': 'com（共同）+ munic（共享）+ ate（动词后缀）→ 使共同分享 → 交流、沟通。联想同根词：community(社区)、communication(交流)。',
+            'examples': [
+                {'en': 'It is important to communicate with your parents.', 'zh': '和父母沟通很重要。'},
+                {'en': 'Teachers should communicate clearly with students.', 'zh': '老师应该与学生清楚地沟通。'},
+            ],
+        },
+        'communication': {
+            'phonetic': '/kəˌmjuːnɪˈkeɪʃn/',
+            'meaning': 'n. 交流，通讯，沟通',
+            'type': '派生词',
+            'split': [
+                {'part': 'communicate', 'meaning': 'v. 交流，沟通', 'original': 'communicate', 'original_meaning': 'v. 交流，沟通', 'transform': '去掉词尾 e', 'explain': '词根，表示"交流"'},
+                {'part': '-ion', 'meaning': '名词后缀，表示行为或状态', 'original': '-ion', 'original_meaning': '名词后缀，表示行为或状态', 'transform': '本身是后缀，无变形', 'explain': '把动词变成名词，表示"交流的行为"'},
+            ],
+            'morph': [
+                {'type': 'root', 'word': 'communicate', 'meaning': 'v. 交流'},
+                {'type': 'suffix', 'word': '-ion', 'meaning': '名词后缀'},
+            ],
+            'mnemonic': 'communicate（交流）+ ion（名词后缀）→ 交流的行为 → 交流、通讯。',
+            'examples': [
+                {'en': 'Good communication is essential in any relationship.', 'zh': '良好的沟通在任何关系中都是必不可少的。'},
+                {'en': 'Mobile phones have changed the way of communication.', 'zh': '手机改变了交流方式。'},
+            ],
+        },
+        'success': {
+            'phonetic': '/səkˈses/',
+            'meaning': 'n. 成功；成功的人或事物',
+            'type': '派生词',
+            'split': [
+                {'part': 'suc-', 'meaning': '前缀，表示"在...之后"（sub- 的变体）', 'original': 'sub-', 'original_meaning': '前缀，表示"在...之下、之后"', 'transform': 'sub- 在 c 前同化为 suc-', 'explain': '前缀，表示"紧随其后"'},
+                {'part': 'cess', 'meaning': '词根，表示"走、行"', 'original': 'cess', 'original_meaning': '词根，源自拉丁语 cedere（走、行）', 'transform': '原形不变', 'explain': '词根，"紧跟其后走"引申为"成功"'},
+            ],
+            'morph': [
+                {'type': 'prefix', 'word': 'suc-', 'meaning': '前缀，sub-的变体'},
+                {'type': 'root', 'word': 'cess', 'meaning': '词根，表示"走"'},
+            ],
+            'mnemonic': 'suc（在...之后）+ cess（走）→ 紧跟其后走到终点 → 成功。联想同根词：succeed(成功)、process(过程)、access(进入)。',
+            'examples': [
+                {'en': 'Hard work is the key to success.', 'zh': '努力是成功的关键。'},
+                {'en': 'The meeting was a great success.', 'zh': '这次会议非常成功。'},
+            ],
+        },
+        'successful': {
+            'phonetic': '/səkˈsesfl/',
+            'meaning': 'adj. 成功的；有成就的',
+            'type': '派生词',
+            'split': [
+                {'part': 'success', 'meaning': 'n. 成功', 'original': 'success', 'original_meaning': 'n. 成功', 'transform': '原形不变', 'explain': '词根，表示"成功"'},
+                {'part': '-ful', 'meaning': '形容词后缀，表示"充满...的"', 'original': 'full', 'original_meaning': 'adj. 满的', 'transform': '缩略为后缀 -ful', 'explain': '源自 full（满的），把名词变成形容词，表示"充满成功的"'},
+            ],
+            'morph': [
+                {'type': 'root', 'word': 'success', 'meaning': 'n. 成功'},
+                {'type': 'suffix', 'word': '-ful', 'meaning': '形容词后缀'},
+            ],
+            'mnemonic': 'success（成功）+ ful（充满...的）→ 充满成功的 → 成功的。',
+            'examples': [
+                {'en': 'She is a successful businesswoman.', 'zh': '她是一位成功的女商人。'},
+                {'en': 'The project was highly successful.', 'zh': '这个项目非常成功。'},
+            ],
+        },
+        'suggest': {
+            'phonetic': '/səˈdʒest/',
+            'meaning': 'v. 建议，提议；暗示',
+            'type': '派生词',
+            'split': [
+                {'part': 'sug-', 'meaning': '前缀，表示"在...下面"（sub- 的变体）', 'original': 'sub-', 'original_meaning': '前缀，表示"在...之下"', 'transform': 'sub- 在 g 前同化为 sug-', 'explain': '前缀，表示"从下面托起"'},
+                {'part': 'gest', 'meaning': '词根，表示"带来、携带"', 'original': 'gest', 'original_meaning': '词根，源自拉丁语 gerere（带来、做）', 'transform': '原形不变', 'explain': '词根，"从下面带来"引申为"提出建议"'},
+            ],
+            'morph': [
+                {'type': 'prefix', 'word': 'sug-', 'meaning': '前缀，sub-的变体'},
+                {'type': 'root', 'word': 'gest', 'meaning': '词根，表示"带来"'},
+            ],
+            'mnemonic': 'sug（在...下面）+ gest（带来）→ 从下面带来 → 提出来 → 建议。联想同根词：gesture(手势)、digest(消化)。',
+            'examples': [
+                {'en': 'I suggest that you read more English books.', 'zh': '我建议你多读英语书。'},
+                {'en': 'The doctor suggested taking more exercise.', 'zh': '医生建议多做运动。'},
+            ],
+        },
+        'consider': {
+            'phonetic': '/kənˈsɪdər/',
+            'meaning': 'v. 考虑，细想；认为',
+            'type': '派生词',
+            'split': [
+                {'part': 'con-', 'meaning': '前缀，表示"共同、彻底"', 'original': 'con-', 'original_meaning': '前缀，表示"共同、彻底"', 'transform': '本身是前缀，无变形', 'explain': '前缀，表示"仔细地"'},
+                {'part': 'sider', 'meaning': '词根，源自拉丁语 sidus（星辰）', 'original': 'sider', 'original_meaning': '词根，源自拉丁语 sidus/sideris（星辰）', 'transform': '原形不变', 'explain': '词根，原意为"观察星辰"（古代航海靠星辰导航），引申为"仔细观察、考虑"'},
+            ],
+            'morph': [
+                {'type': 'prefix', 'word': 'con-', 'meaning': '前缀，表示"彻底"'},
+                {'type': 'root', 'word': 'sider', 'meaning': '词根，源自"星辰"'},
+            ],
+            'mnemonic': 'con（彻底）+ sider（星辰）→ 仔细观察星辰（古代航海靠看星）→ 仔细考虑。联想：consider 的本意是"看星象做决定"。',
+            'examples': [
+                {'en': 'You should consider all the options carefully.', 'zh': '你应该仔细考虑所有选项。'},
+                {'en': 'She is considered one of the best teachers.', 'zh': '她被认为是最优秀的老师之一。'},
+            ],
+        },
+        'imagination': {
+            'phonetic': '/ɪˌmædʒɪˈneɪʃn/',
+            'meaning': 'n. 想象力；想象',
+            'type': '派生词',
+            'split': [
+                {'part': 'imagine', 'meaning': 'v. 想象', 'original': 'imagine', 'original_meaning': 'v. 想象（源自拉丁语 imaginari）', 'transform': '去掉词尾 e', 'explain': '词根，表示"想象"'},
+                {'part': '-ation', 'meaning': '名词后缀，表示行为或能力', 'original': '-ation', 'original_meaning': '名词后缀，表示行为或能力', 'transform': '本身是后缀，无变形', 'explain': '把动词变成名词，表示"想象的能力"'},
+            ],
+            'morph': [
+                {'type': 'root', 'word': 'imagine', 'meaning': 'v. 想象'},
+                {'type': 'suffix', 'word': '-ation', 'meaning': '名词后缀'},
+            ],
+            'mnemonic': 'imagine（想象）+ ation（名词后缀）→ 想象的能力 → 想象力。联想同根词：image(图像)、imagine(想象)。',
+            'examples': [
+                {'en': 'Children have rich imagination.', 'zh': '孩子们有丰富的想象力。'},
+                {'en': 'Use your imagination to solve the problem.', 'zh': '用你的想象力来解决问题。'},
+            ],
+        },
+        'imagine': {
+            'phonetic': '/ɪˈmædʒɪn/',
+            'meaning': 'v. 想象，设想；认为',
+            'type': '基础词',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'imagine 源自拉丁语 imago（图像），形成心理图像就是"想象"。联想：image(图像) → imagine(在脑中形成图像) → 想象。',
+            'examples': [
+                {'en': 'I can\'t imagine life without the Internet.', 'zh': '我无法想象没有互联网的生活。'},
+                {'en': 'Imagine that you are traveling around the world.', 'zh': '想象你正在环游世界。'},
+            ],
+        },
+        'regulation': {
+            'phonetic': '/ˌreɡjuˈleɪʃn/',
+            'meaning': 'n. 规则，法规；管理',
+            'type': '派生词',
+            'split': [
+                {'part': 'regulate', 'meaning': 'v. 管理，控制', 'original': 'regulate', 'original_meaning': 'v. 管理，控制（源自拉丁语 regula "规则"）', 'transform': '去掉词尾 e', 'explain': '词根，表示"管理"'},
+                {'part': '-ion', 'meaning': '名词后缀，表示行为或结果', 'original': '-ion', 'original_meaning': '名词后缀，表示行为或结果', 'transform': '本身是后缀，无变形', 'explain': '把动词变成名词，表示"管理的规定"即规则'},
+            ],
+            'morph': [
+                {'type': 'root', 'word': 'regulate', 'meaning': 'v. 管理'},
+                {'type': 'suffix', 'word': '-ion', 'meaning': '名词后缀'},
+            ],
+            'mnemonic': 'regulate（管理）+ ion（名词后缀）→ 管理的规定 → 规则、法规。联想同根词：regular(规律的)、regulate(管理)。',
+            'examples': [
+                {'en': 'Students must follow the school regulations.', 'zh': '学生必须遵守学校的规定。'},
+                {'en': 'New regulations were introduced last year.', 'zh': '去年出台了新规定。'},
+            ],
+        },
+        'forward': {
+            'phonetic': '/ˈfɔːrwərd/',
+            'meaning': 'adv. 向前；前方的',
+            'type': '复合词',
+            'split': [
+                {'part': 'fore', 'meaning': 'prep./adv. 在前部，前面', 'original': 'fore', 'original_meaning': 'prep./adv. 在前部（古英语 fore "前面"）', 'transform': 'fore 变为 for', 'explain': '表示"前面"的方向'},
+                {'part': 'ward', 'meaning': '后缀，表示"朝向...方向"', 'original': 'ward', 'original_meaning': '后缀，表示"朝向...方向"（古英语 -weard）', 'transform': '原形不变', 'explain': '表示"朝向"某方向'},
+            ],
+            'morph': [],
+            'mnemonic': 'fore（前面）+ ward（朝向）→ 朝向前面的方向 → 向前。联想同根词：forehead(额头)、backward(向后)。',
+            'examples': [
+                {'en': 'She is looking forward to the summer holiday.', 'zh': '她正期待着暑假的到来。'},
+                {'en': 'Please move forward to make room for others.', 'zh': '请往前走，给别人腾出空间。'},
+            ],
+        },
+        'culture': {
+            'phonetic': '/ˈkʌltʃər/',
+            'meaning': 'n. 文化',
+            'type': '基础词',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'culture 源自拉丁语 colere（耕种、培养），引申为"培养出来的东西"即文化。联想：agriculture(农业) 中也含有 cult（耕种）。',
+            'examples': [
+                {'en': 'Chinese culture has a long history.', 'zh': '中国文化历史悠久。'},
+                {'en': 'Learning about different cultures is fascinating.', 'zh': '了解不同的文化很有趣。'},
+            ],
+        },
+        'traffic': {
+            'phonetic': '/ˈtræfɪk/',
+            'meaning': 'n. 交通；来往车辆',
+            'type': '基础词',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'traffic 源自古意大利语 trafficare（在沿海贸易），作为整体借入英语。联想"穿梭"——车流穿梭就是"交通"。',
+            'examples': [
+                {'en': 'There was heavy traffic on the road this morning.', 'zh': '今天早上路上交通很拥堵。'},
+                {'en': 'Traffic regulations should be strictly followed.', 'zh': '应该严格遵守交通规则。'},
+            ],
+        },
+    }
+
+    # ===== 专升本常见短语词典 =====
+    # ECDICT 对短语的翻译覆盖率有限，这里收录专升本考试常见短语
+    # 每个条目格式与 DICTIONARY 相同，至少包含 meaning 和 examples
+    PHRASE_DICTIONARY = {
+        'as bad as': {
+            'phonetic': '',
+            'meaning': '和……一样糟糕',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'as + 形容词 + as 表示"和……一样"，as bad as 即"和……一样坏/糟糕"',
+            'examples': [
+                {'en': 'The weather today is as bad as yesterday.', 'zh': '今天天气和昨天一样糟糕。'},
+                {'en': 'His handwriting is as bad as mine.', 'zh': '他的字写得和我一样差。'},
+            ],
+        },
+        'as good as': {
+            'phonetic': '',
+            'meaning': '和……一样好；几乎等于',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'as + 形容词 + as 表示"和……一样"，as good as 即"和……一样好"',
+            'examples': [
+                {'en': 'His English is as good as hers.', 'zh': '他的英语和她一样好。'},
+                {'en': 'The plan is as good as finished.', 'zh': '计划几乎等于完成了。'},
+            ],
+        },
+        'the best': {
+            'phonetic': '',
+            'meaning': '最好的（人或物）',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'the + 最高级，表示"最……的"',
+            'examples': [
+                {'en': 'She is one of the best students in our class.', 'zh': '她是我们班最优秀的学生之一。'},
+                {'en': 'Who do you think is the best candidate for this position?', 'zh': '你认为谁是这个职位的最佳人选？'},
+            ],
+        },
+        'have a good knowledge of': {
+            'phonetic': '',
+            'meaning': '精通；掌握；对……很了解',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'have a knowledge of 表示"了解"，加 good 表示"很了解/精通"',
+            'examples': [
+                {'en': 'She has a good knowledge of English grammar.', 'zh': '她精通英语语法。'},
+                {'en': 'You need to have a good knowledge of computers for this job.', 'zh': '做这份工作需要精通计算机。'},
+            ],
+        },
+        'take care of': {
+            'phonetic': '',
+            'meaning': '照顾；照料',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'take care 表示"小心/注意"，加 of 表示"照顾某人/某物"',
+            'examples': [
+                {'en': 'She takes care of her elderly mother.', 'zh': '她照顾年迈的母亲。'},
+                {'en': 'Please take care of your belongings.', 'zh': '请照看好您的随身物品。'},
+            ],
+        },
+        'look forward to': {
+            'phonetic': '',
+            'meaning': '期待；盼望',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'look forward 表示"向前看"，加 to 表示"期待某事"',
+            'examples': [
+                {'en': 'I look forward to hearing from you soon.', 'zh': '我期待早日收到你的回复。'},
+                {'en': 'We are looking forward to the summer holiday.', 'zh': '我们正期待着暑假的到来。'},
+            ],
+        },
+        'be good at': {
+            'phonetic': '',
+            'meaning': '擅长；善于',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'be good at = 擅长做某事',
+            'examples': [
+                {'en': 'He is good at math and physics.', 'zh': '他擅长数学和物理。'},
+                {'en': 'Are you good at playing basketball?', 'zh': '你擅长打篮球吗？'},
+            ],
+        },
+        'be bad at': {
+            'phonetic': '',
+            'meaning': '不擅长；不善于',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'be bad at = 不擅长做某事，与 be good at 相反',
+            'examples': [
+                {'en': 'I am bad at singing but good at dancing.', 'zh': '我不擅长唱歌但擅长跳舞。'},
+            ],
+        },
+        'be interested in': {
+            'phonetic': '',
+            'meaning': '对……感兴趣',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'be interested in = 对……有兴趣',
+            'examples': [
+                {'en': 'She is interested in Chinese culture.', 'zh': '她对中国文化感兴趣。'},
+                {'en': 'I am not interested in this topic.', 'zh': '我对这个话题不感兴趣。'},
+            ],
+        },
+        'be fond of': {
+            'phonetic': '',
+            'meaning': '喜欢；喜爱',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'be fond of = 喜爱某人/某物',
+            'examples': [
+                {'en': 'He is fond of classical music.', 'zh': '他喜欢古典音乐。'},
+            ],
+        },
+        'be proud of': {
+            'phonetic': '',
+            'meaning': '为……感到骄傲',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'be proud of = 以……为荣',
+            'examples': [
+                {'en': 'We are proud of our achievements.', 'zh': '我们为自己的成就感到骄傲。'},
+            ],
+        },
+        'be afraid of': {
+            'phonetic': '',
+            'meaning': '害怕；担心',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'be afraid of = 害怕某人/某物',
+            'examples': [
+                {'en': 'She is afraid of dogs.', 'zh': '她害怕狗。'},
+            ],
+        },
+        'be tired of': {
+            'phonetic': '',
+            'meaning': '厌倦；厌烦',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'be tired of = 对……感到厌倦',
+            'examples': [
+                {'en': 'I am tired of doing the same thing every day.', 'zh': '我厌倦了每天做同样的事。'},
+            ],
+        },
+        'be full of': {
+            'phonetic': '',
+            'meaning': '充满',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'be full of = 充满某物',
+            'examples': [
+                {'en': 'The room is full of people.', 'zh': '房间里挤满了人。'},
+            ],
+        },
+        'be short of': {
+            'phonetic': '',
+            'meaning': '缺少；短缺',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'be short of = 缺乏某物',
+            'examples': [
+                {'en': 'We are short of money this month.', 'zh': '这个月我们缺钱。'},
+            ],
+        },
+        'be worth doing': {
+            'phonetic': '',
+            'meaning': '值得做某事',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'be worth + doing = 值得做……',
+            'examples': [
+                {'en': 'This book is worth reading.', 'zh': '这本书值得读。'},
+            ],
+        },
+        'be used to': {
+            'phonetic': '',
+            'meaning': '习惯于',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'be used to + 名词/doing = 习惯于……',
+            'examples': [
+                {'en': 'I am used to getting up early.', 'zh': '我习惯早起。'},
+            ],
+        },
+        'used to': {
+            'phonetic': '',
+            'meaning': '过去常常',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'used to + 动词原形 = 过去常常做某事',
+            'examples': [
+                {'en': 'I used to play basketball a lot.', 'zh': '我过去常打篮球。'},
+            ],
+        },
+        'get used to': {
+            'phonetic': '',
+            'meaning': '逐渐习惯于',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'get used to = 逐渐变得习惯于',
+            'examples': [
+                {'en': 'You will get used to the weather here.', 'zh': '你会习惯这里的天气的。'},
+            ],
+        },
+        'be familiar with': {
+            'phonetic': '',
+            'meaning': '熟悉；了解',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'be familiar with = 对……熟悉',
+            'examples': [
+                {'en': 'Are you familiar with this software?', 'zh': '你熟悉这个软件吗？'},
+            ],
+        },
+        'be famous for': {
+            'phonetic': '',
+            'meaning': '因……而闻名',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'be famous for = 因为……而出名',
+            'examples': [
+                {'en': 'Hangzhou is famous for its West Lake.', 'zh': '杭州因西湖而闻名。'},
+            ],
+        },
+        'be angry with': {
+            'phonetic': '',
+            'meaning': '生……的气',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'be angry with sb. = 生某人的气',
+            'examples': [
+                {'en': 'Don\'t be angry with me.', 'zh': '别生我的气。'},
+            ],
+        },
+        'be strict with': {
+            'phonetic': '',
+            'meaning': '对……严格要求',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'be strict with sb. = 对某人严格',
+            'examples': [
+                {'en': 'Our teacher is strict with us.', 'zh': '我们的老师对我们很严格。'},
+            ],
+        },
+        'be satisfied with': {
+            'phonetic': '',
+            'meaning': '对……满意',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'be satisfied with = 对……感到满意',
+            'examples': [
+                {'en': 'I am satisfied with the result.', 'zh': '我对结果感到满意。'},
+            ],
+        },
+        'be popular with': {
+            'phonetic': '',
+            'meaning': '受……欢迎',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'be popular with = 在……中受欢迎',
+            'examples': [
+                {'en': 'The song is popular with young people.', 'zh': '这首歌受年轻人欢迎。'},
+            ],
+        },
+        'be different from': {
+            'phonetic': '',
+            'meaning': '与……不同',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'be different from = 和……不一样',
+            'examples': [
+                {'en': 'This book is different from that one.', 'zh': '这本书和那本不同。'},
+            ],
+        },
+        'be similar to': {
+            'phonetic': '',
+            'meaning': '与……相似',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'be similar to = 和……类似',
+            'examples': [
+                {'en': 'Your idea is similar to mine.', 'zh': '你的想法和我的相似。'},
+            ],
+        },
+        'be made of': {
+            'phonetic': '',
+            'meaning': '由……制成（看得出原材料）',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'be made of = 用……做的（能看出原料）',
+            'examples': [
+                {'en': 'The desk is made of wood.', 'zh': '这张桌子是木头做的。'},
+            ],
+        },
+        'be made from': {
+            'phonetic': '',
+            'meaning': '由……制成（看不出原材料）',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'be made from = 用……做的（看不出原料）',
+            'examples': [
+                {'en': 'Paper is made from wood.', 'zh': '纸是用木头造的。'},
+            ],
+        },
+        'be made up of': {
+            'phonetic': '',
+            'meaning': '由……组成',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'be made up of = 由……构成',
+            'examples': [
+                {'en': 'The team is made up of five members.', 'zh': '这个团队由五名成员组成。'},
+            ],
+        },
+        'put on': {
+            'phonetic': '',
+            'meaning': '穿上；戴上',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'put on = 穿上衣服/戴上帽子等',
+            'examples': [
+                {'en': 'Put on your coat, it\'s cold outside.', 'zh': '穿上外套，外面很冷。'},
+            ],
+        },
+        'take off': {
+            'phonetic': '',
+            'meaning': '脱下；起飞',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'take off = 脱衣服 / 飞机起飞',
+            'examples': [
+                {'en': 'The plane will take off in ten minutes.', 'zh': '飞机十分钟后起飞。'},
+            ],
+        },
+        'turn on': {
+            'phonetic': '',
+            'meaning': '打开（电器等）',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'turn on = 打开开关',
+            'examples': [
+                {'en': 'Please turn on the lights.', 'zh': '请把灯打开。'},
+            ],
+        },
+        'turn off': {
+            'phonetic': '',
+            'meaning': '关掉（电器等）',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'turn off = 关掉开关',
+            'examples': [
+                {'en': 'Turn off the TV before you go to bed.', 'zh': '睡觉前关掉电视。'},
+            ],
+        },
+        'give up': {
+            'phonetic': '',
+            'meaning': '放弃',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'give up = 放弃做某事',
+            'examples': [
+                {'en': 'Never give up on your dreams.', 'zh': '永远不要放弃你的梦想。'},
+            ],
+        },
+        'pick up': {
+            'phonetic': '',
+            'meaning': '捡起；接（人）；学会',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'pick up = 捡起来 / 开车接人 / 自然学会',
+            'examples': [
+                {'en': 'I will pick you up at the station.', 'zh': '我会在车站接你。'},
+            ],
+        },
+        'look up': {
+            'phonetic': '',
+            'meaning': '查阅；向上看',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'look up = 在字典/资料中查找',
+            'examples': [
+                {'en': 'Look up the word in the dictionary.', 'zh': '在字典里查这个词。'},
+            ],
+        },
+        'find out': {
+            'phonetic': '',
+            'meaning': '发现；查明',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'find out = 经过调查发现/查明',
+            'examples': [
+                {'en': 'I will find out the truth.', 'zh': '我会查明真相。'},
+            ],
+        },
+        'hand in': {
+            'phonetic': '',
+            'meaning': '上交；提交',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'hand in = 把东西交上去',
+            'examples': [
+                {'en': 'Please hand in your homework on time.', 'zh': '请按时交作业。'},
+            ],
+        },
+        'hand out': {
+            'phonetic': '',
+            'meaning': '分发；散发',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'hand out = 把东西分发出去',
+            'examples': [
+                {'en': 'The teacher handed out the test papers.', 'zh': '老师分发了试卷。'},
+            ],
+        },
+        'look after': {
+            'phonetic': '',
+            'meaning': '照顾；照料',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'look after = 照顾某人',
+            'examples': [
+                {'en': 'Can you look after my cat?', 'zh': '你能照看我的猫吗？'},
+            ],
+        },
+        'look for': {
+            'phonetic': '',
+            'meaning': '寻找',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'look for = 寻找某物/某人',
+            'examples': [
+                {'en': 'What are you looking for?', 'zh': '你在找什么？'},
+            ],
+        },
+        'look at': {
+            'phonetic': '',
+            'meaning': '看；注视',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'look at = 看着某物',
+            'examples': [
+                {'en': 'Look at the blackboard, please.', 'zh': '请看黑板。'},
+            ],
+        },
+        'look like': {
+            'phonetic': '',
+            'meaning': '看起来像',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'look like = 看上去像……',
+            'examples': [
+                {'en': 'She looks like her mother.', 'zh': '她看起来像她妈妈。'},
+            ],
+        },
+        'listen to': {
+            'phonetic': '',
+            'meaning': '听；倾听',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'listen to = 听某人说话/听某物',
+            'examples': [
+                {'en': 'I like to listen to music.', 'zh': '我喜欢听音乐。'},
+            ],
+        },
+        'belong to': {
+            'phonetic': '',
+            'meaning': '属于',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'belong to = 属于某人',
+            'examples': [
+                {'en': 'This book belongs to the library.', 'zh': '这本书是图书馆的。'},
+            ],
+        },
+        'depend on': {
+            'phonetic': '',
+            'meaning': '依赖；取决于',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'depend on = 依靠 / 由……决定',
+            'examples': [
+                {'en': 'It depends on the weather.', 'zh': '这取决于天气。'},
+            ],
+        },
+        'focus on': {
+            'phonetic': '',
+            'meaning': '专注于；集中注意力于',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'focus on = 把注意力集中在……',
+            'examples': [
+                {'en': 'Focus on your studies.', 'zh': '专注于你的学业。'},
+            ],
+        },
+        'concentrate on': {
+            'phonetic': '',
+            'meaning': '集中精力于',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'concentrate on = 全神贯注于……',
+            'examples': [
+                {'en': 'I can\'t concentrate on my work.', 'zh': '我无法集中精力工作。'},
+            ],
+        },
+        'apply for': {
+            'phonetic': '',
+            'meaning': '申请',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'apply for = 申请职位/学校等',
+            'examples': [
+                {'en': 'He applied for a scholarship.', 'zh': '他申请了奖学金。'},
+            ],
+        },
+        'wait for': {
+            'phonetic': '',
+            'meaning': '等待',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'wait for = 等待某人/某事',
+            'examples': [
+                {'en': 'I am waiting for the bus.', 'zh': '我在等公交车。'},
+            ],
+        },
+        'search for': {
+            'phonetic': '',
+            'meaning': '搜索；寻找',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'search for = 搜寻某人/某物',
+            'examples': [
+                {'en': 'They are searching for the missing dog.', 'zh': '他们在寻找走失的狗。'},
+            ],
+        },
+        'pay for': {
+            'phonetic': '',
+            'meaning': '为……付款',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'pay for = 为……付钱',
+            'examples': [
+                {'en': 'I will pay for the dinner.', 'zh': '我来付晚饭的钱。'},
+            ],
+        },
+        'ask for': {
+            'phonetic': '',
+            'meaning': '请求；索要',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'ask for = 要求得到/请求',
+            'examples': [
+                {'en': 'He asked for help.', 'zh': '他请求帮助。'},
+            ],
+        },
+        'prepare for': {
+            'phonetic': '',
+            'meaning': '为……做准备',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'prepare for = 为某事做准备',
+            'examples': [
+                {'en': 'We are preparing for the exam.', 'zh': '我们正在为考试做准备。'},
+            ],
+        },
+        'thanks to': {
+            'phonetic': '',
+            'meaning': '多亏；由于',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'thanks to = 因为/多亏了某人某事',
+            'examples': [
+                {'en': 'Thanks to your help, I passed the exam.', 'zh': '多亏你的帮助，我通过了考试。'},
+            ],
+        },
+        'due to': {
+            'phonetic': '',
+            'meaning': '由于；因为',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'due to = 因为某事',
+            'examples': [
+                {'en': 'The flight was delayed due to bad weather.', 'zh': '航班因恶劣天气延误。'},
+            ],
+        },
+        'owing to': {
+            'phonetic': '',
+            'meaning': '由于；因为',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'owing to = 因为（同 due to）',
+            'examples': [
+                {'en': 'The game was canceled owing to rain.', 'zh': '比赛因雨取消了。'},
+            ],
+        },
+        'in order to': {
+            'phonetic': '',
+            'meaning': '为了；以便',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'in order to + 动词 = 为了做某事',
+            'examples': [
+                {'en': 'I got up early in order to catch the train.', 'zh': '我早起为了赶火车。'},
+            ],
+        },
+        'so as to': {
+            'phonetic': '',
+            'meaning': '以便；为了',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'so as to + 动词 = 以便做某事',
+            'examples': [
+                {'en': 'Speak louder so as to let everyone hear you.', 'zh': '说大声点以便大家都能听到。'},
+            ],
+        },
+        'in spite of': {
+            'phonetic': '',
+            'meaning': '尽管；不管',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'in spite of = 尽管（同 despite）',
+            'examples': [
+                {'en': 'He went out in spite of the rain.', 'zh': '尽管下雨他还是出去了。'},
+            ],
+        },
+        'instead of': {
+            'phonetic': '',
+            'meaning': '代替；而不是',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'instead of = 而不是 / 代替',
+            'examples': [
+                {'en': 'I will have tea instead of coffee.', 'zh': '我要茶而不是咖啡。'},
+            ],
+        },
+        'because of': {
+            'phonetic': '',
+            'meaning': '因为；由于',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'because of + 名词 = 因为某事',
+            'examples': [
+                {'en': 'The match was canceled because of rain.', 'zh': '比赛因雨取消了。'},
+            ],
+        },
+        'ahead of': {
+            'phonetic': '',
+            'meaning': '在……前面；领先',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'ahead of = 在……之前/领先于',
+            'examples': [
+                {'en': 'She is ahead of her classmates in math.', 'zh': '她的数学领先于同学。'},
+            ],
+        },
+        'on behalf of': {
+            'phonetic': '',
+            'meaning': '代表',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'on behalf of = 代表某人',
+            'examples': [
+                {'en': 'I thank you on behalf of our team.', 'zh': '我代表团队感谢你。'},
+            ],
+        },
+        'be under too much pressure': {
+            'phonetic': '',
+            'meaning': '承受太大压力',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'under pressure = 承受压力，too much = 太大',
+            'examples': [
+                {'en': 'Students are under too much pressure nowadays.', 'zh': '如今学生承受的压力太大了。'},
+            ],
+        },
+        'pressure cooker': {
+            'phonetic': '',
+            'meaning': '高压锅',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'pressure（压力）+ cooker（炊具）= 高压锅',
+            'examples': [
+                {'en': 'My mother bought a new pressure cooker.', 'zh': '我妈妈买了一个新的高压锅。'},
+            ],
+        },
+        'look up to': {
+            'phonetic': '',
+            'meaning': 'v. 尊敬，敬仰',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'look up（向上看）+ to → 仰望某人 → 尊敬、敬仰',
+            'examples': [
+                {'en': 'Many students look up to their teachers as role models.', 'zh': '许多学生把老师当作榜样来敬仰。'},
+                {'en': 'She has always looked up to her older sister.', 'zh': '她一直敬仰她的姐姐。'},
+            ],
+        },
     }
 
     def __init__(self):
@@ -1384,6 +3125,8 @@ class DictionaryService:
         - 形容词：级变化（positive/comparative/superlative）
         有什么变形返回什么，没有返回 None
         """
+        import re as _re
+
         # 1. 动词时态
         if word_lower in self.VERB_TENSES:
             t = self.VERB_TENSES[word_lower].copy()
@@ -1408,9 +3151,14 @@ class DictionaryService:
                 'inflection_type': 'degree',
             }
 
+        # 检测词性：兼容 ECDICT 的 a.(形容词)、r.(副词) 前缀
+        meaning_stripped = (meaning or '').strip()
+        is_noun = meaning_stripped.lower().startswith('n.')
+        is_adj = meaning_stripped.lower().startswith('adj.') or meaning_stripped.lower().startswith('a.')
+        is_verb = _re.match(r'^(v|vi|vt|aux)\.', meaning_stripped.lower()) is not None
+
         # 4. 规则名词复数（以辅音字母+y结尾，变y为i加es；以s/x/ch/sh结尾加es；其他加s）
-        # 仅当释义以 n. 开头时才判断为名词
-        if meaning and meaning.strip().startswith('n.'):
+        if is_noun:
             if word_lower.endswith('y') and len(word_lower) > 1 and word_lower[-2] not in 'aeiou':
                 plural = word_lower[:-1] + 'ies'
                 return {'singular': word_lower, 'plural': plural, 'inflection_type': 'plural'}
@@ -1422,8 +3170,8 @@ class DictionaryService:
                 return {'singular': word_lower, 'plural': plural, 'inflection_type': 'plural'}
 
         # 5. 规则形容词比较级/最高级（单音节词）
-        # 仅当释义以 adj. 开头时才判断
-        if meaning and meaning.strip().startswith('adj.'):
+        if is_adj:
+            # 以 e 结尾：加 r/st
             if len(word_lower) <= 5 and word_lower.endswith('e'):
                 return {
                     'positive': word_lower,
@@ -1431,22 +3179,65 @@ class DictionaryService:
                     'superlative': word_lower + 'st',
                     'inflection_type': 'degree',
                 }
-            elif len(word_lower) <= 4 and word_lower.endswith(('a', 'e', 'i', 'o', 'u')) is False:
-                # 辅音+短元音+辅音结尾的双写
-                if len(word_lower) == 3 and word_lower[0] not in 'aeiou' and word_lower[1] in 'aeiou' and word_lower[2] not in 'aeiou':
-                    return {
-                        'positive': word_lower,
-                        'comparative': word_lower + word_lower[-1] + 'er',
-                        'superlative': word_lower + word_lower[-1] + 'est',
-                        'inflection_type': 'degree',
-                    }
-                elif len(word_lower) <= 5:
-                    return {
-                        'positive': word_lower,
-                        'comparative': word_lower + 'er',
-                        'superlative': word_lower + 'est',
-                        'inflection_type': 'degree',
-                    }
+            # 辅音+短元音+辅音结尾的双写（如 big → bigger → biggest）
+            elif len(word_lower) == 3 and word_lower[0] not in 'aeiou' and word_lower[1] in 'aeiou' and word_lower[2] not in 'aeiou':
+                return {
+                    'positive': word_lower,
+                    'comparative': word_lower + word_lower[-1] + 'er',
+                    'superlative': word_lower + word_lower[-1] + 'est',
+                    'inflection_type': 'degree',
+                }
+            # 其他短词：加 er/est
+            elif len(word_lower) <= 5 and not word_lower.endswith('e'):
+                return {
+                    'positive': word_lower,
+                    'comparative': word_lower + 'er',
+                    'superlative': word_lower + 'est',
+                    'inflection_type': 'degree',
+                }
+
+        # 6. 规则动词时态（以常见动词后缀判断）
+        if is_verb and word_lower not in self.VERB_TENSES:
+            # 以 e 结尾：加 d
+            if word_lower.endswith('e'):
+                return {
+                    'base': word_lower,
+                    'third_singular': word_lower + 's',
+                    'past': word_lower + 'd',
+                    'past_participle': word_lower + 'd',
+                    'present_participle': word_lower[:-1] + 'ing',
+                    'inflection_type': 'tense',
+                }
+            # 辅音+短元音+辅音结尾的双写（如 run → running）
+            elif len(word_lower) >= 3 and word_lower[-1] not in 'aeiou' and word_lower[-2] in 'aeiou' and word_lower[-3] not in 'aeiou' and word_lower[-1] not in 'wxy':
+                return {
+                    'base': word_lower,
+                    'third_singular': word_lower + 's',
+                    'past': word_lower + word_lower[-1] + 'ed',
+                    'past_participle': word_lower + word_lower[-1] + 'ed',
+                    'present_participle': word_lower + word_lower[-1] + 'ing',
+                    'inflection_type': 'tense',
+                }
+            # 以辅音+y结尾：变y为i加ed
+            elif word_lower.endswith('y') and len(word_lower) > 1 and word_lower[-2] not in 'aeiou':
+                return {
+                    'base': word_lower,
+                    'third_singular': word_lower[:-1] + 'ies',
+                    'past': word_lower[:-1] + 'ied',
+                    'past_participle': word_lower[:-1] + 'ied',
+                    'present_participle': word_lower + 'ing',
+                    'inflection_type': 'tense',
+                }
+            # 一般情况：加 ed/ing
+            else:
+                return {
+                    'base': word_lower,
+                    'third_singular': word_lower + 's',
+                    'past': word_lower + 'ed',
+                    'past_participle': word_lower + 'ed',
+                    'present_participle': word_lower + 'ing',
+                    'inflection_type': 'tense',
+                }
 
         return None
 
@@ -1510,9 +3301,9 @@ class DictionaryService:
             zh_meaning = meaning_str
             # 只取第一行（ECDICT 多词性释义用换行分隔）
             zh_meaning = zh_meaning.split('\n')[0].strip()
-            # 去掉所有词性前缀（包括 ECDICT 的 a./vi./vt./aux. 等格式）
-            zh_meaning = re.sub(r'^(vi|vt|aux|n|v|adj|adv|ad|a|prep|conj|pron|num|art|interj)\.\s*', '', zh_meaning)
-            zh_meaning = re.sub(r'^(vi|vt|aux|n|v|adj|adv|ad|a|prep|conj|pron|num|art|interj)\s+', '', zh_meaning)
+            # 去掉所有词性前缀（包括缩写和完整形式：adj./adjective./vi./vt. 等）
+            zh_meaning = re.sub(r'^(adjective|adverb|noun|verb|vi|vt|aux|n|v|adj|adv|ad|a|prep|conj|pron|num|art|interj)\.\s*', '', zh_meaning, flags=re.IGNORECASE)
+            zh_meaning = re.sub(r'^(adjective|adverb|noun|verb|vi|vt|aux|n|v|adj|adv|ad|a|prep|conj|pron|num|art|interj)\s+', '', zh_meaning, flags=re.IGNORECASE)
             # 去掉方括号注释如 [体] [法] [医]
             zh_meaning = re.sub(r'\[.*?\]', '', zh_meaning)
             # 去掉圆括号注释如 (书名)
@@ -1520,6 +3311,10 @@ class DictionaryService:
             zh_meaning = re.sub(r'\(.*?\)', '', zh_meaning)
             # 只取第一条释义（分号或逗号分隔）
             zh_meaning = re.split(r'[;；,，]', zh_meaning)[0].strip()
+            # 如果释义是纯英文（没有中文字符），说明是英文定义泄露，用单词本身代替
+            has_chinese = any('\u4e00' <= c <= '\u9fff' for c in zh_meaning)
+            if not has_chinese:
+                zh_meaning = word_lower
             # 形容词去掉尾部的"的"，避免模板中出现"好的的人"
             if pos == 'adj' and zh_meaning.endswith('的'):
                 zh_meaning = zh_meaning[:-1]
@@ -1540,6 +3335,86 @@ class DictionaryService:
 
         return []
 
+    # 模板例句特征字符串，用于检测低质量模板生成的例句
+    TEMPLATE_PATTERNS = [
+        'I usually {word} in the morning',
+        'It is important to {word} every day',
+        'She wants to {word} her English skills',
+        'This {word} is very important to us',
+        'I learned a lot from this {word}',
+        'The {word} has changed our lives',
+        'She is a very {word} person',
+        'This book is very {word}',
+        'The weather today is quite {word}',
+        'He spoke {word} at the meeting',
+        'She always listens {word} in class',
+    ]
+
+    def is_template_examples(self, examples):
+        """检测例句是否是模板生成的低质量例句"""
+        if not examples:
+            return True
+        try:
+            if isinstance(examples, str):
+                import json as _json
+                ex_list = _json.loads(examples)
+            else:
+                ex_list = examples
+            if not ex_list or not isinstance(ex_list, list):
+                return True
+            for ex in ex_list:
+                en = ex.get('en', '') if isinstance(ex, dict) else ''
+                # 检查是否包含模板特征
+                for pattern in self.TEMPLATE_PATTERNS:
+                    # 去掉 {word} 占位符，用通配匹配
+                    check = pattern.replace('{word}', '')
+                    parts = check.split('{word}') if '{word}' in pattern else [check]
+                    if all(p in en for p in parts if p.strip()):
+                        return True
+                # 检查所有例句是否结构完全相同（只是单词不同）
+            return False
+        except Exception:
+            return True
+
+    def _fetch_online_examples(self, word):
+        """
+        从在线词典API获取真实例句
+        使用 free dictionary API (dictionaryapi.dev)
+        """
+        word_lower = word.lower().strip()
+        try:
+            resp = requests.get(
+                f'https://api.dictionaryapi.dev/api/v2/entries/en/{word_lower}',
+                headers={'User-Agent': 'Mozilla/5.0'},
+                timeout=8
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                if isinstance(data, list) and len(data) > 0:
+                    examples = []
+                    for entry in data:
+                        for meaning in entry.get('meanings', []):
+                            for defn in meaning.get('definitions', []):
+                                example = defn.get('example', '')
+                                if example and len(example) > 10:
+                                    # 英文例句，需要翻译中文
+                                    examples.append({
+                                        'en': example,
+                                        'zh': '',  # 在线API不提供中文翻译
+                                    })
+                                if len(examples) >= 3:
+                                    break
+                            if len(examples) >= 3:
+                                break
+                        if len(examples) >= 3:
+                            break
+                    # 只返回有中文翻译的例句（在线API没有中文翻译，所以通常返回空）
+                    # 但如果例句足够简单，我们可以用简单翻译
+                    return []  # 暂时不使用在线例句（没有中文翻译）
+        except Exception as e:
+            print(f'[dict] online examples fail({word}): {e}')
+        return []
+
 
     def _query_ecdict(self, word):
         """查询 ECDICT 词典数据库，返回完整词条数据"""
@@ -1558,6 +3433,38 @@ class DictionaryService:
             print(f'[ecdict] query error({word}): {e}')
         return None
 
+    def _is_real_word(self, word, ecdict_data):
+        """
+        判断 ECDICT 中的词条是否是真正的英语单词（而非缩写/代号）
+        用于过滤如 "ss"（[计]子系统）这类不应作为词根的条目
+        """
+        if not ecdict_data or not ecdict_data.get('translation'):
+            return False
+        word_lower = word.lower().strip()
+        # 1. 太短的词（少于3个字母）大概率不是独立单词，除非是常见短词
+        common_short = {'an', 'as', 'at', 'be', 'by', 'do', 'go', 'he', 'if', 'in', 'is', 'it',
+                        'me', 'my', 'no', 'of', 'on', 'or', 'so', 'to', 'up', 'us', 'we', 'am',
+                        'ox', 'ax', 'ex', 'ad', 'ed', 'oh', 'ok', 'ah', 'hi', 'lo', 'pi'}
+        if len(word_lower) < 3 and word_lower not in common_short:
+            return False
+        # 2. 翻译以方括号开头（如 [计] [医] [化]），说明是专业缩写
+        translation = ecdict_data.get('translation', '')
+        if translation.strip().startswith('['):
+            # 但如果方括号后面有正常中文释义，可能是真实词条
+            import re
+            bracket_removed = re.sub(r'^\[.*?\]', '', translation).strip()
+            if not bracket_removed or not any('\u4e00' <= c <= '\u9fff' for c in bracket_removed[:10]):
+                return False
+        # 3. 没有音标且词长<=4，可能是缩写（真实单词通常有音标）
+        phonetic = ecdict_data.get('phonetic', '') or ''
+        if not phonetic and len(word_lower) <= 4:
+            return False
+        # 4. pos 字段为空且翻译以方括号开头，是缩写
+        pos = ecdict_data.get('pos', '') or ''
+        if not pos and translation.strip().startswith('['):
+            return False
+        return True
+
     def _convert_phonetic(self, phonetic):
         """将 ECDICT 音标编码转换为标准 IPA 格式"""
         if not phonetic:
@@ -1568,40 +3475,125 @@ class DictionaryService:
         result = result.replace(',', '\u02cc')   # secondary stress ˌ
         return '/' + result + '/'
 
-    def _clean_meaning(self, translation):
+    def _clean_meaning(self, translation, pos_field=''):
         """
-        精简 ECDICT 释义：只保留常用释义（前1-2条），去除过长内容
+        精简 ECDICT 释义：只保留专升本最常考的1-2条释义，常用词性优先
         ECDICT translation 格式：用换行分隔不同词性的释义
+        ECDICT pos 字段格式如 "v:5/n:95" 表示动词5%名词95%，用于确定主词性
+        过滤纯英文行、专业术语
         """
         if not translation:
             return ''
-        # 按换行分割，取前2条
+        import re as _re
+        # 按换行分割
         lines = translation.strip().split('\n')
-        # 过滤掉太长的行（可能是专业术语）和包含方括号的行（如 [法] [化]）
         clean_lines = []
-        for line in lines[:3]:
+        for line in lines:
             line = line.strip()
             if not line:
                 continue
             # 去除行内方括号注释如 [体] [法] [网]
-            import re as _re
             line = _re.sub(r'\[.*?\]', '', line).strip()
             if not line:
                 continue
-            # 跳过包含专业领域标记的行
-            if any(line.startswith(f'[{tag}]') for tag in ['法', '化', '医', '药', '生', '计', '经', '农', '商']):
+            # 跳过纯英文行（没有中文字符的行是英文定义）
+            has_chinese = any('\u4e00' <= c <= '\u9fff' for c in line)
+            if not has_chinese:
                 continue
-            # 如果一行内用分号或逗号分隔了多个释义，只取前3个
-            parts = _re.split(r'[;；,，]', line)
-            if len(parts) > 3:
-                line = ','.join(parts[:3])
-            # 限制每行长度
-            if len(line) > 50:
-                line = line[:50] + '...'
             clean_lines.append(line)
-            if len(clean_lines) >= 2:
+
+        if not clean_lines:
+            return ''
+
+        # 解析 ECDICT pos 字段，获取词性频率（如 "v:5/n:95" → {n:95, v:5}）
+        pos_freq = {}
+        if pos_field:
+            for item in pos_field.split('/'):
+                if ':' in item:
+                    code, freq = item.split(':', 1)
+                    try:
+                        pos_freq[code.strip()] = int(freq.strip())
+                    except ValueError:
+                        pass
+
+        # 词性优先级：如果有 pos 频率数据，按频率排序；否则默认 名词 > 动词 > 形容词 > 副词
+        # 对于专升本考试，大多数核心词是名词（如 pressure, nerve, culture, development）
+        def _pos_code(line):
+            low = line.lower().strip()
+            if low.startswith('adj.') or low.startswith('a.'):
+                return 'j'
+            if low.startswith('vi.') or low.startswith('vt.') or low.startswith('v.') or low.startswith('aux.'):
+                return 'v'
+            if low.startswith('n.'):
+                return 'n'
+            if low.startswith('adv.') or low.startswith('ad.') or low.startswith('r.'):
+                return 'r'
+            return 'o'
+
+        def _pos_priority(line):
+            code = _pos_code(line)
+            if pos_freq:
+                # 有频率数据：按频率降序排（频率高的词性排前面）
+                return -pos_freq.get(code, 0)
+            # 无频率数据：名词优先（专升本核心词多为名词），然后动词、形容词、副词
+            order = {'n': 0, 'v': 1, 'j': 2, 'r': 3, 'o': 4}
+            return order.get(code, 4)
+
+        clean_lines.sort(key=_pos_priority)
+
+        # 精简释义：从排序后的行中提取最多2个释义
+        # 优先保留多字释义（如"压力"优于"压"），避免单字释义造成歧义
+        meanings = []
+        for line in clean_lines:
+            # 提取词性前缀（如 "a." "n." "v." "adj." 等）
+            pos_match = _re.match(r'^([a-z]+\.)\s*', line.lower())
+            pos_prefix = pos_match.group(1) if pos_match else ''
+            # 去掉词性前缀，按分号/逗号分割释义
+            content = _re.sub(r'^[a-z]+\.\s*', '', line)
+            parts = _re.split(r'[;；,，]', content)
+            # 过滤候选释义：去空、去过长、去生僻标记
+            candidates = []
+            for part in parts:
+                part = part.strip()
+                if not part:
+                    continue
+                # 过滤过长的释义（超过15个字的专业术语）
+                if len(part) > 15:
+                    continue
+                # 过滤含有生僻标记的释义（精确匹配，避免误伤如"文化"含"化"）
+                # 只过滤以这些标记开头或结尾的释义，或标记本身作为独立释义
+                skip = False
+                for marker in ['人名', '地名', '药名', '网络用语']:
+                    if part == marker or part.startswith(marker):
+                        skip = True
+                        break
+                # 单字标记（化/生/医/网/药）只在释义恰好等于该字时过滤
+                if part in ('化', '生', '医', '网', '药', '体', '法', '计'):
+                    skip = True
+                if skip:
+                    continue
+                candidates.append(part)
+            # 优先选择2字及以上的释义；如果全部都是单字，则取第一个
+            multi_char = [c for c in candidates if len(c) >= 2]
+            chosen = multi_char if multi_char else (candidates[:1] if candidates else [])
+            for part in chosen:
+                # 词性前缀标准化：ECDICT 用 a./r. 等缩写，统一转为 adj./adv. 等标准形式
+                pos_std = pos_prefix
+                if pos_prefix == 'a.':
+                    pos_std = 'adj.'
+                elif pos_prefix in ('r.', 'ad.'):
+                    pos_std = 'adv.'
+                # 加上词性前缀
+                if pos_std:
+                    meanings.append(f'{pos_std} {part}')
+                else:
+                    meanings.append(part)
+                if len(meanings) >= 2:
+                    break
+            if len(meanings) >= 2:
                 break
-        return '\n'.join(clean_lines) if clean_lines else lines[0].strip()
+
+        return '\n'.join(meanings) if meanings else clean_lines[0][:40]
 
     def _parse_exchange(self, exchange_str):
         """
@@ -1731,9 +3723,13 @@ class DictionaryService:
         """
         word_lower = word.lower().strip()
         exchange = self._parse_exchange(ecdict_data.get('exchange', ''))
-        translation = self._clean_meaning(ecdict_data.get('translation', ''))
-        phonetic = self._convert_phonetic(ecdict_data.get('phonetic', ''))
         pos_raw = ecdict_data.get('pos', '') or ''
+        # 优先使用专升本释义覆盖表
+        if word_lower in self.MEANING_OVERRIDES:
+            translation = self.MEANING_OVERRIDES[word_lower]
+        else:
+            translation = self._clean_meaning(ecdict_data.get('translation', ''), pos_raw)
+        phonetic = self._convert_phonetic(ecdict_data.get('phonetic', ''))
 
         # 解析词性标签（如 "n:100" → "名词"）
         pos_label = ''
@@ -1760,14 +3756,16 @@ class DictionaryService:
 
             # 查询原词的释义
             lemma_data = self._query_ecdict(lemma)
-            lemma_translation = self._clean_meaning(lemma_data.get('translation', '')) if lemma_data else ''
+            lemma_translation = self._clean_meaning(lemma_data.get('translation', ''), lemma_data.get('pos', '')) if lemma_data else ''
             lemma_phonetic = self._convert_phonetic(lemma_data.get('phonetic', '')) if lemma_data else ''
 
-            # 查询原词的完整变形信息
+            # 查询原词的完整变形信息：优先用内置不规则变形表
             tenses = None
             if lemma_data:
-                lemma_exchange = self._parse_exchange(lemma_data.get('exchange', ''))
-                tenses = self._build_tenses_from_exchange(lemma, lemma_exchange)
+                tenses = self._get_inflections(lemma, lemma_translation)
+                if not tenses:
+                    lemma_exchange = self._parse_exchange(lemma_data.get('exchange', ''))
+                    tenses = self._build_tenses_from_exchange(lemma, lemma_exchange)
 
             meaning = translation or f'{lemma}的{transform}'
 
@@ -1809,7 +3807,7 @@ class DictionaryService:
             if word_lower.startswith(prefix) and len(word_lower) > len(prefix) + 2:
                 candidate_root = word_lower[len(prefix):]
                 root_check = self._query_ecdict(candidate_root)
-                if root_check and root_check.get('translation'):
+                if self._is_real_word(candidate_root, root_check):
                     skip_compound = True
                     break
                 # 也检查去后缀后的词根（如 unhappiness → un + happi + ness → happy）
@@ -1818,25 +3816,50 @@ class DictionaryService:
                         inner_root = candidate_root[:-len(suffix)]
                         if inner_root != word_lower:
                             inner_check = self._query_ecdict(inner_root)
-                            if inner_check and inner_check.get('translation'):
+                            if self._is_real_word(inner_root, inner_check):
                                 skip_compound = True
                                 break
                         # y/i 变体检查 (happy → happi)
                         if inner_root and inner_root + 'y' != word_lower:
                             y_check = self._query_ecdict(inner_root + 'y')
-                            if y_check and y_check.get('translation'):
+                            if self._is_real_word(inner_root + 'y', y_check):
                                 skip_compound = True
                                 break
                 if skip_compound:
                     break
 
-        # ===== 第一层：复合词拆解（仅当没有明显前缀词根时）=====
+        # ===== 前置检查B：如果词有明显后缀且去掉后缀后是已知词，也跳过复合词拆解 =====
+        # 如 development → develop + ment，应走派生词拆解而非复合词拆解
+        if not skip_compound:
+            for suffix in sorted(self.SUFFIXES.keys(), key=len, reverse=True):
+                if word_lower.endswith(suffix) and len(word_lower) > len(suffix) + 2:
+                    candidate_root = word_lower[:-len(suffix)]
+                    root_check = self._query_ecdict(candidate_root)
+                    if self._is_real_word(candidate_root, root_check):
+                        skip_compound = True
+                        break
+                    # y/i 变体检查 (happi → happy)
+                    if candidate_root and len(candidate_root) >= 2 and candidate_root[-1] == 'i':
+                        y_check = self._query_ecdict(candidate_root[:-1] + 'y')
+                        if self._is_real_word(candidate_root[:-1] + 'y', y_check):
+                            skip_compound = True
+                            break
+                    # e 结尾检查 (mak → make)
+                    if candidate_root and not candidate_root.endswith('e'):
+                        e_check = self._query_ecdict(candidate_root + 'e')
+                        if self._is_real_word(candidate_root + 'e', e_check):
+                            skip_compound = True
+                            break
+
+        # ===== 第一层：复合词拆解（仅当没有明显前缀/后缀词根时）=====
         compound = None
         if not skip_compound:
             compound = self._try_compound_split(word_lower)
         if compound:
-            # 复合词也可能有变形，尝试获取
-            tenses = self._build_tenses_from_exchange(word_lower, exchange)
+            # 复合词也可能有变形，优先用内置不规则变形表
+            tenses = self._get_inflections(word_lower, translation)
+            if not tenses:
+                tenses = self._build_tenses_from_exchange(word_lower, exchange)
             return {
                 'phonetic': phonetic,
                 'meaning': translation,
@@ -1861,7 +3884,7 @@ class DictionaryService:
                 candidate = word_lower[len(prefix):]
                 # 检查去掉前缀后的词是否是已知单词（如 rediscover → discover）
                 candidate_data = self._query_ecdict(candidate)
-                if candidate_data and candidate_data.get('translation'):
+                if self._is_real_word(candidate, candidate_data):
                     detected_prefix = prefix
                     detected_root = candidate
                     final_root = candidate
@@ -1872,7 +3895,7 @@ class DictionaryService:
                         inner = candidate[:-len(suffix)]
                         # 检查 inner 是否是已知单词
                         inner_data = self._query_ecdict(inner)
-                        if inner_data and inner_data.get('translation'):
+                        if self._is_real_word(inner, inner_data):
                             detected_prefix = prefix
                             detected_root = candidate
                             detected_suffix = suffix
@@ -1882,7 +3905,7 @@ class DictionaryService:
                         if inner and len(inner) >= 2 and inner[-1] == 'i':
                             y_candidate = inner[:-1] + 'y'
                             y_data = self._query_ecdict(y_candidate)
-                            if y_data and y_data.get('translation'):
+                            if self._is_real_word(y_candidate, y_data):
                                 detected_prefix = prefix
                                 detected_root = candidate
                                 detected_suffix = suffix
@@ -1892,7 +3915,7 @@ class DictionaryService:
                         if inner and not inner.endswith('e'):
                             e_candidate = inner + 'e'
                             e_data = self._query_ecdict(e_candidate)
-                            if e_data and e_data.get('translation'):
+                            if self._is_real_word(e_candidate, e_data):
                                 detected_prefix = prefix
                                 detected_root = candidate
                                 detected_suffix = suffix
@@ -1947,7 +3970,7 @@ class DictionaryService:
 
             # 查询词根的释义
             root_data = self._query_ecdict(final_root)
-            root_meaning = self._clean_meaning(root_data.get('translation', '')) if root_data else ''
+            root_meaning = self._clean_meaning(root_data.get('translation', ''), root_data.get('pos', '')) if root_data else ''
 
             # 确定变形描述
             transform_desc = '原形不变'
@@ -2025,14 +4048,11 @@ class DictionaryService:
         if not split:
             word_type = '基础词'
 
-        # 构建变形数据
-        tenses = self._build_tenses_from_exchange(word_lower, exchange)
-
-        # 如果 exchange 没有变形数据但 translation 表明是动词，尝试用旧方法
-        if not tenses and translation:
-            infl = self._get_inflections(word_lower, translation)
-            if infl:
-                tenses = infl
+        # 构建变形数据：优先用内置不规则变形表（ADJ_DEGREES/VERB_TENSES/NOUN_PLURALS），
+        # 再用 ECDICT exchange 字段（规则变形）
+        tenses = self._get_inflections(word_lower, translation)
+        if not tenses:
+            tenses = self._build_tenses_from_exchange(word_lower, exchange)
 
         return {
             'phonetic': phonetic,
@@ -2220,7 +4240,7 @@ class DictionaryService:
     def _handle_phrase(self, phrase):
         """
         处理短语/词组（包含空格的输入，如 "be good at"、"sports meeting"）
-        将短语拆分为每个独立单词，分别查询释义，构建 split 数据
+        优先级：内置短语词典 → ECDICT 整体释义 → Agnes AI 整体释义 → 逐词拆解
 
         参数:
             phrase: 短语字符串（已转为小写）
@@ -2232,26 +4252,107 @@ class DictionaryService:
         if len(parts) < 2:
             return None
 
+        # 0. 优先查内置短语词典（专升本常见短语，释义准确）
+        if phrase in self.PHRASE_DICTIONARY:
+            entry = self.PHRASE_DICTIONARY[phrase]
+            result = entry.copy()
+            # 补充拆解信息（逐词拆分用于学习参考）
+            split = []
+            for part in parts:
+                # 优先使用 MEANING_OVERRIDES 中的常用释义
+                if part in self.MEANING_OVERRIDES:
+                    part_meaning = self.MEANING_OVERRIDES[part]
+                    split.append({
+                        'part': part,
+                        'meaning': part_meaning,
+                        'original': part,
+                        'original_meaning': part_meaning,
+                        'transform': '原形不变',
+                        'explain': '独立单词',
+                    })
+                    continue
+                part_data = self._query_ecdict(part)
+                if part_data and part_data.get('translation'):
+                    part_meaning = self._clean_meaning(part_data['translation'], part_data.get('pos', ''))
+                    part_meaning = part_meaning.split('\n')[0][:60] if part_meaning else ''
+                    split.append({
+                        'part': part,
+                        'meaning': part_meaning or f'{part}',
+                        'original': part,
+                        'original_meaning': part_meaning,
+                        'transform': '原形不变',
+                        'explain': '独立单词',
+                    })
+                else:
+                    split.append({
+                        'part': part,
+                        'meaning': '',
+                        'original': part,
+                        'original_meaning': '',
+                        'transform': '原形不变',
+                        'explain': '独立单词',
+                    })
+            result['split'] = split
+            result['tenses'] = None  # 短语不显示时态按钮
+            return result
+
         # 1. 尝试从 ECDICT 查询整个短语的释义
         phrase_data = self._query_ecdict(phrase)
         phrase_translation = ''
         phrase_phonetic = ''
         if phrase_data and phrase_data.get('translation'):
-            phrase_translation = self._clean_meaning(phrase_data['translation'])
+            phrase_translation = self._clean_meaning(phrase_data['translation'], phrase_data.get('pos', ''))
             phrase_phonetic = self._convert_phonetic(phrase_data.get('phonetic', ''))
 
-        # 如果 ECDICT 没有整个短语的释义，尝试在线查词
+        # 1.5 释义质量检查：ECDICT 对短语的翻译可能不准确（如逐字翻译、碎片化释义）
+        # 如果释义质量差，清空让它走 AI 翻译
+        if phrase_translation:
+            import re as _re
+            # 去掉词性前缀后检查实际内容
+            content = _re.sub(r'^[a-z]+\.\s*', '', phrase_translation).strip()
+            # 检查中文字符数量
+            chars_only = [c for c in content if '\u4e00' <= c <= '\u9fff']
+            if len(chars_only) <= 3:
+                # 中文内容太短，可能是碎片化释义（如 "冠", "姣姣者"）
+                phrase_translation = ''
+            elif content.count(',') >= 2 and all(len(p.strip()) <= 2 for p in content.split(',')):
+                # 多个超短释义用逗号分隔，可能是逐字翻译
+                phrase_translation = ''
+            elif '\n' in content:
+                # 多行释义：检查每行是否都是超短碎片
+                lines_content = [l.strip() for l in content.split('\n') if l.strip()]
+                if all(len(l) <= 3 for l in lines_content):
+                    phrase_translation = ''
+
+        # 2. 如果 ECDICT 没有整体释义，尝试在线查词
         if not phrase_translation:
             online_result = self._online_lookup(phrase)
             if online_result and online_result.get('meaning'):
                 phrase_translation = online_result['meaning']
 
-        # 2. 拆分每个单词，查询各自释义
+        # 3. 如果仍无释义，标记需要 AI 翻译（由 app.py 层处理）
+        #    返回 None 让 lookup() 返回 None，从而触发 AI 分析
+        if not phrase_translation:
+            return None
+
+        # 4. 有整体释义了，拆分每个单词用于学习参考
         split = []
         for part in parts:
+            # 优先使用 MEANING_OVERRIDES 中的常用释义（避免 ECDICT 返回生僻释义）
+            if part in self.MEANING_OVERRIDES:
+                override_meaning = self.MEANING_OVERRIDES[part]
+                split.append({
+                    'part': part,
+                    'meaning': override_meaning,
+                    'original': part,
+                    'original_meaning': override_meaning,
+                    'transform': '原形不变',
+                    'explain': '独立单词',
+                })
+                continue
             part_data = self._query_ecdict(part)
             if part_data and part_data.get('translation'):
-                part_meaning = self._clean_meaning(part_data['translation'])
+                part_meaning = self._clean_meaning(part_data['translation'], part_data.get('pos', ''))
                 part_meaning = part_meaning.split('\n')[0][:60] if part_meaning else ''
 
                 # 检查该单词是否是某个原词的变形（如 sports -> sport 的复数）
@@ -2272,7 +4373,6 @@ class DictionaryService:
                         'd1': '过去分词', 'd2': '过去分词',
                         'i1': '现在分词/动名词', 'i2': '现在分词/动名词',
                     }
-                    # 先精确匹配，再前缀匹配（处理 s3, p1 等复合代码）
                     transform = form_desc.get(form_type, '')
                     if not transform:
                         for code, desc in form_desc.items():
@@ -2284,7 +4384,7 @@ class DictionaryService:
                     lemma_data = self._query_ecdict(lemma)
                     if lemma_data and lemma_data.get('translation'):
                         original = lemma
-                        lemma_meaning = self._clean_meaning(lemma_data['translation'])
+                        lemma_meaning = self._clean_meaning(lemma_data['translation'], lemma_data.get('pos', ''))
                         original_meaning = lemma_meaning.split('\n')[0][:60] if lemma_meaning else ''
 
                 split.append({
@@ -2296,7 +4396,6 @@ class DictionaryService:
                     'explain': '独立单词',
                 })
             elif part in self.DICTIONARY:
-                # ECDICT 没有该单词，尝试内置词典
                 part_meaning = self.DICTIONARY[part].get('meaning', '')
                 split.append({
                     'part': part,
@@ -2358,10 +4457,24 @@ class DictionaryService:
         word_lower = word.lower().strip()
 
         # ===== 短语/词组处理（包含空格的输入，如 "be good at"）=====
+        # 优先检查 DICTIONARY（包含手工编辑的精确拆解数据，如 "sports meeting"）
+        if ' ' in word_lower and word_lower in self.DICTIONARY:
+            result = self.DICTIONARY[word_lower].copy()
+            result['tenses'] = None  # 短语不显示时态按钮
+            # 补充例句（如果词典自带例句为空）
+            if not result.get('examples'):
+                zs_examples = self._get_zhuanshenben_examples(word_lower, result.get('meaning', ''))
+                if zs_examples:
+                    result['examples'] = zs_examples
+            return result
+
         if ' ' in word_lower:
             phrase_result = self._handle_phrase(word_lower)
             if phrase_result:
                 return phrase_result
+            # 短语翻译质量不佳或无释义：直接返回 None 触发 AI 分析
+            # 不再 fall through 到逐词 ECDICT 查询，避免返回碎片化释义
+            return None
 
         # 先精确匹配
         if word_lower in self.DICTIONARY:
@@ -2432,6 +4545,70 @@ class DictionaryService:
             }
             result['tenses']['inflection_type'] = 'tense'
             return result
+
+        # 检查是否是不规则形容词的比较级/最高级（如 worse→bad, better→good）
+        if word_lower in self.REVERSE_ADJ_DEGREES:
+            base_word = self.REVERSE_ADJ_DEGREES[word_lower]
+            degrees = self.ADJ_DEGREES[base_word]
+            # 确定当前词是比较级还是最高级
+            comp_forms = degrees['comparative'].split('/')
+            sup_forms = degrees['superlative'].split('/')
+            if word_lower in comp_forms:
+                form_type = '比较级'
+            elif word_lower in sup_forms:
+                form_type = '最高级'
+            else:
+                form_type = '变形'
+
+            # 查询原级的释义
+            base_data = self._query_ecdict(base_word)
+            base_translation = self._clean_meaning(base_data.get('translation', ''), base_data.get('pos', '')) if base_data else ''
+            base_phonetic = self._convert_phonetic(base_data.get('phonetic', '')) if base_data else ''
+
+            # 当前词的释义：优先用 MEANING_OVERRIDES，其次 ECDICT 自身释义，否则用原级释义+变形说明
+            cur_ecdict = self._query_ecdict(word_lower)
+            if word_lower in self.MEANING_OVERRIDES:
+                meaning = self.MEANING_OVERRIDES[word_lower]
+            else:
+                cur_translation = self._clean_meaning(cur_ecdict.get('translation', ''), cur_ecdict.get('pos', '')) if cur_ecdict else ''
+                meaning = cur_translation or f'{base_word}的{form_type}' if base_translation else (cur_translation or f'{form_type}')
+
+            # 构建变形数据（包含原级、比较级、最高级完整信息）
+            tenses = {
+                'positive': base_word,
+                'comparative': degrees['comparative'],
+                'superlative': degrees['superlative'],
+                'inflection_type': 'degree',
+            }
+
+            split = [{
+                'part': word_lower,
+                'meaning': meaning,
+                'original': base_word,
+                'original_meaning': base_translation or meaning,
+                'transform': form_type,
+                'explain': f'是"{base_word}"的{form_type}',
+            }]
+            if base_translation and base_word != word_lower:
+                split.append({
+                    'part': base_word,
+                    'meaning': base_translation,
+                    'original': base_word,
+                    'original_meaning': base_translation,
+                    'transform': '原形',
+                    'explain': '原词',
+                })
+
+            return {
+                'phonetic': self._convert_phonetic(cur_ecdict.get('phonetic', '')) if cur_ecdict else base_phonetic,
+                'meaning': meaning,
+                'type': '变形词',
+                'split': split,
+                'morph': [],
+                'mnemonic': f'"{word_lower}"是"{base_word}"的{form_type}',
+                'examples': self._get_zhuanshenben_examples(word_lower, meaning),
+                'tenses': tenses,
+            }
 
         # 内置词典未找到，尝试 ECDICT 词典
         ecdict_data = self._query_ecdict(word_lower)
@@ -2615,7 +4792,7 @@ class DictionaryService:
         meaning = ''
         ecdict_data = self._query_ecdict(word_lower)
         if ecdict_data and ecdict_data.get('translation'):
-            meaning = self._clean_meaning(ecdict_data['translation'])
+            meaning = self._clean_meaning(ecdict_data['translation'], ecdict_data.get('pos', ''))
         if not meaning:
             meaning = self._infer_meaning(word_lower, detected_prefix, detected_suffix, final_root)
 
@@ -2733,7 +4910,7 @@ class DictionaryService:
         # 完全无法推断时，尝试 ECDICT 词典
         ecdict_data = self._query_ecdict(word)
         if ecdict_data and ecdict_data.get('translation'):
-            return self._clean_meaning(ecdict_data['translation'])
+            return self._clean_meaning(ecdict_data['translation'], ecdict_data.get('pos', ''))
         # ECDICT 也没有，尝试在线查词
         online = self._online_lookup(word)
         if online and online.get('meaning'):

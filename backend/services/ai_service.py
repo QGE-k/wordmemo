@@ -58,13 +58,41 @@ class AIService:
         # 构建系统提示词：定义AI的角色和任务
         system_prompt = """你是一位专业的英语词法分析专家，专门帮助英语基础薄弱的中国学生理解单词构成。你的任务是对英语单词或词组进行深度拆解，让学生看懂每个部分"从哪来、怎么变、什么意思"，并给出好记的记忆方法。
 
-【核心原则】能拆解的单词都要拆，不要只拆复合词，派生词也要拆开给学生看。
+【核心原则】
+1. 能拆解的单词都要拆，不要只拆复合词，派生词也要拆开给学生看。
+2. 【释义优先规则】split 中每个部分的 meaning 必须是该词/词缀最常用的释义（专升本考试常见释义），不能使用生僻释义。例如：
+   - look → "v. 看"（不是"vi. 注意"）
+   - take → "v. 拿，取"（不是"vt. 带领"）
+   - pressure → "n. 压力"（不是"n. 强制"）
+   - to → "prep. 朝向/向"（不是"prep. 趋于"）
+   - be → "v. 是，存在"（不是"v. 表示"）
+   - much → "adj./adv. 多，大量"（不是"adv. 几乎"）
+   - care → "n. 关心，照顾"（不是"n. 小心"）
+3. 【前缀同化规则】拉丁语前缀在不同字母前会发生同化变化，拆解时必须识别：
+   - sub- 在 c 前变为 suc-（如 success = suc- + cess）
+   - sub- 在 g 前变为 sug-（如 suggest = sug- + gest）
+   - sub- 在 p 前变为 sup-（如 support = sup- + port）
+   - sub- 在 f 前变为 suf-（如 suffer = suf- + fer）
+   - sub- 在 m 前变为 sum-（如 summon = sum- + mon）
+   - ad- 在 p 前变为 ap-（如 appear = ap- + pear）
+   - ad- 在 c 前变为 ac-（如 accept = ac- + cept）
+   - in- 在 p 前变为 im-（如 important = im- + port + -ant）
+   - in- 在 r 前变为 ir-（如 irregular = ir- + regular）
+   - con- 在 l 前变为 col-（如 collect = col- + lect）
+   - con- 在 r 前变为 cor-（如 correct = cor- + rect）
+   - ob- 在 c 前变为 oc-（如 occur = oc- + cur）
+   拆解时 original 填原始前缀（如 sub-），transform 说明同化变化（如"sub- 在 c 前同化为 suc-"）
+4. 【基础词不拆原则】以下情况不要强行拆解：
+   - 整体借入英语的外来词：develop（法语）、culture（拉丁语）、imagine（拉丁语）、traffic（意大利语）
+   - 古英语基础词：water, thing, apple, book
+   - 看似有前缀但实际不是的词：develop（de-不是英语前缀，是法语残留）
+   这些词 type 设为"基础词"，split 留空 []，但 mnemonic 必须给出记忆方法
 
 分析要求：
 1. 判断单词类型：
    - 复合词（compound）：由两个或以上独立单词组合而成，如 classroom = class + room
    - 派生词（derivative）：由词根+词缀构成，如 happiness = happy + -ness，running = run + -ing
-   - 基础词（base）：无法进一步拆分的简单词，如 apple, book
+   - 基础词（base）：无法进一步拆分的简单词，如 apple, book, develop, culture
 
 2. 【重要】split 字段：无论是复合词还是派生词，只要能拆，都填到 split 数组里
    每个部分必须包含：
@@ -95,6 +123,11 @@ class AIService:
    - happiness: split = [{part:"happy", original:"happy", original_meaning:"adj. 快乐的", meaning:"adj. 快乐的", transform:"把 y 改成 i", explain:"词根"}, {part:"-ness", original:"-ness", original_meaning:"名词后缀，表示状态", meaning:"名词后缀，表示状态", transform:"本身是后缀，无变形", explain:"把形容词变成名词，表示'快乐的状态'"}]
    - teacher: split = [{part:"teach", original:"teach", original_meaning:"v. 教", meaning:"v. 教", transform:"原形不变", explain:"词根"}, {part:"-er", original:"-er", original_meaning:"名词后缀，表示做某事的人", meaning:"名词后缀，表示做某事的人", transform:"本身是后缀，无变形", explain:"把动词变成名词，表示'教书的人'即老师"}]
    - careful: split = [{part:"care", original:"care", original_meaning:"n. 小心，关怀", meaning:"n. 小心，关怀", transform:"原形不变，直接加后缀", explain:"词根"}, {part:"-ful", original:"full", original_meaning:"adj. 满的", meaning:"形容词后缀，表示'充满...的'", transform:"缩略为后缀 -ful", explain:"源自 full（满的），把名词变成形容词，表示'充满小心的'"}]
+   - success: split = [{part:"suc-", original:"sub-", original_meaning:"前缀，表示'在...之后'", meaning:"前缀，表示'在...之后'（sub- 的变体）", transform:"sub- 在 c 前同化为 suc-", explain:"前缀，表示'紧随其后'"}, {part:"cess", original:"cess", original_meaning:"词根，表示'走'", meaning:"词根，表示'走、行'", transform:"原形不变", explain:"词根，'紧跟其后走'引申为'成功'"}]
+   - suggest: split = [{part:"sug-", original:"sub-", original_meaning:"前缀，表示'在...之下'", meaning:"前缀，表示'在...下面'（sub- 的变体）", transform:"sub- 在 g 前同化为 sug-", explain:"前缀，表示'从下面托起'"}, {part:"gest", original:"gest", original_meaning:"词根，表示'带来'", meaning:"词根，表示'带来、携带'", transform:"原形不变", explain:"词根，'从下面带来'引申为'提出建议'"}]
+   - important: split = [{part:"im-", original:"in-", original_meaning:"前缀，表示'进入'", meaning:"前缀，表示'进入'（in- 在 p 前的变体）", transform:"in- 变为 im-（在 p 前同化）", explain:"前缀，表示'带入'"}, {part:"port", original:"port", original_meaning:"v. 搬运", meaning:"v. 搬运，携带", transform:"原形不变", explain:"词根，'带入分量'引申为'重要的'"}, {part:"-ant", original:"-ant", original_meaning:"形容词后缀", meaning:"形容词后缀，表示'具有...性质的'", transform:"本身是后缀，无变形", explain:"把动词变成形容词"}]
+   - education: split = [{part:"educate", original:"educate", original_meaning:"v. 教育", meaning:"v. 教育", transform:"去掉词尾 e", explain:"词根"}, {part:"-ion", original:"-ion", original_meaning:"名词后缀", meaning:"名词后缀，表示行为或状态", transform:"本身是后缀，无变形", explain:"把动词变成名词"}]
+   - develop: type="基础词", split=[], mnemonic="develop 来自法语 développer（展开）。de- 是法语残留，不是英语前缀，所以 develop 是基础词不拆解。"
 
 4. 复合词拆解示例（sports meeting）：
    - sports: 原词 sport（n. 运动），变形规则"加 -s 变复数"，复数作定语修饰 meeting
@@ -111,27 +144,40 @@ class AIService:
 
 7. 基础词（无法拆解的）：split 和 morph 都留空，但 mnemonic 必须给出记忆方法
 
-8. 【动词时态】如果该单词是动词（或包含动词词性），必须提供 tenses 字段，列出该动词的五种形态。非动词（纯名词/形容词/副词等）tenses 留空 null。
-   - base: 原形（动词原形）
-   - third_singular: 第三人称单数形式
-   - past: 过去式
-   - past_participle: 过去分词
-   - present_participle: 现在分词
+8. 【变形数据 tenses】所有单词都要提供 tenses 字段，根据词性提供不同的变形信息：
+   【动词】提供五种形态：base(原形), third_singular(第三人称单数), past(过去式), past_participle(过去分词), present_participle(现在分词)
+   示例：run 的 tenses = {base:"run", third_singular:"runs", past:"ran", past_participle:"run", present_participle:"running", inflection_type:"tense"}
    注意不规则动词（如 go→went→gone, run→ran→run, write→wrote→written）要给出正确的不规则变形。
-   示例：run 的 tenses = {base:"run", third_singular:"runs", past:"ran", past_participle:"run", present_participle:"running"}
+
+   【形容词】提供级变化：positive(原级), comparative(比较级), superlative(最高级)
+   示例：good 的 tenses = {positive:"good", comparative:"better", superlative:"best", inflection_type:"degree"}
+   示例：big 的 tenses = {positive:"big", comparative:"bigger", superlative:"biggest", inflection_type:"degree"}
+
+   【名词】提供复数变形：singular(单数), plural(复数)
+   示例：book 的 tenses = {singular:"book", plural:"books", inflection_type:"plural"}
+   示例：child 的 tenses = {singular:"child", plural:"children", inflection_type:"plural"}
+
+   【副词/介词/连词等】tenses 留空 null
+   必须包含 inflection_type 字段（"tense"/"degree"/"plural"），用于前端区分按钮类型。
 
 9. 提供2个实用例句，例句尽量使用江西专升本英语考试中常见的语境和话题（如学习、教育、大学生活、职业发展、社会热点等），难度适中。例句中的英文必须语法正确、表达自然。
+   【例句翻译要求】中文翻译必须准确、通顺、符合中文表达习惯，不能逐词机翻。翻译要传达英文句子的完整含义，而不是逐字对应。
 
 10. 【强制规则】以下字段必须非空：
     - meaning：必须包含词性标注（n./v./adj./adv./prep./conj. 等）和中文释义，如 "n. 苹果"、"v. 跑"。即使是生僻词也要给出释义，不能返回空字符串。翻译必须准确，不能编造意思。
+    【释义精简规则】meaning 只给1-2个最常用的专升本考试释义，不要给太多释义。最常考的释义放在最前面。
+    例如：good → "adj. 好的，令人满意的"（不要给"善行"等生僻义）
+         worse → "adj. 更坏的，更差的"（不要给"更坏的事物"等生僻义）
+         take → "v. 拿，取"（不要给太多释义）
     - phonetic：必须给出音标，如 "/æpl/"。不确定时给出最接近的音标。
     - mnemonic：必须给出记忆方法，不能为空。
     如果单词是短语/词组（如 "sports meeting"、"take care of"），meaning 给出整体释义，split 拆解每个组成单词。
 
 11. 【短语/词组处理】如果输入是短语或词组（包含空格），按复合词处理：
-    - meaning 给出整个短语的意思，如 "take care of" → "v. 照顾，照料"
+    - meaning 给出整个短语最常用的中文意思，只给1个最常用释义。如 "take care of" → "v. 照顾"，"the best" → "最好的（人或物）"，"have a good knowledge of" → "v. 精通，掌握"
     - split 把每个独立单词拆开，标注原形和变形
     - type 填"复合词"
+    - 短语的翻译必须准确反映短语的整体含义，不能逐词翻译。如果不确定短语的意思，给出最常见的用法释义。
 
 12. 【拆解原则】split 必须基于单词的实际构成来拆解：
     - 只拆解确实由多个部分组成的词（复合词拆成独立单词，派生词拆成词根+词缀）
@@ -155,7 +201,7 @@ class AIService:
     ],
     "morph": [{"type": "root/prefix/suffix", "word": "词根或词缀", "meaning": "含义"}],
     "mnemonic": "1-2句中文记忆口诀",
-    "tenses": {"base": "原形", "third_singular": "第三人称单数", "past": "过去式", "past_participle": "过去分词", "present_participle": "现在分词"},
+    "tenses": {"inflection_type": "tense/degree/plural", "...": "根据类型填入对应字段"},
     "examples": [{"en": "英文例句", "zh": "中文翻译"}]
 }"""
 
@@ -240,17 +286,36 @@ class AIService:
                 'explain': item.get('explain', ''),
             })
 
-        # 规范化 tenses 字段（动词五种形态），非动词为 None
+        # 规范化 tenses 字段：支持动词时态、形容词级变化、名词复数
         raw_tenses = data.get('tenses')
         tenses_normalized = None
-        if isinstance(raw_tenses, dict) and raw_tenses.get('base'):
-            tenses_normalized = {
-                'base': raw_tenses.get('base', ''),
-                'third_singular': raw_tenses.get('third_singular', ''),
-                'past': raw_tenses.get('past', ''),
-                'past_participle': raw_tenses.get('past_participle', ''),
-                'present_participle': raw_tenses.get('present_participle', ''),
-            }
+        if isinstance(raw_tenses, dict):
+            infl_type = raw_tenses.get('inflection_type', '')
+            # 动词时态
+            if raw_tenses.get('base') or infl_type == 'tense':
+                tenses_normalized = {
+                    'base': raw_tenses.get('base', ''),
+                    'third_singular': raw_tenses.get('third_singular', ''),
+                    'past': raw_tenses.get('past', ''),
+                    'past_participle': raw_tenses.get('past_participle', ''),
+                    'present_participle': raw_tenses.get('present_participle', ''),
+                    'inflection_type': 'tense',
+                }
+            # 形容词级变化
+            elif raw_tenses.get('positive') or raw_tenses.get('comparative') or raw_tenses.get('superlative') or infl_type == 'degree':
+                tenses_normalized = {
+                    'positive': raw_tenses.get('positive', ''),
+                    'comparative': raw_tenses.get('comparative', ''),
+                    'superlative': raw_tenses.get('superlative', ''),
+                    'inflection_type': 'degree',
+                }
+            # 名词复数
+            elif raw_tenses.get('singular') or raw_tenses.get('plural') or infl_type == 'plural':
+                tenses_normalized = {
+                    'singular': raw_tenses.get('singular', ''),
+                    'plural': raw_tenses.get('plural', ''),
+                    'inflection_type': 'plural',
+                }
 
         # meaning 兜底：AI 偶尔返回空释义，此时尝试从 split 推断，仍为空则给提示
         meaning = data.get('meaning', '') or ''
@@ -279,6 +344,119 @@ class AIService:
             'examples': data.get('examples', []) if isinstance(data.get('examples'), list) else [],
             'tenses': tenses_normalized,
         }
+
+    def generate_examples(self, word, meaning=''):
+        """
+        用AI为单词生成2个高质量例句（比完整分析更轻量，速度更快）
+
+        参数:
+            word: 单词
+            meaning: 单词释义（帮助AI理解词义上下文）
+
+        返回:
+            list: [{en, zh}, ...] 例句列表
+        """
+        if not self.is_available():
+            return []
+
+        system_prompt = """你是一位资深的大学英语教师，专门为江西专升本英语考试编写例句。
+
+【核心要求】
+1. 生成2个例句，两个例句的句式结构、场景、话题、主语必须完全不同
+   - 禁止两个例句使用相同的主语开头（如不能两个都是"She..."或两个都是"The..."）
+   - 禁止两个例句使用相同的句型（如不能两个都是陈述句）
+   - 两个例句必须展示该单词的不同用法或不同语境
+   - 建议组合示例：
+     * 一个疑问句 + 一个陈述句
+     * 一个感叹句 + 一个条件句
+     * 一个被动语态 + 一个主动语态
+     * 一个日常对话 + 一个正式书面语
+
+2. 【主语多样化】两个例句绝不能以相同单词开头。请从以下主语中选不同的：
+   避免"She"和"The"被过度使用。尽量使用更多样的主语，如：
+   I, You, He, They, We, Many people, Students, The teacher, My friend, Nobody, Everyone, It, There, What, How, If, Although, Driving, Reading, Learning...
+
+3. 例句难度：大学英语三级水平，词汇量控制在四级以内
+4. 例句必须语法正确、表达自然地道，像真实英语文章或对话中的句子
+5. 例句内容要有实际意义和信息量，讲述一个小故事或描述一个具体场景
+6. 例句应该展示该单词最常见的用法和搭配
+7. 中文翻译必须准确、通顺、符合中文表达习惯，不能逐词机翻
+8. 如果是短语（如look up to），例句必须正确使用该短语的语法形式
+
+【话题方向】两个例句应选择不同的话题领域：
+学习与教育、大学生活、职业发展、社会热点、文化交流、健康生活、科技发展、环境保护、日常生活、旅行、购物、运动
+
+【严格禁止事项】
+- 禁止使用以下模板句式：
+  * "X is very important to us/in our life/in modern society"
+  * "I learned a lot from this X"
+  * "X has changed our lives"
+  * "We should pay more attention to X"
+  * "It is important to X"
+  * "Students should learn how to X"
+  * "X plays an important role in Y"
+  * "We should do/try our best to X"
+  * "It is necessary to X"
+  * "X is one of the most important Y"
+- 禁止例句之间句式雷同（只换单词不换结构）
+- 禁止中文翻译逐字对应英文，必须意译
+- 禁止两个例句讨论相同话题
+- 禁止例句过于简单空洞（如"She is a good student."），必须有具体细节
+
+严格返回以下JSON格式，不要包含任何其他文字：
+{"examples": [{"en": "英文例句", "zh": "中文翻译"}, {"en": "英文例句", "zh": "中文翻译"}]}"""
+
+        meaning_hint = f'\n该单词的释义是：{meaning}' if meaning else ''
+        user_prompt = f'请为单词或短语 "{word}" 生成2个高质量、句式完全不同的例句。{meaning_hint}'
+
+        payload = {
+            'model': self.model,
+            'messages': [
+                {'role': 'system', 'content': system_prompt},
+                {'role': 'user', 'content': user_prompt},
+            ],
+            'temperature': 0.8,
+            'max_tokens': 2000,
+        }
+
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {self.api_key}',
+        }
+
+        url = f'{self.base_url.rstrip("/")}/chat/completions'
+
+        try:
+            response = requests.post(url, json=payload, headers=headers, timeout=60)
+            response.raise_for_status()
+            result = response.json()
+
+            content = self._extract_response_content(result)
+            if not content:
+                return []
+
+            # 清理推理标签和markdown包裹
+            content = self._clean_model_output(content)
+            if not content:
+                return []
+
+            # 尝试直接解析JSON，失败则从文本中提取
+            try:
+                data = json.loads(content)
+            except json.JSONDecodeError:
+                data = self._extract_json_from_text(content)
+
+            examples = data.get('examples', [])
+            if isinstance(examples, list) and examples:
+                valid = []
+                for ex in examples[:2]:
+                    if isinstance(ex, dict) and ex.get('en') and ex.get('zh'):
+                        valid.append({'en': ex['en'].strip(), 'zh': ex['zh'].strip()})
+                return valid
+        except Exception as e:
+            print(f'[ai] generate_examples fail({word}): {e}')
+
+        return []
 
     def _extract_json_from_text(self, text):
         """

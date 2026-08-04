@@ -34,6 +34,21 @@ app.permanent_session_lifetime = timedelta(days=7)
 # 启用CORS，允许前端跨域访问（支持 credentials）
 CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
 
+
+@app.after_request
+def set_api_cache_headers(response):
+    """缓存控制：API 和静态资源都不缓存，确保总是拿到最新版本"""
+    if request.path.startswith('/api/'):
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+    elif request.path.startswith('/assets/') or request.path.endswith('.html') or request.path.endswith('/sw.js'):
+        # 静态资源（JS/CSS/HTML/SW）：每次都验证，防止旧缓存
+        response.headers['Cache-Control'] = 'no-cache, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+    return response
+
+
 # 初始化数据库
 db.init_app(app)
 
@@ -223,6 +238,65 @@ def auth_reset_password():
     return jsonify({'success': True, 'message': '密码已重置，请使用新密码登录'})
 
 
+@app.route('/api/auth/profile', methods=['PUT'])
+def auth_update_profile():
+    """用户修改个人信息（昵称、安全问题）
+    请求体JSON: {"nickname": "xxx", "security_question": "xxx", "security_answer": "xxx"}
+    """
+    user = get_current_user()
+    if not user:
+        return jsonify({'success': False, 'error': '请先登录'}), 401
+
+    data = request.get_json() or {}
+    changed = False
+
+    if 'nickname' in data:
+        nickname = data['nickname'].strip()
+        if len(nickname) > 80:
+            return jsonify({'success': False, 'error': '昵称最多80个字符'}), 400
+        user.nickname = nickname
+        changed = True
+
+    if 'security_question' in data:
+        user.security_question = data['security_question'].strip() or 'What is your favorite color?'
+        changed = True
+
+    if 'security_answer' in data:
+        user.security_answer = data['security_answer'].strip()
+        changed = True
+
+    if changed:
+        db.session.commit()
+
+    return jsonify({'success': True, 'data': user.to_dict(), 'message': '个人信息已更新'})
+
+
+@app.route('/api/auth/change-password', methods=['PUT'])
+def auth_change_password():
+    """用户修改密码（需验证旧密码）
+    请求体JSON: {"old_password": "xxx", "new_password": "xxx"}
+    """
+    user = get_current_user()
+    if not user:
+        return jsonify({'success': False, 'error': '请先登录'}), 401
+
+    data = request.get_json() or {}
+    old_password = data.get('old_password', '')
+    new_password = data.get('new_password', '')
+
+    if not old_password:
+        return jsonify({'success': False, 'error': '请输入旧密码'}), 400
+    if len(new_password) < 6:
+        return jsonify({'success': False, 'error': '新密码至少6个字符'}), 400
+
+    if not user.check_password(old_password):
+        return jsonify({'success': False, 'error': '旧密码不正确'}), 403
+
+    user.set_password(new_password)
+    db.session.commit()
+    return jsonify({'success': True, 'message': '密码修改成功'})
+
+
 @app.route('/api/admin/users', methods=['GET'])
 def admin_list_users():
     """管理员：获取所有用户列表及其学习统计"""
@@ -231,9 +305,18 @@ def admin_list_users():
         return err
 
     users = User.query.order_by(User.created_at.desc()).all()
+    # 管理员可查看完整信息：含安全问题、密码哈希、OCR用量等
+    result = []
+    for u in users:
+        info = u.to_dict(include_stats=True)
+        info['security_answer'] = u.security_answer or ''
+        info['password_hash'] = u.password_hash
+        info['salt'] = u.salt
+        info['is_active'] = u.is_active if u.is_active is not None else True
+        result.append(info)
     return jsonify({
         'success': True,
-        'data': [u.to_dict(include_stats=True) for u in users],
+        'data': result,
     })
 
 
@@ -532,57 +615,283 @@ def upgrade_split_data():
 
 def fix_empty_meanings():
     """
-    数据迁移：修复 meaning 为空的单词
+    数据迁移：修复 meaning 为空或"暂无释义"的单词
     对这些单词重新分析，补充 meaning/phonetic/mnemonic/tenses 等空字段
     优先用 AI 分析，AI 不可用时降级到字典/规则分析（至少给出兜底释义）
+    对"暂无释义"的单词，同时覆盖更新例句和记忆方法（之前的模板数据质量差）
     """
     fixed = 0
-    # 查找 meaning 为空的单词
+    # 查找 meaning 为空或包含"暂无释义"的单词
     empty_words = Word.query.filter(
-        db.or_(Word.meaning.is_(None), Word.meaning == '')
+        db.or_(
+            Word.meaning.is_(None),
+            Word.meaning == '',
+            Word.meaning.like('%暂无释义%'),
+        )
     ).all()
 
     for word in empty_words:
         try:
+            was_no_meaning = word.meaning and '暂无释义' in word.meaning
             analysis, source = analyze_word_with_fallback(word.word)
-            updated = False
-            # 只补充空字段，不覆盖已有数据
             new_meaning = analysis.get('meaning', '')
-            if new_meaning and (not word.meaning or word.meaning.strip() == ''):
+            updated = False
+            # 有有效释义时更新（跳过仍然为空或"暂无释义"的结果）
+            if new_meaning and '暂无释义' not in new_meaning:
                 word.meaning = new_meaning
                 updated = True
             if not word.phonetic and analysis.get('phonetic'):
                 word.phonetic = analysis['phonetic']
                 updated = True
-            if not word.mnemonic and analysis.get('mnemonic'):
+            # 对"暂无释义"单词：强制覆盖记忆方法（之前的模板数据差）
+            if was_no_meaning and analysis.get('mnemonic'):
                 word.mnemonic = analysis['mnemonic']
                 updated = True
-            if not word.tenses and analysis.get('tenses'):
+            elif not word.mnemonic and analysis.get('mnemonic'):
+                word.mnemonic = analysis['mnemonic']
+                updated = True
+            if (not word.tenses or (isinstance(word.tenses, dict) and not word.tenses.get('inflection_type'))) and analysis.get('tenses'):
                 word.tenses = analysis['tenses']
                 updated = True
-            if not word.split_data and analysis.get('split'):
-                word.split_data = analysis['split']
+            if was_no_meaning or not word.split_data:
+                if analysis.get('split'):
+                    word.split_data = analysis['split']
+                    updated = True
+            # 对"暂无释义"单词：强制覆盖例句（之前的模板例句语法错误）
+            if was_no_meaning and analysis.get('examples'):
+                word.examples = analysis['examples']
+                updated = True
+            elif not word.examples and analysis.get('examples'):
+                word.examples = analysis['examples']
                 updated = True
             if updated:
                 fixed += 1
+                print(f"[迁移] 已修复 '{word.word}': {new_meaning[:40]}")
         except Exception as e:
             print(f"[迁移] 修复 '{word.word}' 失败: {e}")
 
     if fixed > 0:
         db.session.commit()
-        print(f"[迁移] 已修复 {fixed} 个空释义单词")
+        print(f"[迁移] 已修复 {fixed} 个空释义/暂无释义单词")
+
+
+def fix_broken_meanings():
+    """
+    数据迁移：修复释义异常的单词
+    1. 释义包含 OCR 数字artifact（如 "更差的2"）→ 重新查词典
+    2. 变形词（worse/better/best 等）缺少或错误的 tenses → 修复
+    3. 释义为纯英文（无中文字符）→ 重新查词典
+    4. tenses 类型与单词不符（如 worse 显示 plural 而非 degree）→ 修复
+    """
+    fixed = 0
+    for word in Word.query.all():
+        need_fix = False
+        meaning = word.meaning or ''
+
+        # 1. 释义为空
+        if not meaning.strip():
+            need_fix = True
+        # 2. 释义末尾有数字（OCR artifact，如 "更差的2"）
+        elif re.search(r'[\u4e00-\u9fff]\d+$', meaning.strip()):
+            need_fix = True
+        # 3. 释义没有中文字符（纯英文或乱码）
+        elif meaning.strip() and not any('\u4e00' <= c <= '\u9fff' for c in meaning):
+            need_fix = True
+
+        # 4. 检查 tenses 数据是否需要修复
+        # 变形词缺少 tenses，或 tenses 类型错误（如 worse 显示 plural 而非 degree）
+        word_lower = word.word.lower().strip()
+        reverse_adj = dictionary_service.REVERSE_ADJ_DEGREES.get(word_lower)
+        tenses_wrong = False
+        if reverse_adj:
+            # 这是一个不规则形容词变形词，tenses 应该是 degree 类型
+            if not word.tenses or word.tenses.get('inflection_type') != 'degree':
+                tenses_wrong = True
+                need_fix = True
+        elif not word.tenses and not need_fix:
+            # 非变形词但缺少 tenses，尝试补充
+            dict_result = dictionary_service.lookup(word.word)
+            if dict_result and dict_result.get('tenses'):
+                word.tenses = dict_result['tenses']
+                if dict_result.get('split') and not word.split_data:
+                    word.split_data = dict_result['split']
+                if dict_result.get('type') and word.word_type == '基础词':
+                    word.word_type = dict_result['type']
+                if dict_result.get('mnemonic') and not word.mnemonic:
+                    word.mnemonic = dict_result['mnemonic']
+                fixed += 1
+            continue
+
+        if not need_fix:
+            continue
+
+        try:
+            analysis, source = analyze_word_with_fallback(word.word)
+            new_meaning = analysis.get('meaning', '')
+            if new_meaning:
+                word.meaning = new_meaning
+            if analysis.get('phonetic') and (not word.phonetic or word.phonetic == ''):
+                word.phonetic = analysis['phonetic']
+            if analysis.get('tenses'):
+                word.tenses = analysis['tenses']
+            if analysis.get('split'):
+                word.split_data = analysis['split']
+            if analysis.get('type'):
+                word.word_type = analysis['type']
+            if analysis.get('mnemonic'):
+                word.mnemonic = analysis['mnemonic']
+            if analysis.get('examples'):
+                word.examples = analysis['examples']
+            fixed += 1
+        except Exception as e:
+            print(f"[迁移] 修复异常释义 '{word.word}' 失败: {e}")
+
+    if fixed > 0:
+        db.session.commit()
+        print(f"[迁移] 已修复 {fixed} 个异常释义/变形单词")
+
+
+def force_upgrade_all_tenses():
+    """
+    强制升级所有单词的 tenses 数据和释义精简
+    1. 用新的 _clean_meaning 逻辑更新所有单词的释义（精简为1-2条考试常考释义）
+    2. 用新的 _get_inflections 逻辑补全所有单词的 tenses（支持 a. 前缀的形容词等）
+    3. 确保 tenses 包含 inflection_type 字段
+    4. 修复碎片化/垃圾释义（如短语返回的 "冠\n姣姣者"）
+    """
+    upgraded = 0
+    for word in Word.query.all():
+        need_upgrade = False
+        dict_data = dictionary_service.lookup(word.word)
+
+        # 检查存储的释义是否是垃圾释义（碎片化、无词性前缀、过短）
+        stored_meaning = word.meaning or ''
+        is_garbage = False
+        if stored_meaning:
+            import re as _re
+            # 去掉词性前缀后检查
+            content = _re.sub(r'^[a-z]+\.\s*', '', stored_meaning).strip()
+            chars = [c for c in content if '\u4e00' <= c <= '\u9fff']
+            if len(chars) <= 3:
+                is_garbage = True
+            elif '\n' in content:
+                lines_c = [l.strip() for l in content.split('\n') if l.strip()]
+                if all(len(l) <= 3 for l in lines_c):
+                    is_garbage = True
+
+        # 如果释义是垃圾且词典查不到（短语被质量检查过滤），用 AI 重新分析
+        if is_garbage and not dict_data:
+            try:
+                analysis, source = analyze_word_with_fallback(word.word)
+                if analysis:
+                    new_meaning = analysis.get('meaning', '')
+                    if new_meaning and new_meaning != stored_meaning:
+                        word.meaning = new_meaning
+                        need_upgrade = True
+                    if analysis.get('tenses'):
+                        word.tenses = analysis['tenses']
+                        need_upgrade = True
+                    if analysis.get('split'):
+                        word.split_data = analysis['split']
+                        need_upgrade = True
+                    if analysis.get('type'):
+                        word.word_type = analysis['type']
+                        need_upgrade = True
+                    if analysis.get('mnemonic') and not word.mnemonic:
+                        word.mnemonic = analysis['mnemonic']
+                        need_upgrade = True
+                    if analysis.get('examples'):
+                        word.examples = analysis['examples']
+                        need_upgrade = True
+            except Exception as e:
+                print(f"[迁移] AI重分析 '{word.word}' 失败: {e}")
+            if need_upgrade:
+                upgraded += 1
+            continue
+
+        if not dict_data:
+            continue
+
+        # 1. 更新释义（应用新的精简逻辑）
+        new_meaning = dict_data.get('meaning', '')
+        if new_meaning and new_meaning != word.meaning:
+            word.meaning = new_meaning
+            need_upgrade = True
+
+        # 2. 更新 tenses（应用新的变形检测逻辑）
+        new_tenses = dict_data.get('tenses')
+        if new_tenses:
+            # 检查是否需要更新：tenses 为空、缺少 inflection_type、或类型不匹配
+            if not word.tenses:
+                need_upgrade = True
+            elif not word.tenses.get('inflection_type'):
+                need_upgrade = True
+            elif word.tenses.get('inflection_type') != new_tenses.get('inflection_type'):
+                need_upgrade = True
+
+            if need_upgrade:
+                word.tenses = new_tenses
+
+        # 3. 更新 split 数据（确保变形词的 split 正确）
+        new_split = dict_data.get('split', [])
+        if new_split and new_split != word.split_data:
+            word.split_data = new_split
+            need_upgrade = True
+
+        # 4. 更新 word_type
+        new_type = dict_data.get('type', '')
+        if new_type and new_type != word.word_type:
+            word.word_type = new_type
+            need_upgrade = True
+
+        # 5. 更新 mnemonic
+        new_mnemonic = dict_data.get('mnemonic', '')
+        if new_mnemonic and not word.mnemonic:
+            word.mnemonic = new_mnemonic
+            need_upgrade = True
+
+        if need_upgrade:
+            upgraded += 1
+
+    if upgraded > 0:
+        db.session.commit()
+        print(f"[迁移] 已升级 {upgraded} 个单词的释义精简和变形数据")
+
+
+def get_today_utc_range():
+    """获取本地今天对应的 UTC 时间范围（start_utc, end_utc）
+
+    last_review 存储的是 datetime.utcnow() 的值（UTC 时间），
+    但用户看到的"今天"是本地日期（date.today()）。
+    直接用本地午夜和 UTC 时间比较会导致时区错位：
+      - UTC+8 凌晨 0~8 点学习的单词不会被计入"今日已学"
+      - 跨天时可能把昨天的单词算到今天
+
+    此函数将本地午夜转换为 UTC，确保比较基准一致。
+    """
+    today_local = date.today()
+    today_start_local = datetime.combine(today_local, datetime.min.time())
+    utc_offset = datetime.now() - datetime.utcnow()  # e.g. timedelta(hours=8)
+    today_start_utc = today_start_local - utc_offset
+    today_end_utc = today_start_utc + timedelta(days=1)
+    return today_start_utc, today_end_utc
 
 
 def update_learn_history(count=1):
-    """更新今日学习历史记录（按用户隔离）"""
+    """更新今日学习历史记录（按用户隔离）
+
+    count > 0：新增学习记录
+    count < 0：撤销学习记录（如将单词改回未学习时减回计数）
+    """
     today = date.today()
     user_id = get_current_user_id()
     history = LearnHistory.query.filter_by(date=today, user_id=user_id).first()
     if history:
-        history.count += count
+        history.count = max(0, history.count + count)
     else:
-        history = LearnHistory(date=today, count=count, user_id=user_id)
-        db.session.add(history)
+        if count > 0:
+            history = LearnHistory(date=today, count=count, user_id=user_id)
+            db.session.add(history)
     db.session.commit()
 
 
@@ -662,6 +971,27 @@ def fill_missing_examples():
         'We should pay more attention to the',
         'to learn English well.',
         'student in our class.',
+        # 旧模板系统生成的特征
+        'is very important to us',
+        'I learned a lot from this',
+        'has changed our lives',
+        'I usually ',
+        'her English skills',
+        'She is a very ',
+        'This book is very ',
+        'The weather today is quite ',
+        'He spoke ',
+        'She always listens ',
+        # 新增模板特征
+        'We should do our best',
+        'We should try our best',
+        'plays an important role',
+        'We should ',
+        'It is necessary to',
+        'is one of the most important',
+        'in our daily life',
+        'in modern society',
+        'is look up to',
     ]
 
     def is_bad_example(examples):
@@ -781,8 +1111,8 @@ def get_words():
     if starred == '1':
         query = query.filter(Word.is_starred == True)
 
-    # 按添加时间倒序排列
-    words = query.order_by(Word.added_at.desc()).all()
+    # 按添加时间正序排列（先添加的排前面）
+    words = query.order_by(Word.added_at.asc()).all()
 
     return jsonify({
         'success': True,
@@ -821,12 +1151,16 @@ def add_word():
     # 检查单词是否已存在（按词本去重）
     user_id = get_current_user_id()
     wordbook_id = data.get('wordbook_id')
-    if wordbook_id is not None:
+    # 统一处理 wordbook_id：字符串 '0'、整数 0、空字符串 都视为"未归类"
+    if wordbook_id is not None and wordbook_id != '' and str(wordbook_id) != '0':
+        wordbook_id = int(wordbook_id)
         book = Wordbook.query.get(wordbook_id)
         if not book:
             return jsonify({'success': False, 'error': '指定的单词本不存在'}), 400
         if user_id and book.user_id and book.user_id != user_id:
             return jsonify({'success': False, 'error': '无权访问该单词本'}), 403
+    else:
+        wordbook_id = None
     # 按词本去重
     if wordbook_id:
         existing = Word.query.filter_by(word=word_text, user_id=user_id, wordbook_id=wordbook_id).first() if user_id else Word.query.filter_by(word=word_text, wordbook_id=wordbook_id).first()
@@ -886,7 +1220,8 @@ def batch_add_words():
     # 可选：单词本 ID
     user_id = get_current_user_id()
     wordbook_id = data.get('wordbook_id')
-    if wordbook_id is not None and wordbook_id != '' and wordbook_id != 0:
+    # 统一处理 wordbook_id：字符串 '0'、整数 0、空字符串 都视为"未归类"
+    if wordbook_id is not None and wordbook_id != '' and str(wordbook_id) != '0':
         wordbook_id = int(wordbook_id)
         book = Wordbook.query.get(wordbook_id)
         if not book:
@@ -936,24 +1271,35 @@ def batch_add_words():
             continue
         # 先查本地词典（毫秒级，不耗时间）
         dict_result = dictionary_service.lookup(word_text)
-        if dict_result:
-            # 如果客户端传了释义（扫描识别的），优先使用客户端释义
-            if client_meaning:
-                dict_result['meaning'] = client_meaning
+        if dict_result and dict_result.get('meaning') and '暂无释义' not in dict_result.get('meaning', ''):
+            # 词典有有效释义，直接使用
             pending.append((word_text, dict_result, is_starred, client_meaning))
         else:
+            # 词典无释义或释义为空：标记需要 AI 分析
+            # 保留 client_meaning 作为兜底
             pending.append((word_text, None, is_starred, client_meaning))
 
     # 第二步：对本地词典没有的词，用线程池并发调 AI
+    # 同时：对词典有释义但例句是模板的词，并发调 AI 生成高质量例句
     ai_pending = [(w, m) for w, a, _, m in pending if a is None]
+    # 找出词典命中但例句是模板的词，需要 AI 生成例句
+    example_refresh_pending = []
+    for w, a, _, _ in pending:
+        if a is not None and isinstance(a, dict):
+            examples = a.get('examples', [])
+            if dictionary_service.is_template_examples(examples):
+                example_refresh_pending.append((w, a.get('meaning', '')))
+
     if ai_pending:
         def _analyze(args):
             word_text, client_meaning = args
             try:
                 result = analyze_word_with_fallback(word_text)
-                # 如果客户端传了释义，覆盖 AI/词典的释义
+                # 词典/AI 释义优先，扫描释义仅在无释义或"暂无释义"时兜底
                 if client_meaning and isinstance(result, tuple):
-                    result[0]['meaning'] = client_meaning
+                    meaning = result[0].get('meaning', '')
+                    if not meaning or '暂无释义' in meaning:
+                        result[0]['meaning'] = client_meaning
                 return word_text, result
             except Exception as e:
                 return word_text, e
@@ -977,6 +1323,32 @@ def batch_add_words():
                         new_pending.append((word_text, a, s, m))
                         break
         pending = new_pending
+
+    # 第二步B：对词典命中但例句是模板的词，用 AI 生成高质量例句
+    if example_refresh_pending and ai_service.is_available():
+        def _gen_examples(args):
+            word_text, meaning = args
+            try:
+                examples = ai_service.generate_examples(word_text, meaning)
+                return word_text, examples
+            except Exception as e:
+                return word_text, []
+
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            ex_results = list(executor.map(_gen_examples, example_refresh_pending))
+
+        # 把 AI 生成的例句合并回 pending
+        ex_map = {}
+        for word_text, examples in ex_results:
+            if examples:
+                ex_map[word_text] = examples
+        if ex_map:
+            new_pending = []
+            for word_text, analysis, starred, client_meaning in pending:
+                if word_text in ex_map and isinstance(analysis, dict):
+                    analysis['examples'] = ex_map[word_text]
+                new_pending.append((word_text, analysis, starred, client_meaning))
+            pending = new_pending
 
     # 第三步：统一写入数据库
     for word_text, analysis_or_error, is_starred, _ in pending:
@@ -1019,6 +1391,76 @@ def batch_add_words():
         'skipped_count': len(skipped),
         'failed_count': len(failed),
     }), 201
+
+
+@app.route('/api/words/<int:word_id>/refresh-examples', methods=['POST'])
+def refresh_word_examples(word_id):
+    """用 AI 重新生成单词的高质量例句"""
+    word = Word.query.get(word_id)
+    if not word:
+        return jsonify({'success': False, 'error': '单词不存在'}), 404
+    user_id = get_current_user_id()
+    if user_id and word.user_id and word.user_id != user_id:
+        return jsonify({'success': False, 'error': '无权访问'}), 403
+
+    if not ai_service.is_available():
+        return jsonify({'success': False, 'error': 'AI服务不可用，请配置API Key'}), 503
+
+    try:
+        examples = ai_service.generate_examples(word.word, word.meaning or '')
+        if examples:
+            word.examples = examples
+            db.session.commit()
+            return jsonify({'success': True, 'examples': examples})
+        else:
+            return jsonify({'success': False, 'error': 'AI生成例句失败，请稍后重试'}), 500
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/words/refresh-all-examples', methods=['POST'])
+def refresh_all_examples():
+    """批量刷新所有模板例句的单词（用 AI 重新生成高质量例句）"""
+    if not ai_service.is_available():
+        return jsonify({'success': False, 'error': 'AI服务不可用'}), 503
+
+    user_id = get_current_user_id()
+    # 查找所有例句是模板的单词
+    if user_id:
+        words = Word.query.filter_by(user_id=user_id).all()
+    else:
+        words = Word.query.all()
+
+    refresh_list = []
+    for word in words:
+        if dictionary_service.is_template_examples(word.examples):
+            refresh_list.append((word, word.meaning or ''))
+
+    if not refresh_list:
+        return jsonify({'success': True, 'message': '没有需要刷新的例句', 'refreshed': 0})
+
+    def _gen(args):
+        word, meaning = args
+        try:
+            examples = ai_service.generate_examples(word.word, meaning)
+            return word, examples
+        except Exception:
+            return word, []
+
+    refreshed = 0
+    # 每次处理5个，避免超时
+    batch_size = 5
+    for i in range(0, len(refresh_list), batch_size):
+        batch = refresh_list[i:i + batch_size]
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            results = list(executor.map(_gen, batch))
+        for word, examples in results:
+            if examples:
+                word.examples = examples
+                refreshed += 1
+        db.session.commit()
+
+    return jsonify({'success': True, 'refreshed': refreshed, 'total': len(refresh_list)})
 
 
 @app.route('/api/words/<int:word_id>', methods=['GET'])
@@ -1086,6 +1528,26 @@ def update_word(word_id):
                         word.wordbook_id = book.id
                     else:
                         return jsonify({'success': False, 'error': '单词本不存在或无权访问'}), 400
+            elif field == 'status':
+                old_status = word.status
+                old_last_review = word.last_review
+                word.status = val
+                # 状态变更时同步更新 last_review 和 LearnHistory，确保今日已学统计准确
+                if val == 'new':
+                    # 改回未学习：如果 last_review 是今天，减回 LearnHistory 计数
+                    if old_last_review:
+                        today_start_utc, today_end_utc = get_today_utc_range()
+                        if today_start_utc <= old_last_review < today_end_utc and old_status != 'new':
+                            update_learn_history(-1)
+                    # 清空 last_review，不计入今日已学
+                    word.last_review = None
+                    word.next_review = None
+                    word.review_count = 0
+                elif val in ('review', 'mastered') and not word.last_review:
+                    # 首次学习：设置 last_review 为当前时间，增加 LearnHistory 计数
+                    word.last_review = datetime.utcnow()
+                    if old_status == 'new':
+                        update_learn_history(1)
             else:
                 setattr(word, field, val)
 
@@ -1143,8 +1605,11 @@ def batch_update_status():
         return jsonify({'success': False, 'error': 'status 必须是 new/review/mastered'}), 400
 
     user_id = get_current_user_id()
+    now = datetime.utcnow()
+    today_start_utc, today_end_utc = get_today_utc_range()
     updated = 0
     errors = 0
+    learn_history_delta = 0  # 累积 LearnHistory 增减量
     for wid in word_ids:
         word = Word.query.get(wid)
         if not word:
@@ -1153,8 +1618,28 @@ def batch_update_status():
         if user_id and word.user_id and word.user_id != user_id:
             errors += 1
             continue
+        old_status = word.status
+        old_last_review = word.last_review
         word.status = new_status
+        # 状态变更时同步更新 last_review 和 LearnHistory
+        if new_status == 'new':
+            # 改回未学习：如果 last_review 是今天，减回 LearnHistory 计数
+            if old_last_review and today_start_utc <= old_last_review < today_end_utc and old_status != 'new':
+                learn_history_delta -= 1
+            # 清空学习记录，不计入今日已学
+            word.last_review = None
+            word.next_review = None
+            word.review_count = 0
+        elif new_status in ('review', 'mastered') and not word.last_review:
+            # 首次学习：设置 last_review
+            word.last_review = now
+            if old_status == 'new':
+                learn_history_delta += 1
         updated += 1
+
+    # 批量更新 LearnHistory（一次提交，避免循环内多次 commit）
+    if learn_history_delta != 0:
+        update_learn_history(learn_history_delta)
 
     db.session.commit()
     return jsonify({
@@ -1499,8 +1984,13 @@ def list_wordbooks():
     books = query.order_by(Wordbook.created_at.desc()).all()
     result = []
     for b in books:
-        d = b.to_dict(include_count=True)
-        words = Word.query.filter_by(wordbook_id=b.id).all()
+        d = b.to_dict()
+        # 按用户隔离统计词本内单词数（修复：之前未过滤 user_id 导致显示全局数据）
+        words_query = Word.query.filter_by(wordbook_id=b.id)
+        if user_id:
+            words_query = words_query.filter_by(user_id=user_id)
+        words = words_query.all()
+        d['word_count'] = len(words)
         d['learned_count'] = sum(1 for w in words if w.status != 'new')
         d['new_count'] = sum(1 for w in words if w.status == 'new')
         result.append(d)
@@ -1575,7 +2065,11 @@ def get_wordbook_words(book_id):
     user_id = get_current_user_id()
     if user_id and book.user_id and book.user_id != user_id:
         return jsonify({'success': False, 'error': '无权访问'}), 403
-    words = Word.query.filter_by(wordbook_id=book_id).order_by(Word.added_at.desc()).all()
+    # 按用户隔离查询单词（修复：之前未过滤 user_id 导致显示其他用户的单词）
+    words_query = Word.query.filter_by(wordbook_id=book_id)
+    if user_id:
+        words_query = words_query.filter_by(user_id=user_id)
+    words = words_query.order_by(Word.added_at.asc()).all()
     return jsonify({
         'success': True,
         'data': {
@@ -1597,8 +2091,13 @@ def list_global_wordbooks():
     books = Wordbook.query.filter_by(is_shared=True).order_by(Wordbook.shared_at.desc()).all()
     result = []
     for b in books:
-        d = b.to_dict(include_count=True, include_owner=True)
-        words = Word.query.filter_by(wordbook_id=b.id).all()
+        d = b.to_dict(include_owner=True)
+        # 全局词本：按词本所有者的 user_id 统计单词数
+        owner_words = Word.query.filter_by(wordbook_id=b.id)
+        if b.user_id:
+            owner_words = owner_words.filter_by(user_id=b.user_id)
+        words = owner_words.all()
+        d['word_count'] = len(words)
         d['learned_count'] = sum(1 for w in words if w.status != 'new')
         d['new_count'] = sum(1 for w in words if w.status == 'new')
         # 标记当前用户是否是所有者
@@ -1950,7 +2449,7 @@ def ocr_recognize():
 
     try:
         # 调用OCR识别
-        words = ocr_service.recognize(image_path=filepath)
+        words = ocr_service.recognize(image_path=filepath, user_id=user_id, role=user_role)
         return jsonify({
             'success': True,
             'words': words,
@@ -2106,6 +2605,135 @@ def ocr_add_words():
             os.remove(filepath)
 
 
+@app.route('/api/ocr/scan-preview', methods=['POST'])
+def ocr_scan_preview():
+    """
+    极速扫描预览接口：上传图片 -> 百度OCR提取文字 -> ECDICT即时查释义
+    不添加到词库，仅返回识别结果供用户确认（与AI识别接口返回格式一致）
+    速度比AI视觉识别快5-10倍（OCR ~2s/张 vs AI ~20s/张）
+    """
+    if 'image' not in request.files:
+        return jsonify({'success': False, 'error': '请上传图片文件'}), 400
+
+    file = request.files['image']
+    print(f"[OCR极速] 收到请求, filename={file.filename}")
+    if file.filename == '':
+        return jsonify({'success': False, 'error': '未选择文件'}), 400
+
+    if not allowed_file(file.filename):
+        print(f"[OCR极速] 文件格式不支持: {file.filename}")
+        return jsonify({'success': False, 'error': f'不支持的文件格式: {file.filename}'}), 400
+
+    # 获取当前用户信息（用于OCR限额控制）
+    current_user = get_current_user()
+    user_id = current_user.id if current_user else None
+    user_role = current_user.role if current_user else 'user'
+
+    # 检查OCR服务是否可用（含限额检查）
+    if not ocr_service.is_available(user_id=user_id, role=user_role):
+        # 区分是未配置还是超限
+        if not (ocr_service.api_key and ocr_service.secret_key):
+            return jsonify({
+                'success': False,
+                'error': '百度OCR API Key未配置，请在环境变量中设置 BAIDU_OCR_API_KEY 和 BAIDU_OCR_SECRET_KEY',
+            }), 503
+        # 超限
+        global_count, user_counts = ocr_service._get_usage()
+        if global_count >= ocr_service.GLOBAL_MONTHLY_LIMIT:
+            msg = f'当月全局OCR识别次数已达上限（{ocr_service.GLOBAL_MONTHLY_LIMIT}次），请切换到AI精准模式'
+        else:
+            msg = f'您当月OCR识别次数已达上限（{ocr_service.USER_MONTHLY_LIMIT}次），请切换到AI精准模式'
+        return jsonify({'success': False, 'error': msg, 'quota_exceeded': True}), 429
+
+    # 确保上传目录存在
+    upload_folder = Config.UPLOAD_FOLDER
+    os.makedirs(upload_folder, exist_ok=True)
+
+    # 安全保存文件
+    filename = secure_filename(file.filename)
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S_')
+    filepath = os.path.join(upload_folder, timestamp + filename)
+    file.save(filepath)
+    print(f"[OCR极速] 文件已保存: {filepath}")
+
+    try:
+        # 1. 百度OCR提取文字（快速，~1-3秒）
+        print(f"[OCR极速] 开始OCR识别...")
+        words = ocr_service.recognize(image_path=filepath)
+        print(f"[OCR极速] OCR返回: {words}")
+
+        if not words:
+            return jsonify({'success': True, 'words': [], 'count': 0})
+
+        # 2. ECDICT即时查释义（毫秒级）
+        result_words = []
+        seen = set()
+
+        def _try_word(word_text):
+            """查词典：有释义返回( True, meaning)，无释义返回(False, None)"""
+            word_text = word_text.strip().lower()
+            if not word_text or word_text in seen:
+                return False, None
+            if not re.match(r"^[a-z][a-z\s\-']*$", word_text):
+                return False, None
+
+            meaning = ''
+            try:
+                dict_result = dictionary_service.lookup(word_text)
+                if dict_result and dict_result.get('meaning') and '暂无释义' not in dict_result.get('meaning', ''):
+                    meaning = dict_result['meaning']
+                    if '\n' in meaning:
+                        meaning = meaning.split('\n')[0]
+                    if len(meaning) > 80:
+                        meaning = meaning[:80] + '...'
+            except Exception:
+                pass
+
+            return bool(meaning), meaning
+
+        for raw_word in words:
+            word_text = raw_word.strip().lower()
+            if not word_text:
+                continue
+
+            # 保持OCR原始识别结果，不拆分多词
+            # 释义查到就用，查不到就空着，让用户自行处理
+            if word_text in seen:
+                continue
+            seen.add(word_text)
+            found, meaning = _try_word(word_text)
+            result_words.append({'word': word_text, 'meaning': meaning if found else ''})
+
+        print(f"[OCR极速] 识别完成: {len(result_words)} 个单词")
+        return jsonify({
+            'success': True,
+            'words': result_words,
+            'count': len(result_words),
+        })
+    except Exception as e:
+        import traceback
+        print(f"[OCR极速] 异常: {e}")
+        traceback.print_exc()
+        # 如果是限额超出的错误，返回429状态码
+        if '上限' in str(e) or '超限' in str(e):
+            return jsonify({'success': False, 'error': str(e), 'quota_exceeded': True}), 429
+        return jsonify({'success': False, 'error': f'OCR识别失败: {str(e)}'}), 500
+    finally:
+        # 删除临时文件
+        if os.path.exists(filepath):
+            os.remove(filepath)
+
+
+@app.route('/api/ocr/usage', methods=['GET'])
+def ocr_usage():
+    """查询当月OCR识别用量（全局+当前用户个人）"""
+    current_user = get_current_user()
+    user_id = current_user.id if current_user else None
+    user_role = current_user.role if current_user else 'user'
+    usage = ocr_service.get_usage_info(user_id=user_id, role=user_role)
+    return jsonify({'success': True, **usage})
+
+
 @app.route('/api/ai/recognize-image', methods=['POST'])
 def ai_recognize_image():
     """
@@ -2137,35 +2765,65 @@ def ai_recognize_image():
 
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
-    """获取统计数据：各状态单词数量、今日复习数、学习历史等"""
+    """获取统计数据：各状态单词数量、今日复习数、学习历史等
+    可通过 ?wordbook_id= 按词书过滤（不传=全部，0=未归类，具体id=该词书）
+    """
     user_id = get_current_user_id()
-    # 各状态单词数量
-    if user_id:
-        total = Word.query.filter_by(user_id=user_id).count()
-        new_count = Word.query.filter_by(status='new', user_id=user_id).count()
-        review_count = Word.query.filter_by(status='review', user_id=user_id).count()
-        mastered_count = Word.query.filter_by(status='mastered', user_id=user_id).count()
-    else:
-        total = Word.query.count()
-        new_count = Word.query.filter_by(status='new').count()
-        review_count = Word.query.filter_by(status='review').count()
-        mastered_count = Word.query.filter_by(status='mastered').count()
+    wordbook_id = request.args.get('wordbook_id', '').strip()
 
-    # 今日待复习数量
+    # 构建词书过滤条件（复用于所有查询）
+    wb_filter = None
+    if wordbook_id:
+        if wordbook_id == '0':
+            wb_filter = Word.wordbook_id.is_(None)
+        else:
+            try:
+                wb_filter = Word.wordbook_id == int(wordbook_id)
+            except ValueError:
+                pass
+
+    # 各状态单词数量（按词书过滤）
+    base = Word.query
+    if user_id:
+        base = base.filter_by(user_id=user_id)
+    if wb_filter is not None:
+        base = base.filter(wb_filter)
+    total = base.count()
+    new_count = base.filter_by(status='new').count()
+    review_count = base.filter_by(status='review').count()
+    mastered_count = base.filter_by(status='mastered').count()
+
+    # 今日待复习数量（已到期的单词，含 review 和 mastered 防遗忘回顾）
     now = datetime.utcnow()
     review_query = Word.query.filter(
         Word.next_review.isnot(None),
         Word.next_review <= now,
-        Word.status != 'mastered',
+        Word.last_review.isnot(None),
+        Word.status.in_(['review', 'mastered']),
     )
     if user_id:
         review_query = review_query.filter_by(user_id=user_id)
+    if wb_filter is not None:
+        review_query = review_query.filter(wb_filter)
     today_review = review_query.count()
 
-    # 今日新词数量（按用户隔离）
+    # 今日已学数量：实时统计今天学习的单词（last_review在今天且状态不是new）
+    # 使用时区修正的 UTC 范围，确保本地午夜→UTC 的正确转换
+    today_start_utc, today_end_utc = get_today_utc_range()
+    learned_query = Word.query.filter(
+        Word.last_review.isnot(None),
+        Word.last_review >= today_start_utc,
+        Word.last_review < today_end_utc,
+        Word.status != 'new',
+    )
+    if user_id:
+        learned_query = learned_query.filter_by(user_id=user_id)
+    if wb_filter is not None:
+        learned_query = learned_query.filter(wb_filter)
+    today_learned = learned_query.count()
+
+    # 本地日期（用于 LearnHistory 按天统计）
     today = date.today()
-    today_history = LearnHistory.query.filter_by(date=today, user_id=user_id).first()
-    today_learned = today_history.count if today_history else 0
 
     # 最近7天学习历史（按用户隔离）
     seven_days_ago = today - timedelta(days=6)
@@ -2203,6 +2861,10 @@ def get_stats():
                 break
         heatmap_data.append({'date': d.isoformat(), 'count': count})
 
+    daily_goal_val = get_setting().daily_goal or 20
+    # 今日待学：每日目标减去今日已学，最低为0
+    pending_today = max(0, daily_goal_val - today_learned)
+
     return jsonify({
         'success': True,
         'data': {
@@ -2212,7 +2874,8 @@ def get_stats():
             'mastered': mastered_count,
             'today_review': today_review,
             'today_learned': today_learned,
-            'daily_goal': get_setting().daily_goal or 20,
+            'pending_today': pending_today,
+            'daily_goal': daily_goal_val,
             'history': history_data,
             'streak_days': streak_days,
             'checked_in': checked_in,
@@ -2353,28 +3016,32 @@ def get_enhanced_stats():
 @app.route('/api/review/today', methods=['GET'])
 def get_today_review():
     """
-    获取复习队列：返回词书内所有已学过的单词（review + mastered 状态）
-    不再限制 next_review <= now，只要是学过的词都能复习
+    获取复习队列：返回已到期需要复习的单词（next_review <= now）
+    采用艾宾浩斯遗忘曲线算法，只返回真正到期的单词，而非所有学过的词。
     
-    优先级逻辑：先返回昨天及更早学过的单词（last_review < today），
-    如果没有则返回今天学过的单词
+    筛选条件：
+    - last_review 不为空（已学过）
+    - next_review <= 当前时间（已到期）
+    - status 为 review 或 mastered（mastered 词在防遗忘模式下也会到期）
     
-    可通过 ?wordbook_id= 按词书过滤（必须与学习词书一致）
-    可通过 ?random=1 随机排序（默认按时间排序，昨天先于更早）
+    排序：按 next_review 升序（最该复习的、过期最久的排前面）
+    
+    可通过 ?wordbook_id= 按词书过滤
+    可通过 ?random=1 随机排序
     可通过 ?limit= 控制数量
+    可通过 ?starred=1 仅复习重点单词
     """
     setting = get_setting()
     user_id = get_current_user_id()
     wordbook_id = request.args.get('wordbook_id', '').strip()
     random_mode = request.args.get('random', '').strip() == '1'
+    now = datetime.utcnow()
 
-    # 今天的 UTC 零点（用于区分"今天学过"和"之前学过"）
-    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
-
-    # 构建基础查询：已学过的单词（status 为 review 或 mastered）
-    # 不再限制 next_review <= now
+    # 构建查询：已学过且到期的单词
     base_query = Word.query.filter(
         Word.last_review.isnot(None),
+        Word.next_review.isnot(None),
+        Word.next_review <= now,
         Word.status.in_(['review', 'mastered']),
     )
     if user_id:
@@ -2387,23 +3054,16 @@ def get_today_review():
     elif wordbook_id == '0':
         base_query = base_query.filter_by(wordbook_id=None)
 
-    # 优先：昨天及更早学过的单词（last_review < today_start）
-    before_today_q = base_query.filter(Word.last_review < today_start)
-    if random_mode:
-        before_today_words = before_today_q.order_by(db.func.random()).all()
-    else:
-        # 按最后复习时间降序：昨天先于更早
-        before_today_words = before_today_q.order_by(Word.last_review.desc()).all()
+    # starred 模式：仅返回重点单词
+    starred_only = request.args.get('starred', '').strip() == '1'
+    if starred_only:
+        base_query = base_query.filter(Word.is_starred == True)
 
-    if before_today_words:
-        words = before_today_words
+    # 排序：随机 or 按到期时间升序（过期最久的先复习）
+    if random_mode:
+        words = base_query.order_by(db.func.random()).all()
     else:
-        # 没有昨天及更早的单词，返回今天学过的单词
-        today_q = base_query.filter(Word.last_review >= today_start)
-        if random_mode:
-            words = today_q.order_by(db.func.random()).all()
-        else:
-            words = today_q.order_by(Word.last_review.asc()).all()
+        words = base_query.order_by(Word.next_review.asc()).all()
 
     # 每日复习上限
     limit = request.args.get('limit', None, type=int)
@@ -2602,6 +3262,11 @@ def get_today_learn():
     if new_only:
         query = query.filter_by(status='new')
 
+    # starred 模式：仅返回重点单词
+    starred_only = request.args.get('starred', '').strip() == '1'
+    if starred_only:
+        query = query.filter(Word.is_starred == True)
+
     # 排序：随机模式 / new_only 按 added_at / 默认按状态优先级(new>review>mastered)再 added_at
     random_mode = request.args.get('random', '').strip() == '1'
     if random_mode:
@@ -2631,11 +3296,12 @@ def get_today_learned_words():
     """
     user_id = get_current_user_id()
     wordbook_id = request.args.get('wordbook_id', '').strip()
-    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start_utc, today_end_utc = get_today_utc_range()
 
     query = Word.query.filter(
         Word.last_review.isnot(None),
-        Word.last_review >= today_start,
+        Word.last_review >= today_start_utc,
+        Word.last_review < today_end_utc,
         Word.status != 'new',
     )
     if user_id:
@@ -3319,6 +3985,10 @@ with app.app_context():
     upgrade_split_data()
     # 修复 meaning 为空的旧数据单词
     fix_empty_meanings()
+    # 修复异常释义（OCR artifact/纯英文）+ 补充变形词缺少的 tenses 数据
+    fix_broken_meanings()
+    # 强制升级所有单词的释义精简和变形数据（新的 _clean_meaning + _get_inflections 逻辑）
+    force_upgrade_all_tenses()
     # 为没有例句的单词补充专升本例句
     fill_missing_examples()
 
@@ -3387,4 +4057,4 @@ def serve_assetlinks():
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)

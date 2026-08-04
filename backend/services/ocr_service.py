@@ -3,6 +3,8 @@
 使用百度智能云通用文字识别高精度版，识别图片中的英文单词
 """
 import base64
+import json
+import os
 import re
 import time
 import requests
@@ -16,6 +18,12 @@ class OCRService:
     TOKEN_URL = 'https://aip.baidubce.com/oauth/2.0/token'
     # 百度高精度文字识别接口
     OCR_URL = 'https://aip.baidubce.com/rest/2.0/ocr/v1/accurate_basic'
+    # 全局每月最大调用次数（所有用户共享）
+    GLOBAL_MONTHLY_LIMIT = 800
+    # 普通用户每月调用次数上限（管理员不受此限制，但仍受全局上限约束）
+    USER_MONTHLY_LIMIT = 50
+    # 调用次数记录文件
+    USAGE_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'data', 'ocr_usage.json')
 
     def __init__(self):
         """初始化OCR服务"""
@@ -25,9 +33,82 @@ class OCRService:
         self.access_token = None
         self.token_expire_time = 0
 
-    def is_available(self):
-        """检查OCR服务是否可用（API Key是否已配置）"""
-        return bool(self.api_key and self.secret_key)
+    def is_available(self, user_id=None, role='user'):
+        """
+        检查OCR服务是否可用
+        - API Key已配置
+        - 全局调用次数未超过800
+        - 普通用户当月调用次数未超过50（管理员不受此限制）
+        """
+        if not (self.api_key and self.secret_key):
+            return False
+        global_count, user_counts = self._get_usage()
+        # 检查全局限额
+        if global_count >= self.GLOBAL_MONTHLY_LIMIT:
+            return False
+        # 普通用户检查个人限额
+        if role != 'admin' and user_id is not None:
+            user_count = user_counts.get(str(user_id), 0)
+            if user_count >= self.USER_MONTHLY_LIMIT:
+                return False
+        return True
+
+    def _get_usage(self):
+        """
+        读取当月OCR调用记录
+        返回: (全局调用次数, {user_id_str: count, ...})
+        """
+        from datetime import datetime
+        current_month = datetime.now().strftime('%Y-%m')
+        try:
+            if os.path.exists(self.USAGE_FILE):
+                with open(self.USAGE_FILE, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                if data.get('month') == current_month:
+                    return data.get('global_count', 0), data.get('users', {})
+        except Exception:
+            pass
+        return 0, {}
+
+    def _increment_usage(self, user_id=None, role='user'):
+        """递增调用次数（全局+个人）"""
+        from datetime import datetime
+        current_month = datetime.now().strftime('%Y-%m')
+        global_count, users = self._get_usage()
+        global_count += 1
+        uid_str = str(user_id) if user_id else 'anonymous'
+        users[uid_str] = users.get(uid_str, 0) + 1
+        try:
+            os.makedirs(os.path.dirname(self.USAGE_FILE), exist_ok=True)
+            with open(self.USAGE_FILE, 'w', encoding='utf-8') as f:
+                json.dump({
+                    'month': current_month,
+                    'global_count': global_count,
+                    'users': users,
+                }, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"[OCR] 写入调用次数失败: {e}")
+        print(f"[OCR] 当月调用: 全局 {global_count}/{self.GLOBAL_MONTHLY_LIMIT}, 用户{uid_str}({role}) {users[uid_str]}/{('∞' if role=='admin' else self.USER_MONTHLY_LIMIT)}")
+        return global_count, users[uid_str]
+
+    def get_usage_info(self, user_id=None, role='user'):
+        """
+        获取当月用量信息（供前端展示）
+        返回全局用量和当前用户个人用量
+        """
+        global_count, users = self._get_usage()
+        uid_str = str(user_id) if user_id else 'anonymous'
+        user_count = users.get(uid_str, 0)
+        user_limit = self.GLOBAL_MONTHLY_LIMIT if role == 'admin' else self.USER_MONTHLY_LIMIT
+        return {
+            'global_count': global_count,
+            'global_limit': self.GLOBAL_MONTHLY_LIMIT,
+            'global_remaining': max(0, self.GLOBAL_MONTHLY_LIMIT - global_count),
+            'user_count': user_count,
+            'user_limit': user_limit,
+            'user_remaining': max(0, user_limit - user_count),
+            'is_admin': role == 'admin',
+        }
 
     def get_access_token(self):
         """
@@ -69,7 +150,7 @@ class OCRService:
         except requests.RequestException as e:
             raise RuntimeError(f"获取百度OCR access_token网络错误: {str(e)}")
 
-    def recognize(self, image_path=None, image_base64=None):
+    def recognize(self, image_path=None, image_base64=None, user_id=None, role='user'):
         """
         识别图片中的文字，返回英文单词列表
         支持传入图片路径或base64编码的图片数据
@@ -77,29 +158,40 @@ class OCRService:
         参数:
             image_path: 图片文件路径
             image_base64: 图片的base64编码（不含data:image前缀）
+            user_id: 调用者用户ID（用于限额统计）
+            role: 调用者角色（admin/user）
 
         返回:
             list[str]: 去重后的英文单词/词组列表
         """
         # 检查是否配置了API Key
-        if not self.is_available():
+        if not (self.api_key and self.secret_key):
             raise RuntimeError('百度OCR API Key未配置，请在环境变量中设置 BAIDU_OCR_API_KEY 和 BAIDU_OCR_SECRET_KEY')
+
+        # 检查限额
+        global_count, user_counts = self._get_usage()
+        if global_count >= self.GLOBAL_MONTHLY_LIMIT:
+            raise RuntimeError(f'当月全局OCR识别次数已达上限（{self.GLOBAL_MONTHLY_LIMIT}次），请下月再使用或切换到AI精准模式')
+        if role != 'admin' and user_id is not None:
+            user_count = user_counts.get(str(user_id), 0)
+            if user_count >= self.USER_MONTHLY_LIMIT:
+                raise RuntimeError(f'您当月OCR识别次数已达上限（{self.USER_MONTHLY_LIMIT}次），请下月再使用或切换到AI精准模式')
 
         # 获取access_token
         access_token = self.get_access_token()
 
         # 准备图片数据
         if image_path:
-            # 从文件路径读取图片并转为base64
-            with open(image_path, 'rb') as f:
-                image_data = base64.b64encode(f.read()).decode('utf-8')
+            # 从文件路径读取图片，先压缩再转base64
+            image_data = self._compress_image(image_path)
         elif image_base64:
-            # 直接使用传入的base64数据
+            # 直接使用传入的base64数据，压缩后使用
             # 去除可能存在的data:image前缀
             if ',' in image_base64 and image_base64.startswith('data:'):
-                image_data = image_base64.split(',', 1)[1]
+                raw_b64 = image_base64.split(',', 1)[1]
             else:
-                image_data = image_base64
+                raw_b64 = image_base64
+            image_data = self._compress_image_base64(raw_b64)
         else:
             raise ValueError('必须提供 image_path 或 image_base64 参数')
 
@@ -114,7 +206,8 @@ class OCRService:
 
         try:
             headers = {'Content-Type': 'application/x-www-form-urlencoded'}
-            response = requests.post(request_url, params=params, headers=headers, timeout=30)
+            # 注意：必须用 data= 而非 params=，否则image base64会被拼到URL里导致413
+            response = requests.post(request_url, data=params, headers=headers, timeout=30)
             response.raise_for_status()
             result = response.json()
         except requests.RequestException as e:
@@ -123,6 +216,9 @@ class OCRService:
         # 检查接口返回是否有错误
         if 'error_code' in result:
             raise RuntimeError(f"百度OCR识别错误({result['error_code']}): {result.get('error_msg', '未知错误')}")
+
+        # 识别成功，递增当月调用次数（全局+个人）
+        self._increment_usage(user_id=user_id, role=role)
 
         # 解析OCR结果，提取文字
         words_list = []
@@ -162,28 +258,118 @@ class OCRService:
             if not line:
                 continue
 
-            # 按空格分割，提取单词和词组
-            # 如果一行有多个单词，可能是词组（如 "sports meeting"）
-            # 也可能是多个独立单词
-            # 这里将连续的英文字母组合作为单词或词组
+            # 保持每行原始识别结果，不自动拆分
+            # OCR每行识别一条内容（单词或词组），原样保留
             words_in_line = line.split()
             if not words_in_line:
                 continue
 
-            # 如果一行只有1-3个单词，作为词组保留
-            if 1 <= len(words_in_line) <= 3:
-                phrase = ' '.join(words_in_line).lower()
-                # 确保至少包含一个长度>=2的单词（过滤掉单个字母）
-                if any(len(w) >= 2 for w in words_in_line):
-                    if phrase not in seen:
-                        seen.add(phrase)
-                        result.append(phrase)
-            else:
-                # 如果一行单词太多，可能是句子，拆分成单独的单词
-                for word in words_in_line:
-                    word = word.lower().strip("-'")
-                    if len(word) >= 2 and word not in seen:
-                        seen.add(word)
-                        result.append(word)
+            phrase = ' '.join(words_in_line).lower()
+            # 确保至少包含一个长度>=2的单词（过滤掉单个字母和纯标点）
+            if any(len(w) >= 2 for w in words_in_line):
+                if phrase not in seen:
+                    seen.add(phrase)
+                    result.append(phrase)
 
         return result
+
+    def _compress_image(self, image_path, max_size=1280, quality=80):
+        """
+        压缩图片文件，返回base64编码
+        百度OCR要求图片base64编码后不超过一定大小（约4MB），
+        但过大的图片会导致HTTP 413错误，这里限制最长边1280px
+
+        参数:
+            image_path: 图片文件路径
+            max_size: 最长边像素上限
+            quality: JPEG质量（1-100）
+
+        返回:
+            str: 压缩后的base64编码（不含data:image前缀）
+        """
+        try:
+            from PIL import Image
+            import io
+
+            img = Image.open(image_path)
+
+            # 转为RGB（去除alpha通道）
+            if img.mode in ('RGBA', 'P'):
+                img = img.convert('RGB')
+
+            # 按比例缩小
+            w, h = img.size
+            if max(w, h) > max_size:
+                if w >= h:
+                    new_w = max_size
+                    new_h = int(h * max_size / w)
+                else:
+                    new_h = max_size
+                    new_w = int(w * max_size / h)
+                img = img.resize((new_w, new_h), Image.LANCZOS)
+
+            # 保存为JPEG
+            buf = io.BytesIO()
+            img.save(buf, format='JPEG', quality=quality)
+            compressed_b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+
+            original_kb = os.path.getsize(image_path) / 1024
+            compressed_kb = len(buf.getvalue()) / 1024
+            print(f"[OCR] 图片压缩: {original_kb:.0f}KB -> {compressed_kb:.0f}KB")
+
+            return compressed_b64
+        except ImportError:
+            # 没装Pillow，回退到原始方式
+            with open(image_path, 'rb') as f:
+                return base64.b64encode(f.read()).decode('utf-8')
+        except Exception as e:
+            print(f"[OCR] 图片压缩失败，使用原始数据: {e}")
+            with open(image_path, 'rb') as f:
+                return base64.b64encode(f.read()).decode('utf-8')
+
+    def _compress_image_base64(self, raw_b64, max_size=1280, quality=80):
+        """
+        压缩base64编码的图片，返回压缩后的base64
+
+        参数:
+            raw_b64: 原始base64编码（不含data:image前缀）
+            max_size: 最长边像素上限
+            quality: JPEG质量
+
+        返回:
+            str: 压缩后的base64编码
+        """
+        try:
+            from PIL import Image
+            import io
+
+            raw_bytes = base64.b64decode(raw_b64)
+            img = Image.open(io.BytesIO(raw_bytes))
+
+            if img.mode in ('RGBA', 'P'):
+                img = img.convert('RGB')
+
+            w, h = img.size
+            if max(w, h) > max_size:
+                if w >= h:
+                    new_w = max_size
+                    new_h = int(h * max_size / w)
+                else:
+                    new_h = max_size
+                    new_w = int(w * max_size / h)
+                img = img.resize((new_w, new_h), Image.LANCZOS)
+
+            buf = io.BytesIO()
+            img.save(buf, format='JPEG', quality=quality)
+            compressed_b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+
+            original_kb = len(raw_bytes) / 1024
+            compressed_kb = len(buf.getvalue()) / 1024
+            print(f"[OCR] 图片压缩: {original_kb:.0f}KB -> {compressed_kb:.0f}KB")
+
+            return compressed_b64
+        except ImportError:
+            return raw_b64
+        except Exception as e:
+            print(f"[OCR] 图片压缩失败，使用原始数据: {e}")
+            return raw_b64

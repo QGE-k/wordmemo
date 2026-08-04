@@ -9,7 +9,7 @@
   <!-- 预连接：提前建立TCP/TLS连接，减少首字节时间 -->
   <link rel="preconnect" href="/" crossorigin>
   <link rel="dns-prefetch" href="/">
-  <link rel="stylesheet" href="assets/style.css?v=20260803e">
+  <link rel="stylesheet" href="assets/style.css?v=20260803m">
   <!-- PWA 支持：允许"添加到桌面"当App用 -->
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" type="image/png" href="/icons/icon-192.png">
@@ -77,6 +77,16 @@
                 <span class="action-title">开始复习</span>
                 <span class="action-desc" id="reviewDesc">0个单词待复习</span>
               </div>
+            </button>
+          </div>
+
+          <!-- 重点单词快速入口 -->
+          <div class="starred-quick-actions">
+            <button class="starred-btn" id="btnLearnStarred">
+              <span>★ 重点学习</span>
+            </button>
+            <button class="starred-btn" id="btnReviewStarred">
+              <span>★ 重点复习</span>
             </button>
           </div>
 
@@ -220,13 +230,18 @@
 
       <!-- 扫描录入 -->
       <div class="input-panel" id="panel-scan">
-        <p class="panel-tip">拍照或选择图片，AI自动识别单词和释义（支持多张图片）</p>
         <div class="form-group">
           <label class="form-label">导入到单词本</label>
           <select class="form-select" id="scanWordbookSelect">
             <option value="">默认（不归类）</option>
           </select>
         </div>
+        <!-- 识别模式切换 -->
+        <div class="scan-mode-switch">
+          <button class="scan-mode-item active" data-scan-mode="ocr">极速OCR</button>
+          <button class="scan-mode-item" data-scan-mode="ai">AI精准</button>
+        </div>
+        <p class="panel-tip" id="scanModeTip">拍照或选择图片，OCR极速识别单词+本地词典释义（每张约2秒）</p>
         <!-- 空状态：点击选图 -->
         <div class="scan-area" id="scanArea">
           <div class="scan-placeholder">
@@ -242,7 +257,7 @@
         <input type="file" accept="image/*" multiple id="scanInput" style="display:none">
         <div class="scan-actions" id="scanActions" style="display:none">
           <button class="btn-secondary" id="btnScanAddMore">+ 添加更多图片</button>
-          <button class="btn-primary" id="btnScanRecognize">识别单词</button>
+          <button class="btn-primary" id="btnScanRecognize">极速识别</button>
         </div>
         <!-- 识别结果：单词确认列表 -->
         <div class="scan-confirm" id="scanConfirm" style="display:none">
@@ -481,8 +496,8 @@
       </div>
       <div class="flip-card-stage" id="reviewStage">
         <div class="empty-state" id="reviewEmpty">
-          <p>暂无复习单词</p>
-          <p class="empty-sub">请先选择词书并学习单词</p>
+          <p>今日复习已完成</p>
+          <p class="empty-sub">没有到期的单词，继续保持！</p>
         </div>
         <!-- 翻卡模式 -->
         <div class="flip-card" id="reviewCard" style="display:none">
@@ -710,6 +725,41 @@
           </div>
         </div>
         <div class="setting-row">
+          <label class="setting-label" for="nicknameInput">昵称</label>
+          <div class="setting-control">
+            <input type="text" id="nicknameInput" class="setting-input" placeholder="请输入昵称" maxlength="80">
+            <button class="setting-btn" id="btnSaveNickname" style="margin-left:8px;">保存</button>
+          </div>
+        </div>
+        <div class="setting-row">
+          <label class="setting-label" for="secQuestionInput">安全问题</label>
+          <div class="setting-control">
+            <input type="text" id="secQuestionInput" class="setting-input" placeholder="用于密码找回" maxlength="255">
+          </div>
+        </div>
+        <div class="setting-row">
+          <label class="setting-label" for="secAnswerInput">安全问题答案</label>
+          <div class="setting-control">
+            <input type="text" id="secAnswerInput" class="setting-input" placeholder="安全问题答案" maxlength="255">
+            <button class="setting-btn" id="btnSaveSecurity" style="margin-left:8px;">保存</button>
+          </div>
+        </div>
+        <div class="setting-row">
+          <label class="setting-label">修改密码</label>
+          <div class="setting-control">
+            <input type="password" id="oldPasswordInput" class="setting-input" placeholder="旧密码" style="margin-bottom:6px;">
+            <input type="password" id="newPasswordInput" class="setting-input" placeholder="新密码（至少6位）" style="margin-bottom:6px;">
+            <input type="password" id="confirmPasswordInput" class="setting-input" placeholder="确认新密码">
+            <button class="setting-btn" id="btnChangePassword" style="margin-top:6px;">修改密码</button>
+          </div>
+        </div>
+        <div class="setting-row">
+          <label class="setting-label">OCR用量</label>
+          <div class="setting-control">
+            <span class="setting-text" id="ocrUsageText">加载中...</span>
+          </div>
+        </div>
+        <div class="setting-row">
           <label class="setting-label">账号操作</label>
           <div class="setting-control">
             <button class="setting-btn setting-btn-danger" id="btnLogoutSettings">退出登录</button>
@@ -844,6 +894,7 @@
         <div class="modal-section" id="modalExampleSection">
           <h4 class="modal-section-title">例句</h4>
           <div class="example-list" id="modalExamples"></div>
+          <button class="btn-secondary btn-sm" id="modalRefreshExamplesBtn" style="margin-top:8px;width:auto;">AI生成更好的例句</button>
         </div>
       </div>
       <div class="modal-footer">
@@ -1045,12 +1096,29 @@
     </div>
   </div>
 
-  <script src="assets/app.js?v=20260803f"></script>
+  <script src="assets/app.js?v=20260803n"></script>
   <!-- PWA service worker 注册：仅在 HTTPS/localhost 生效 -->
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('/sw.js').catch(function (err) {
+        // 注册 SW，附带版本参数确保获取最新 sw.js
+        navigator.serviceWorker.register('/sw.js?v=58').then(function (reg) {
+          // 强制检查更新
+          reg.update();
+          // 如果有新 SW 等待激活，立即接管
+          if (reg.waiting) {
+            reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+          }
+          // 监听新 SW 安装完成，自动刷新页面
+          reg.addEventListener('updatefound', function () {
+            var newWorker = reg.installing;
+            newWorker.addEventListener('statechange', function () {
+              if (newWorker.state === 'activated') {
+                window.location.reload();
+              }
+            });
+          });
+        }).catch(function (err) {
           console.log('SW注册失败（不影响使用）:', err);
         });
       });
