@@ -12,6 +12,9 @@ class SplashActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_splash)
 
+        // 在启动页期间预热 WebView 渲染进程，缩短 MainActivity 加载时间
+        WebViewPreloader.preload(this)
+
         Handler(Looper.getMainLooper()).postDelayed({
             startActivity(Intent(this, MainActivity::class.java))
             finish()

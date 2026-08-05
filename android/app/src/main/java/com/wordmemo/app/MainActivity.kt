@@ -59,8 +59,15 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // 初始化原生 TTS 引擎
-        tts = TextToSpeech(this, this)
+        // 后台线程初始化 TTS 引擎，避免阻塞主线程影响冷启动速度
+        // (TextToSpeech 初始化回调 onInit 在主线程序)
+        Thread {
+            try {
+                tts = TextToSpeech(this, this)
+            } catch (_: Exception) {
+                // TTS 初始化失败不影响 WebView 加载
+            }
+        }.start()
 
         window.statusBarColor = Color.parseColor("#4f46e5")
 

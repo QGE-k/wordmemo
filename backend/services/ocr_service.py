@@ -273,11 +273,13 @@ class OCRService:
 
         return result
 
-    def _compress_image(self, image_path, max_size=1280, quality=80):
+    def _compress_image(self, image_path, max_size=1920, quality=90):
         """
         压缩图片文件，返回base64编码
-        百度OCR要求图片base64编码后不超过一定大小（约4MB），
-        但过大的图片会导致HTTP 413错误，这里限制最长边1280px
+        百度OCR高精度版要求图片base64编码后不超过约4MB。
+        过大的图片会导致HTTP 413错误，但分辨率太低会显著降低识别率。
+        这里限制最长边1920px、JPEG质量90，在API限制内保留尽可能高的清晰度，
+        以保证整页/密集单词本照片中的小字也能被识别出来。
 
         参数:
             image_path: 图片文件路径
@@ -288,16 +290,16 @@ class OCRService:
             str: 压缩后的base64编码（不含data:image前缀）
         """
         try:
-            from PIL import Image
+            from PIL import Image, ImageOps, ImageEnhance
             import io
 
             img = Image.open(image_path)
 
-            # 转为RGB（去除alpha通道）
+            # 转到RGB（去除alpha通道）
             if img.mode in ('RGBA', 'P'):
                 img = img.convert('RGB')
 
-            # 按比例缩小
+            # 按比例缩小，最长边不超过max_size
             w, h = img.size
             if max(w, h) > max_size:
                 if w >= h:
@@ -307,6 +309,11 @@ class OCRService:
                     new_h = max_size
                     new_w = int(w * max_size / h)
                 img = img.resize((new_w, new_h), Image.LANCZOS)
+
+            # 增强对比度 + 适度锐化，让文字更清晰（对偏暗/偏灰的拍照图片尤其有效）
+            img = ImageOps.autocontrast(img, cutoff=1)
+            img = ImageEnhance.Contrast(img).enhance(1.15)
+            img = ImageEnhance.Sharpness(img).enhance(1.2)
 
             # 保存为JPEG
             buf = io.BytesIO()
@@ -327,7 +334,7 @@ class OCRService:
             with open(image_path, 'rb') as f:
                 return base64.b64encode(f.read()).decode('utf-8')
 
-    def _compress_image_base64(self, raw_b64, max_size=1280, quality=80):
+    def _compress_image_base64(self, raw_b64, max_size=1920, quality=90):
         """
         压缩base64编码的图片，返回压缩后的base64
 
@@ -340,7 +347,7 @@ class OCRService:
             str: 压缩后的base64编码
         """
         try:
-            from PIL import Image
+            from PIL import Image, ImageOps, ImageEnhance
             import io
 
             raw_bytes = base64.b64decode(raw_b64)
@@ -358,6 +365,11 @@ class OCRService:
                     new_h = max_size
                     new_w = int(w * max_size / h)
                 img = img.resize((new_w, new_h), Image.LANCZOS)
+
+            # 增强对比度 + 适度锐化，让文字更清晰
+            img = ImageOps.autocontrast(img, cutoff=1)
+            img = ImageEnhance.Contrast(img).enhance(1.15)
+            img = ImageEnhance.Sharpness(img).enhance(1.2)
 
             buf = io.BytesIO()
             img.save(buf, format='JPEG', quality=quality)

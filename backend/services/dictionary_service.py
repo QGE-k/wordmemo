@@ -3433,6 +3433,90 @@ class DictionaryService:
             print(f'[ecdict] query error({word}): {e}')
         return None
 
+    def get_similar_words(self, word, limit=5):
+        """
+        从 ECDICT 词典中获取与目标词拼写相近的单词（用于选择题干扰项）
+        策略：优先取与目标词共享前缀的词（前2-4个字母相同则大概率形近），
+        其次是长度相近的词。返回 [{word, meaning}, ...]，每条释义来自 ECDICT。
+        若 ECDICT 不可用或命中不足，返回可用的部分（调用方负责兜底）。
+        """
+        conn = self._ecdict
+        if not conn:
+            return []
+        target = (word or '').lower().strip()
+        if not target or len(target) < 3:
+            return []
+
+        # 取目标词的前2-4个字符作为前缀，优先匹配形近词
+        prefixes = []
+        for n in (4, 3, 2):
+            if len(target) >= n:
+                prefixes.append(target[:n])
+        # 也尝试后缀匹配（如 -tion 结尾的词）
+        suffixes = []
+        for n in (3, 4):
+            if len(target) >= n:
+                suffixes.append(target[-n:])
+
+        results = []
+        seen = set()
+        import re as _re
+        try:
+            for pref in prefixes:
+                # 共享前缀：word LIKE 'pref%'，长度在目标词 ±2 范围内
+                cur = conn.execute(
+                    'SELECT word, translation FROM stardict '
+                    'WHERE word LIKE ? COLLATE NOCASE '
+                    'AND translation IS NOT NULL AND translation != "" '
+                    'AND length(word) BETWEEN ? AND ? '
+                    'ORDER BY length(word) LIMIT 60',
+                    (pref + '%', max(3, len(target) - 2), len(target) + 2)
+                )
+                for row in cur.fetchall():
+                    w = (row['word'] or '').strip().lower()
+                    if not w or w == target or w in seen:
+                        continue
+                    # 过滤非真实词（缩写/代号/含数字或符号）
+                    if not _re.match(r'^[a-z][a-z\-]*$', w):
+                        continue
+                    if len(w) < 3:
+                        continue
+                    meaning = self._clean_meaning(row['translation'] or '', '')
+                    if not meaning:
+                        continue
+                    seen.add(w)
+                    results.append({'word': w, 'meaning': meaning})
+                    if len(results) >= limit:
+                        return results
+            # 前缀不足时，尝试后缀匹配
+            for suf in suffixes:
+                cur = conn.execute(
+                    'SELECT word, translation FROM stardict '
+                    'WHERE word LIKE ? COLLATE NOCASE '
+                    'AND translation IS NOT NULL AND translation != "" '
+                    'AND length(word) BETWEEN ? AND ? '
+                    'ORDER BY length(word) LIMIT 60',
+                    ('%' + suf, max(3, len(target) - 2), len(target) + 2)
+                )
+                for row in cur.fetchall():
+                    w = (row['word'] or '').strip().lower()
+                    if not w or w == target or w in seen:
+                        continue
+                    if not _re.match(r'^[a-z][a-z\-]*$', w):
+                        continue
+                    if len(w) < 3:
+                        continue
+                    meaning = self._clean_meaning(row['translation'] or '', '')
+                    if not meaning:
+                        continue
+                    seen.add(w)
+                    results.append({'word': w, 'meaning': meaning})
+                    if len(results) >= limit:
+                        return results
+        except Exception as e:
+            print(f'[ecdict] 获取形近词失败({word}): {e}')
+        return results
+
     def _is_real_word(self, word, ecdict_data):
         """
         判断 ECDICT 中的词条是否是真正的英语单词（而非缩写/代号）

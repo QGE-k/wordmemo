@@ -217,6 +217,14 @@ class WordAPI {
     });
   }
 
+  // 自定义排序：按 wordIds 的顺序重新排列单词
+  reorderWords(wordIds) {
+    return this.request('/words/reorder', {
+      method: 'POST',
+      body: JSON.stringify({ word_ids: wordIds })
+    });
+  }
+
   // 批量删除单词
   batchDeleteWords(wordIds) {
     return this.request('/words/batch-delete', {
@@ -301,6 +309,18 @@ class WordAPI {
     return res && res.data ? res.data : (Array.isArray(res) ? res : []);
   }
 
+  // 自主复习：获取所有已学过的单词（不受到期限制）
+  // options.random: 随机排序
+  async getReviewAll(wordbookId, options = {}) {
+    let params = [];
+    if (wordbookId !== '' && wordbookId !== undefined) params.push(`wordbook_id=${wordbookId}`);
+    if (options.random) params.push('random=1');
+    if (options.starred) params.push('starred=1');
+    const qs = params.length > 0 ? '?' + params.join('&') : '';
+    const res = await this.request('/review/all' + qs);
+    return res && res.data ? res.data : (Array.isArray(res) ? res : []);
+  }
+
   // 提交复习结果
   submitReview(id, rating) {
     return this.request('/review/' + id, {
@@ -326,9 +346,11 @@ class WordAPI {
     return res && res.data ? res.data : (Array.isArray(res) ? res : []);
   }
 
-  // 获取随机干扰项（用于看词选义模式）
-  async getDistractors(wordbookId, excludeIds = [], limit = 3) {
+  // 获取随机干扰项（用于看词选义/看义选词模式）
+  // word: 目标单词（用于 ECDICT 补充形近词干扰项）
+  async getDistractors(word, wordbookId, excludeIds = [], limit = 3) {
     let params = [];
+    if (word && word !== '') params.push(`word=${encodeURIComponent(word)}`);
     if (wordbookId !== '' && wordbookId !== undefined) params.push(`wordbook_id=${wordbookId}`);
     if (excludeIds.length > 0) params.push(`exclude=${excludeIds.join(',')}`);
     params.push(`limit=${limit}`);
@@ -1268,8 +1290,60 @@ function updateReviewEstimate(count) {
   // 预估每词约8秒
   const seconds = count * 8;
   const minutes = Math.ceil(seconds / 60);
-  el.textContent = `预计 ${minutes} 分钟`;
+  el.textContent = `${reviewAllMode ? '自主复习' : '今日到期'} ${count} 词 · 预计 ${minutes} 分钟`;
   el.style.display = 'block';
+}
+
+/**
+ * 统一同步学习范围 UI（重点单词等）
+ */
+function updateLearnModeUI() {
+  const tip = $('#learnModeTip');
+  if (!tip) return;
+  if (learnStarredOnly) {
+    const bookName = learnWordbookId && learnWordbookId !== '0'
+      ? (wordbooks.find(b => b.id === Number(learnWordbookId)) || {}).name
+      : null;
+    tip.innerHTML = '当前学习范围：<b>重点单词</b>' +
+      (bookName ? `（${escapeHtml(bookName)} 内的收藏单词，与主词本分开）` : '（全部词本内的收藏单词）');
+    tip.className = 'review-mode-tip active';
+    tip.style.display = 'block';
+  } else {
+    tip.style.display = 'none';
+  }
+}
+
+/**
+ * 统一同步复习范围 UI：按钮文案/激活态 + 顶部说明条
+ * 让用户清楚当前复习的是"今日到期"还是"所有学过的词"
+ */
+function updateReviewModeUI() {
+  const btn = $('#btnReviewAll');
+  if (btn) {
+    btn.classList.toggle('active', reviewAllMode);
+    btn.textContent = reviewAllMode ? '今日到期' : '自主复习';
+  }
+  const tip = $('#reviewModeTip');
+  if (tip) {
+    if (reviewStarredOnly) {
+      const bookName = reviewWordbookId && reviewWordbookId !== '0'
+        ? (wordbooks.find(b => b.id === Number(reviewWordbookId)) || {}).name
+        : null;
+      tip.innerHTML = '当前复习范围：<b>重点单词</b>' +
+        (bookName ? `（${escapeHtml(bookName)} 内的收藏单词，与主词本分开）` : '（全部词本内的收藏单词）') +
+        '，不受到期限制';
+      tip.className = 'review-mode-tip';
+      tip.style.display = 'block';
+    } else if (reviewAllMode) {
+      tip.innerHTML = '当前复习范围：<b>自主复习</b>（所有学过的单词，不受到期限制，随时可回顾）';
+      tip.className = 'review-mode-tip active';
+      tip.style.display = 'block';
+    } else {
+      tip.innerHTML = '当前复习范围：<b>今日到期</b>（按记忆曲线今天该复习的单词）';
+      tip.className = 'review-mode-tip';
+      tip.style.display = 'block';
+    }
+  }
 }
 
 /* ====================================================
@@ -1424,6 +1498,10 @@ function wordItemHtml(word, index) {
   const bookTag = book ? `<span class="word-book-tag" style="border-color:${book.color}40;color:${book.color}">${escapeHtml(book.name)}</span>` : '';
   const num = index !== undefined ? `<span class="word-num">${index}</span>` : '';
   const starTag = word.is_starred ? `<span class="word-star-icon" title="重点单词">★</span>` : '';
+  // 自定义顺序模式下，且在具体某个词本内，显示拖动排序手柄（长按拖动）
+  const showReorder = librarySort === 'custom' && libraryWordbook !== '' && libraryWordbook !== '0';
+  const reorderHandle = showReorder ? `
+    <div class="reorder-handle" title="长按拖动排序" data-id="${word.id}">☰</div>` : '';
   return `
     <div class="word-item" data-id="${word.id}">
       ${num}
@@ -1437,6 +1515,7 @@ function wordItemHtml(word, index) {
         <div class="word-meaning">${escapeHtml(word.meaning || '暂无释义')}</div>
       </div>
       <span class="word-status ${word.status}">${statusText(word.status)}</span>
+      ${reorderHandle}
     </div>
   `;
 }
@@ -1518,6 +1597,8 @@ function onPageEnter(pageName) {
         reviewWordbookId = learnWordbookId;
       }
       initReviewWordbookSelector();
+      // 同步复习范围 UI
+      updateReviewModeUI();
       if (reviewQueue.length === 0) loadReviewQueue();
       startStudyTimer(); // 开始计时
       // 显示计时器
@@ -1697,20 +1778,35 @@ function bindOverviewClicks() {
 }
 
 /**
+ * 跳转到词库并按指定状态筛选
+ * status: all / new / review / mastered / starred
+ */
+function goLibraryWithFilter(status) {
+  libraryFilter = status || 'all';
+  // 同步筛选标签激活态
+  $$('.filter-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.status === libraryFilter);
+  });
+  switchPage('library');
+  renderLibrary();
+}
+
+/**
  * 绑定统计卡片点击跳转
- * 总词数 → 词库，新词 → 学习，复习中 → 复习，已掌握 → 词库
+ * 点击"未学习/复习中/已掌握"卡片 → 词库并只显示对应状态的单词
+ * 总词数 → 词库(全部)
  */
 function bindStatCardClicks() {
   const statCards = document.querySelectorAll('.stat-card');
   if (statCards.length >= 4) {
     statCards[0].style.cursor = 'pointer';
-    statCards[0].onclick = () => switchPage('library');
+    statCards[0].onclick = () => goLibraryWithFilter('all');
     statCards[1].style.cursor = 'pointer';
-    statCards[1].onclick = () => { learnQueue = []; switchPage('learn'); };
+    statCards[1].onclick = () => goLibraryWithFilter('new');
     statCards[2].style.cursor = 'pointer';
-    statCards[2].onclick = () => { reviewQueue = []; switchPage('review'); };
+    statCards[2].onclick = () => goLibraryWithFilter('review');
     statCards[3].style.cursor = 'pointer';
-    statCards[3].onclick = () => switchPage('library');
+    statCards[3].onclick = () => goLibraryWithFilter('mastered');
   }
 }
 
@@ -2075,12 +2171,66 @@ function handleScanPick() {
   }
 }
 
+// 压缩图片：限制最长边和大小，避免上传超大原图导致超时/失败
+// 手机拍照原图常达 5-12MB，直接上传到云端极易超时；压缩后既快又不失识别精度
+function compressScanImage(file, maxSize = 1920, quality = 0.88) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          let w = img.naturalWidth;
+          let h = img.naturalHeight;
+          if (w === 0 || h === 0) { resolve(file); return; }
+          // 只有小尺寸且小体积的图片才直接透传，避免无谓解码开销
+          // 高分辨率但体积小的图片（如 PNG）也要压缩，防止超过百度OCR的像素/体积上限
+          const needsResize = Math.max(w, h) > maxSize;
+          const needsRecompress = file.size > 1024 * 1024;
+          if (!needsResize && !needsRecompress) { resolve(file); return; }
+          if (needsResize) {
+            if (w >= h) { h = Math.round(h * maxSize / w); w = maxSize; }
+            else { w = Math.round(w * maxSize / h); h = maxSize; }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, w, h);
+          ctx.drawImage(img, 0, 0, w, h);
+          canvas.toBlob((blob) => {
+            if (blob && blob.size > 0) {
+              const name = file.name.replace(/\.[^.]+$/, '') + '.jpg';
+              resolve(new File([blob], name, { type: 'image/jpeg' }));
+            } else {
+              resolve(file);
+            }
+          }, 'image/jpeg', quality);
+        } catch (err) {
+          console.error('[扫描] 图片压缩失败:', err);
+          resolve(file);
+        }
+      };
+      img.onerror = () => resolve(file);
+      img.src = ev.target.result;
+    };
+    reader.onerror = () => resolve(file);
+    reader.readAsDataURL(file);
+  });
+}
+
 // 选择图片后的处理：累加到 scanFiles，不覆盖之前的
-function handleScanChange(e) {
+async function handleScanChange(e) {
   const files = Array.from(e.target.files || []);
   if (files.length === 0) return;
+  // 逐张压缩（APK 拍照原图很大，压缩后上传更稳更快）
+  const compressed = [];
+  for (const f of files) {
+    compressed.push(await compressScanImage(f));
+  }
   // 累加到图片数组，支持不断追加
-  scanFiles = scanFiles.concat(files);
+  scanFiles = scanFiles.concat(compressed);
   // 更新缩略图网格
   updateScanThumbs();
   // 清除上一次的识别结果
@@ -2477,6 +2627,10 @@ function sortLibraryData(data) {
         return new Date(a.next_review) - new Date(b.next_review);
       });
       break;
+    case 'custom':
+      // 自定义顺序：按 sort_order 排列（用户手动调整），其次按添加时间
+      sorted.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0) || (new Date(a.added_at) - new Date(b.added_at)));
+      break;
     case 'added_desc':
     default:
       sorted.sort((a, b) => new Date(b.added_at) - new Date(a.added_at));
@@ -2487,6 +2641,196 @@ function sortLibraryData(data) {
 
 // ====== 词库多选模式 ======
 let multiSelectIds = new Set();
+
+/**
+ * 自定义顺序：上移/下移某个单词
+ * 在指定词本内，把该单词在自定义顺序中移动一位，并调用后端保存新顺序。
+ * 注意：必须基于该词本【全部】单词排序（而非当前筛选后的部分视图），
+ * 否则会把 sort_order 覆盖为只含可见单词的序号，破坏其他单词的顺序。
+ */
+async function moveWordInCustomOrder(wordId, delta) {
+  if (!libraryWordbook || libraryWordbook === '0') {
+    showToast('请先选择具体单词本', 'warning');
+    return;
+  }
+  // 拉取该词本全部单词（不限状态），保证全局 sort_order 正确
+  let fullList;
+  try {
+    fullList = await api.getWords({ wordbook_id: libraryWordbook });
+  } catch (err) {
+    handleError(err);
+    return;
+  }
+  const ordered = [...fullList].sort(
+    (a, b) => (a.sort_order || 0) - (b.sort_order || 0) || (new Date(a.added_at) - new Date(b.added_at))
+  );
+  const idx = ordered.findIndex(w => w.id === wordId);
+  if (idx === -1) return;
+  const newIdx = idx + delta;
+  if (newIdx < 0 || newIdx >= ordered.length) {
+    showToast(delta < 0 ? '已在最前面' : '已在最后面', 'warning');
+    return;
+  }
+  // 交换位置
+  const t = ordered[idx];
+  ordered[idx] = ordered[newIdx];
+  ordered[newIdx] = t;
+  const wordIds = ordered.map(w => w.id);
+  try {
+    await api.reorderWords(wordIds);
+    showToast('已调整顺序', 'success');
+    // 重新加载词库，让最新顺序生效
+    renderLibrary();
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+/* ====================================================
+   自定义顺序：长按拖动排序
+   ==================================================== */
+let dragSortState = null;   // {handle, item, pointerId, startX, startY, activated, placeholder, shiftY}
+
+function initDragReorder() {
+  const list = $('#libraryList');
+  if (!list) return;
+
+  // 长按手柄开始拖动（兼容鼠标/触摸/触控笔）
+  list.addEventListener('pointerdown', (e) => {
+    const handle = e.target.closest('.reorder-handle');
+    if (!handle) return;
+    // 仅在自定义顺序 + 具体词本下生效
+    if (librarySort !== 'custom' || libraryWordbook === '' || libraryWordbook === '0') return;
+    const item = handle.closest('.word-item');
+    if (!item) return;
+    e.preventDefault();
+    dragSortState = {
+      handle,
+      item,
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      activated: false,
+      placeholder: null,
+      shiftY: 0,
+      timer: setTimeout(() => activateDragSort(), 450),
+    };
+  });
+
+  list.addEventListener('pointermove', (e) => {
+    if (!dragSortState || e.pointerId !== dragSortState.pointerId) return;
+    const dx = e.clientX - dragSortState.startX;
+    const dy = e.clientY - dragSortState.startY;
+    // 长按期间移动超过阈值则取消（视为滚动）
+    if (!dragSortState.activated && Math.hypot(dx, dy) > 10) {
+      cancelDragSort();
+      return;
+    }
+    if (dragSortState.activated) {
+      e.preventDefault();
+      onDragMove(e.clientY);
+    }
+  });
+
+  list.addEventListener('pointerup', (e) => {
+    if (!dragSortState || e.pointerId !== dragSortState.pointerId) return;
+    finishDragSort();
+  });
+  list.addEventListener('pointercancel', () => cancelDragSort());
+}
+
+function activateDragSort() {
+  if (!dragSortState) return;
+  const { item, handle } = dragSortState;
+  dragSortState.activated = true;
+  // 计算手柄相对 item 的纵向偏移，使拖动时 item 顶部跟随手指
+  const itemRect = item.getBoundingClientRect();
+  const handleRect = handle.getBoundingClientRect();
+  dragSortState.shiftY = handleRect.top - itemRect.top;
+  // 插入占位元素
+  const ph = document.createElement('div');
+  ph.className = 'word-item-placeholder';
+  ph.style.height = item.offsetHeight + 'px';
+  item.parentNode.insertBefore(ph, item);
+  dragSortState.placeholder = ph;
+  item.classList.add('dragging');
+  document.body.classList.add('dragging-active');
+}
+
+function onDragMove(clientY) {
+  if (!dragSortState || !dragSortState.activated) return;
+  const { item, placeholder, shiftY } = dragSortState;
+  // 让被拖动的 item 跟随手指
+  item.style.transform = `translateY(${clientY - dragSortState.startY - shiftY}px)`;
+  item.style.pointerEvents = 'none';
+  // 根据手指位置把占位元素移动到合适位置
+  const list = $('#libraryList');
+  const siblings = Array.from(list.querySelectorAll('.word-item:not(.dragging)'));
+  let targetIndex = 0;
+  for (let i = 0; i < siblings.length; i++) {
+    const r = siblings[i].getBoundingClientRect();
+    if (clientY > r.top + r.height / 2) targetIndex = i + 1;
+  }
+  if (targetIndex >= siblings.length) {
+    list.appendChild(placeholder);
+  } else {
+    list.insertBefore(placeholder, siblings[targetIndex]);
+  }
+}
+
+async function finishDragSort() {
+  if (!dragSortState) return;
+  clearTimeout(dragSortState.timer);
+  const { item, placeholder, activated } = dragSortState;
+  // 清理拖动态
+  item.classList.remove('dragging');
+  item.style.transform = '';
+  item.style.pointerEvents = '';
+  document.body.classList.remove('dragging-active');
+  if (placeholder) placeholder.remove();
+  const state = dragSortState;
+  dragSortState = null;
+  if (!activated) return;
+  // 用占位元素的新位置计算新顺序（当前可见列表）
+  const list = $('#libraryList');
+  const newIds = Array.from(list.querySelectorAll('.word-item')).map(el => parseInt(el.getAttribute('data-id'), 10));
+  const oldIds = libraryData.map(w => w.id);
+  // 若顺序没变则不保存
+  if (JSON.stringify(newIds) === JSON.stringify(oldIds)) {
+    renderLibrary();
+    return;
+  }
+  // 计算被拖动单词在可见列表中的位移量
+  const draggedId = state.item.getAttribute('data-id');
+  const draggedIdNum = parseInt(draggedId, 10);
+  const oldIdx = oldIds.indexOf(draggedIdNum);
+  const newIdx = newIds.indexOf(draggedIdNum);
+  const delta = newIdx - oldIdx;
+  if (!delta || !libraryWordbook || libraryWordbook === '0') {
+    renderLibrary();
+    return;
+  }
+  // 基于该词本【全部】单词移动，保证 sort_order 全局正确
+  try {
+    await moveWordInCustomOrder(draggedIdNum, delta);
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+function cancelDragSort() {
+  if (!dragSortState) return;
+  clearTimeout(dragSortState.timer);
+  const { item, placeholder } = dragSortState;
+  if (item) {
+    item.classList.remove('dragging');
+    item.style.transform = '';
+    item.style.pointerEvents = '';
+  }
+  if (placeholder) placeholder.remove();
+  document.body.classList.remove('dragging-active');
+  dragSortState = null;
+}
 
 function enterMultiSelectMode(firstId) {
   // 如果已经在多选模式，切换该词的选中状态（而非重置）
@@ -2634,6 +2978,8 @@ async function handleMultiDelete() {
     exitMultiSelectMode();
     if ($('#page-library').classList.contains('active')) renderLibrary();
     if ($('#page-home').classList.contains('active')) renderHome();
+    // 无论当前在哪个页面，都刷新首页统计数据（确保状态变更后同步）
+    refreshHomeStats();
   } catch (err) {
     hideLoading();
     handleError(err);
@@ -2715,6 +3061,19 @@ async function renderLibrary() {
     // 用骨架屏代替全屏loading
     const list = $('#libraryList');
     if (list) showSkeleton(list, 6);
+    // 更新排序提示：自定义顺序需要选中具体词本
+    const sortHintEl = $('#sortHint');
+    if (sortHintEl) {
+      if (librarySort === 'custom' && (libraryWordbook === '' || libraryWordbook === '0')) {
+        sortHintEl.textContent = '自定义排序需先在上方选择一个具体单词本';
+        sortHintEl.style.display = 'inline-block';
+      } else if (librarySort === 'custom') {
+        sortHintEl.textContent = '长按单词右侧的 ☰ 手柄，上下拖动即可排序';
+        sortHintEl.style.display = 'inline-block';
+      } else {
+        sortHintEl.style.display = 'none';
+      }
+    }
     const params = {};
     if (libraryFilter !== 'all' && libraryFilter !== 'starred') params.status = libraryFilter;
     if (libraryFilter === 'starred') params.starred = 1;
@@ -2754,6 +3113,8 @@ async function renderLibrary() {
 
       // 触摸事件（移动端）
       item.addEventListener('touchstart', (e) => {
+        // 点击拖动排序手柄时，不进入长按多选（避免与拖动排序冲突）
+        if (e.target.closest('.reorder-handle')) return;
         triggered = false;
         if (e.touches.length > 0) {
           startX = e.touches[0].clientX;
@@ -2802,6 +3163,8 @@ async function renderLibrary() {
       let mouseTimer = null;
       item.addEventListener('mousedown', (e) => {
         if (e.button !== 0) return; // 只处理左键
+        // 点击拖动排序手柄时，不进入长按多选（避免与拖动排序冲突）
+        if (e.target.closest('.reorder-handle')) return;
         triggered = false;
         mouseTimer = setTimeout(() => {
           triggered = true;
@@ -2821,6 +3184,8 @@ async function renderLibrary() {
       
       // 点击事件
       item.addEventListener('click', (e) => {
+        // 点击拖动排序手柄时，不打开详情
+        if (e.target.closest('.reorder-handle')) { e.stopPropagation(); return; }
         // 如果是长按触发的，跳过本次 click
         if (triggered) {
           triggered = false;
@@ -3378,6 +3743,7 @@ let loadedWordIds = new Set(); // 当前会话中已加载到队列的单词ID�
 let learnSessionMode = 'new'; // 学习会话模式：new=未学习学习 / review_today=翻今天所有
 let learnShuffleMode = false; // 学习页翻卡顺序：false=顺序，true=随机（仅打乱当前队列）
 let learnOriginalQueue = []; // 保存原始顺序队列，用于切回顺序模式
+let learnCompleteNotified = false; // 今日学习全部完成是否已提示（避免重复弹提示）
 
 // 看词选义正确率统计（仅看词选义模式）
 let learnChoiceCorrect = 0;   // 学习模式答对数
@@ -3385,11 +3751,15 @@ let learnChoiceTotal = 0;     // 学习模式总答题数
 let reviewChoiceCorrect = 0;  // 复习模式答对数
 let reviewChoiceTotal = 0;    // 复习模式总答题数
 
+// 当前看义选词的完整选项缓存 [{word, meaning}]，用于答错时展示每个选项对应的释义
+// （ECDICT 形近词干扰项不在队列里，必须用渲染时缓存的数据）
+let reverseOptionsCache = [];
+
 // 加载学习队列：返回词书内所有单词（未学习优先），按添加顺序分批
 // append=true 时为"加入未学习"模式，只加载没学过的词(new状态)，追加到队列末尾
 async function loadLearnQueue(append = false, addCount = null) {
-  // 必须选择词书才能学习
-  if (!learnWordbookId && learnWordbookId !== '0') {
+  // 必须选择词书才能学习（重点学习/未选词书时例外：重点学习可复习全部词书的重点词）
+  if (!learnWordbookId && learnWordbookId !== '0' && !learnStarredOnly) {
     showToast('请先选择一本词书再开始学习', 'error');
     return;
   }
@@ -3419,6 +3789,7 @@ async function loadLearnQueue(append = false, addCount = null) {
       learnQueue = newWords;
       learnIndex = 0;
       learnedIds = new Set();
+      learnCompleteNotified = false; // 重置今日完成提示
       // 重置看词选义正确率
       learnChoiceCorrect = 0;
       learnChoiceTotal = 0;
@@ -3440,8 +3811,12 @@ async function loadLearnQueue(append = false, addCount = null) {
     if (newWords.length === 0) {
       if (append) {
         showToast('没有更多未学习的词了，这本词书已全部学完', 'info');
+      } else if (learnStarredOnly) {
+        showToast('暂无待学重点单词，可在词库中为单词标记★', 'info');
+      } else if (learnSessionMode === 'review_today') {
+        showToast('今天还没有学过的单词', 'info');
       } else {
-        showToast('当前词书没有单词', 'info');
+        showToast('当前词书没有待学单词', 'info');
       }
     } else if (append) {
       showToast(`已加入 ${newWords.length} 个未学习单词`, 'success');
@@ -3504,6 +3879,8 @@ function renderLearnCard() {
     $('#learnEmpty').style.display = 'block';
     $('#learnProgress').textContent = `0 / 0`;
     updateProgressRing(0, 0);
+    const learnBadge = $('#learnStarBadge');
+    if (learnBadge) learnBadge.style.display = 'none';
     return;
   }
 
@@ -3513,6 +3890,9 @@ function renderLearnCard() {
   }
 
   const word = learnQueue[learnIndex];
+  // 当前词是否为重点单词：显示/隐藏重点角标
+  const learnBadge = $('#learnStarBadge');
+  if (learnBadge) learnBadge.style.display = word.is_starred ? 'inline-block' : 'none';
   $('#learnProgress').textContent = `${learnIndex + 1} / ${total}`;
   // 更新环形进度条
   updateProgressRing(learnIndex + 1, total);
@@ -3617,6 +3997,90 @@ function renderFlipCard(word) {
 }
 
 /**
+ * 内置兜底干扰项词库：当后端和队列都取不到足够干扰项时使用，
+ * 保证选择题始终能有 4 个选项（1 正确 + 3 干扰项）
+ */
+const BUILTIN_DISTRACTORS = [
+  { word: 'begin', meaning: '开始' },
+  { word: 'better', meaning: '更好的' },
+  { word: 'before', meaning: '在…之前' },
+  { word: 'behind', meaning: '在…后面' },
+  { word: 'below', meaning: '在…下面' },
+  { word: 'between', meaning: '在…之间' },
+  { word: 'because', meaning: '因为' },
+  { word: 'become', meaning: '变成' },
+  { word: 'believe', meaning: '相信' },
+  { word: 'worse', meaning: '更差的' },
+  { word: 'worst', meaning: '最差的' },
+  { word: 'wonder', meaning: '想知道' },
+  { word: 'worry', meaning: '担心' },
+  { word: 'world', meaning: '世界' },
+  { word: 'while', meaning: '当…的时候' },
+  { word: 'where', meaning: '在哪里' },
+  { word: 'often', meaning: '经常' },
+  { word: 'offer', meaning: '提供' },
+  { word: 'order', meaning: '顺序；命令' },
+  { word: 'other', meaning: '其他的' },
+  { word: 'every', meaning: '每一个' },
+  { word: 'never', meaning: '从不' },
+  { word: 'number', meaning: '数字' },
+  { word: 'person', meaning: '人' },
+  { word: 'people', meaning: '人们' },
+  { word: 'please', meaning: '请；使高兴' },
+  { word: 'present', meaning: '礼物；现在的' },
+  { word: 'problem', meaning: '问题' },
+  { word: 'probably', meaning: '可能' },
+  { word: 'question', meaning: '问题' },
+  { word: 'quick', meaning: '快的' },
+  { word: 'report', meaning: '报告' },
+  { word: 'result', meaning: '结果' },
+  { word: 'return', meaning: '返回；归还' },
+  { word: 'reason', meaning: '原因' },
+  { word: 'recent', meaning: '最近的' },
+  { word: 'sudden', meaning: '突然的' },
+  { word: 'suggest', meaning: '建议' },
+  { word: 'support', meaning: '支持' },
+  { word: 'surprise', meaning: '使惊讶' },
+  { word: 'through', meaning: '穿过' },
+  { word: 'though', meaning: '尽管' },
+  { word: 'together', meaning: '一起' },
+  { word: 'tomorrow', meaning: '明天' },
+  { word: 'tonight', meaning: '今晚' },
+  { word: 'usually', meaning: '通常' },
+  { word: 'understand', meaning: '理解' },
+  { word: 'university', meaning: '大学' },
+  { word: 'whether', meaning: '是否' },
+  { word: 'without', meaning: '没有' },
+  { word: 'yesterday', meaning: '昨天' },
+  { word: 'young', meaning: '年轻的' },
+];
+
+/**
+ * 确保返回 3 个干扰项（过滤空值/重复/与正确答案相同）
+ * 后端不足时依次用队列词、内置词库兜底，保证选择题始终有 4 个选项
+ */
+function ensureThreeDistractors(word, distractors) {
+  const clean = (distractors || []).filter(o => o.word && o.word.trim() && o.word.trim() !== word.word.trim());
+  const seen = new Set();
+  const result = [];
+  for (const o of clean) {
+    const w = o.word.trim().toLowerCase();
+    if (seen.has(w)) continue;
+    seen.add(w);
+    result.push({ word: o.word, meaning: o.meaning || '' });
+  }
+  // 用内置词库兜底补足到 3 个干扰项
+  for (const o of BUILTIN_DISTRACTORS) {
+    if (result.length >= 3) break;
+    const w = o.word.toLowerCase();
+    if (seen.has(w) || w === word.word.trim().toLowerCase()) continue;
+    seen.add(w);
+    result.push({ ...o });
+  }
+  return result.slice(0, 3);
+}
+
+/**
  * 渲染看词选义模式
  * 从所有已学单词中随机抽 3 个作为干扰项
  */
@@ -3649,28 +4113,18 @@ async function renderChoiceCard(word) {
     // 降级：使用随机干扰项
     try {
       const excludeIds = learnQueue.map(w => w.id);
-      const result = await api.getDistractors(learnWordbookId, excludeIds, 3);
+      const result = await api.getDistractors(word.word, learnWordbookId, excludeIds, 3);
       distractors = result || [];
     } catch (e2) {
       console.warn('获取随机干扰项也失败，使用队列内词', e2);
     }
   }
 
-  // 如果后端干扰项不够3个，从当前队列补充
-  if (distractors.length < 3) {
-    const otherWords = learnQueue.filter(w => w.word !== word.word && w.id !== word.id);
-    while (distractors.length < 3 && otherWords.length > 0) {
-      const idx = Math.floor(Math.random() * otherWords.length);
-      const w = otherWords[idx];
-      distractors.push({ word: w.word, meaning: w.meaning });
-      otherWords.splice(idx, 1);
-    }
-  }
-
-  // 过滤干扰项：单词和释义都不能为空
-  distractors = distractors.filter(opt => opt.word && opt.word.trim() && opt.meaning && opt.meaning.trim());
-  // 去重：干扰项不能和正确答案相同
-  distractors = distractors.filter(opt => opt.word.trim() !== word.word.trim());
+  // 从队列补充后，用 ensureThreeDistractors 保证始终有 3 个干扰项（内置词库兜底）
+  const queueDistractors = learnQueue
+    .filter(w => w.word !== word.word && w.id !== word.id)
+    .map(w => ({ word: w.word, meaning: w.meaning }));
+  distractors = ensureThreeDistractors(word, [...distractors, ...queueDistractors]);
 
   // 正确答案始终包含，如果释义为空则用占位符
   const correctMeaning = (word.meaning && word.meaning.trim()) ? word.meaning : '（暂无释义）';
@@ -3720,13 +4174,10 @@ function handleChoiceAnswer(btn, currentWord) {
   if (isCorrect) {
     btn.classList.add('correct');
     feedback.className = 'quiz-feedback correct';
-    feedback.innerHTML = `回答正确！<span class="quiz-accuracy">正确率：${accuracy}%（${learnTotalWords}词，错${learnWrongCount}个）</span>`;
+    feedback.innerHTML = `回答正确！<span class="quiz-accuracy">正确率：${accuracy}%（${learnTotalWords}词，错${learnWrongCount}个）</span><span class="quiz-known-hint">点击「已学会」继续</span>`;
     playCorrectSound();
-    // 答对自动下一题
-    autoNextTimer = setTimeout(() => {
-      autoNextTimer = null;
-      handleQuizNext();
-    }, 900);
+    // 答对后不自动跳转：由用户点击"已学会"确认后才标记完成并进入下一题，
+    // 符合"点学会才算学完"的要求，避免自动跳题导致无法标记当前词
   } else {
     btn.classList.add('wrong');
     playWrongSound();
@@ -3739,7 +4190,7 @@ function handleChoiceAnswer(btn, currentWord) {
     });
     feedback.className = 'quiz-feedback wrong';
     feedback.innerHTML = `回答错误<span class="feedback-meaning">正确答案：${escapeHtml(currentWord.word)} - ${escapeHtml(currentWord.meaning || '')}</span><span class="quiz-accuracy">正确率：${accuracy}%（${learnTotalWords}词，错${learnWrongCount}个）</span>`;
-    // 答错不自动跳，让用户看清楚正确答案，手动点"下一题"
+    // 答错不自动跳，让用户看清楚正确答案，手动点"下一题"或"已学会"
   }
 }
 
@@ -3764,30 +4215,23 @@ async function renderReverseCard(word) {
   let distractors = [];
   try {
     const excludeIds = learnQueue.map(w => w.id);
-    const result = await api.getDistractors(learnWordbookId, excludeIds, 3);
+    const result = await api.getDistractors(word.word, learnWordbookId, excludeIds, 3);
     distractors = result || [];
   } catch (e) {
     console.warn('获取干扰项失败，使用队列内词', e);
   }
 
-  // 从队列中补充干扰项
-  if (distractors.length < 3) {
-    const otherWords = learnQueue.filter(w => w.word !== word.word && w.id !== word.id);
-    while (distractors.length < 3 && otherWords.length > 0) {
-      const idx = Math.floor(Math.random() * otherWords.length);
-      const w = otherWords[idx];
-      distractors.push({ word: w.word, meaning: w.meaning });
-      otherWords.splice(idx, 1);
-    }
-  }
-
-  // 过滤：单词不能为空，不能和正确答案相同
-  distractors = distractors.filter(opt => opt.word && opt.word.trim() && opt.word.trim() !== word.word.trim());
-  distractors = distractors.slice(0, 3);
+  // 从队列补充后，用 ensureThreeDistractors 保证始终有 3 个干扰项（内置词库兜底）
+  const queueDistractors = learnQueue
+    .filter(w => w.word !== word.word && w.id !== word.id)
+    .map(w => ({ word: w.word, meaning: w.meaning }));
+  distractors = ensureThreeDistractors(word, [...distractors, ...queueDistractors]);
 
   // 正确答案
   let options = [{ word: word.word, meaning: word.meaning || '' }, ...distractors];
   options.sort(() => Math.random() - 0.5);
+  // 缓存完整选项（含释义），供答错时展示每个选项对应的单词+释义
+  reverseOptionsCache = options.map(o => ({ word: o.word, meaning: o.meaning || '' }));
 
   const optionsEl = $('#reverseOptions');
   // 默认只显示英文单词
@@ -3824,24 +4268,17 @@ function handleReverseAnswer(btn, currentWord) {
     btn.classList.add('correct');
     playCorrectSound();
     feedback.className = 'quiz-feedback correct';
-    feedback.innerHTML = `回答正确！<span class="quiz-accuracy">正确率：${accuracy}%（${learnTotalWords}词，错${learnWrongCount}个）</span>`;
+    feedback.innerHTML = `回答正确！<span class="quiz-accuracy">正确率：${accuracy}%（${learnTotalWords}词，错${learnWrongCount}个）</span><span class="quiz-known-hint">点击「已学会」继续</span>`;
     optionsEl.querySelectorAll('.quiz-option').forEach(b => b.classList.add('disabled'));
-    // 答对自动跳下一题
-    autoNextTimer = setTimeout(() => {
-      handleQuizNext();
-    }, 900);
+    // 答对后不自动跳转：由用户点击"已学会"确认后才标记完成并进入下一题
   } else {
     btn.classList.add('wrong');
     playWrongSound();
-    // 选错后：显示所有选项的释义
+    // 选错后：显示所有选项的单词+释义（使用渲染时缓存的完整选项数据）
     optionsEl.querySelectorAll('.quiz-option').forEach(b => {
       const w = b.dataset.word;
-      // 从选项数据中找释义
-      const opt = currentWord.word === w ? currentWord : null;
-      let meaning = '';
-      // 尝试从队列中找释义
-      const queueWord = learnQueue.find(qw => qw.word === w);
-      if (queueWord) meaning = queueWord.meaning || '';
+      const opt = reverseOptionsCache.find(o => o.word === w);
+      const meaning = opt ? opt.meaning : '';
       b.innerHTML = `<span class="quiz-option-word">${escapeHtml(w)}</span><span class="quiz-option-meaning">${escapeHtml(meaning)}</span>`;
       if (w === currentWord.word) b.classList.add('correct');
     });
@@ -3893,11 +4330,7 @@ function handleSpellSubmit() {
     feedback.className = 'quiz-feedback correct';
     feedback.textContent = '拼写正确！';
     playCorrectSound();
-    // 答对自动下一题
-    autoNextTimer = setTimeout(() => {
-      autoNextTimer = null;
-      handleQuizNext();
-    }, 900);
+    // 答对后不自动跳转：由用户点击"已学会"确认后才标记完成并进入下一题
   } else {
     input.classList.add('wrong');
     playWrongSound();
@@ -3923,15 +4356,30 @@ function switchLearnMode(mode) {
 }
 
 /**
- * 测验模式"下一题"：标记已学会并跳到下一个（循环）
- * 使用 learnedIds 防止返回上一题后重复 submitReview
+ * 测验模式"下一题"：仅跳到下一个单词（循环），不自动标记为已学会
+ * 只有点击"已学会"按钮才会 submitReview 标记掌握
  */
-async function handleQuizNext() {
+function handleQuizNext() {
   // 取消挂起的自动下一题，防止回车+自动跳转双重触发
+  if (autoNextTimer) { clearTimeout(autoNextTimer); autoNextTimer = null; }
+  // 跳到下一个，翻完循环
+  learnIndex++;
+  renderLearnCard();
+}
+
+/**
+ * 测验模式"已学会"：标记当前单词已学会并跳到下一个（循环）
+ * 只有明确点击"已学会"才提交复习评分，否则单词会继续出现在队列中
+ */
+async function handleQuizKnown() {
   if (autoNextTimer) { clearTimeout(autoNextTimer); autoNextTimer = null; }
   const currentWord = learnQueue[learnIndex];
   if (currentWord && !learnedIds.has(currentWord.id)) {
-    await api.submitReview(currentWord.id, 'good');
+    try {
+      await api.submitReview(currentWord.id, 'good');
+    } catch (e) {
+      console.error('提交已学会失败', e);
+    }
     learnedIds.add(currentWord.id);
     allLearnedIds.add(currentWord.id);
     // 实时刷新首页统计（非阻塞）
@@ -4004,6 +4452,16 @@ function flipLearnCard() {
   $('#learnCard').classList.toggle('flipped', learnFlipped);
 }
 
+// 检查今日学习是否全部完成：队列中所有单词都已标记"已学会"
+function checkLearnComplete() {
+  if (learnCompleteNotified || learnQueue.length === 0) return;
+  const allLearned = learnQueue.every(w => learnedIds.has(w.id));
+  if (allLearned) {
+    learnCompleteNotified = true;
+    showToast(`🎉 今日 ${learnQueue.length} 个单词已全部学会，学习完成！`, 'success');
+  }
+}
+
 // 学习：已学会，标记单词并跳到下一个（不从队列移除，保持循环翻卡）
 // 学会的单词自动提交复习，状态变为 review，明天进入复习
 async function handleLearnKnown() {
@@ -4056,6 +4514,8 @@ let reviewFlipped = false; // 当前卡片是否翻转
 let reviewMode = 'flip';   // 复习模式：flip 翻卡 / choice 看词选义 / reverse 看义选词 / spell 拼写默写
 let reviewQuizAnswered = false; // 复习测验题是否已作答
 let reviewAutoNextTimer = null;  // 复习自动下一题定时器
+let reviewAllMode = false;       // 自主复习模式：true=复习所有已学过的词（不受到期限制），false=仅到期
+let reviewAllActive = false;     // 当前会话是否处于自主复习（用于中断恢复时区分）
 
 // 保存复习位置到 localStorage（用于中断恢复）
 function saveReviewPosition() {
@@ -4064,6 +4524,7 @@ function saveReviewPosition() {
     index: reviewIndex,
     queueLength: reviewQueue.length,
     wordbookId: reviewWordbookId,
+    allMode: reviewAllMode,
     timestamp: Date.now()
   };
   localStorage.setItem('wordmemo_review_position', JSON.stringify(position));
@@ -4074,8 +4535,9 @@ function restoreReviewPosition() {
   try {
     const saved = JSON.parse(localStorage.getItem('wordmemo_review_position') || 'null');
     if (!saved) return false;
-    // 检查是否同词书、同队列长度、且不超过5分钟
+    // 检查是否同词书、同模式、同队列长度、且不超过5分钟
     if (saved.wordbookId !== reviewWordbookId) return false;
+    if (!!saved.allMode !== !!reviewAllMode) return false;
     if (saved.queueLength !== reviewQueue.length) return false;
     if (Date.now() - saved.timestamp > 5 * 60 * 1000) return false;
     // 恢复索引
@@ -4089,13 +4551,17 @@ function restoreReviewPosition() {
   return false;
 }
 
-// 加载今日复习队列
+// 加载复习队列
+// reviewAllMode: true=自主复习（所有已学过，不受到期限制），false=仅到期
 async function loadReviewQueue() {
   try {
     showLoading();
+    reviewAllActive = reviewAllMode;
     const reviewOpts = { random: reviewRandomMode };
     if (reviewStarredOnly) reviewOpts.starred = true;
-    const res = await api.getReviewToday(reviewWordbookId, reviewOpts);
+    const res = reviewAllMode
+      ? await api.getReviewAll(reviewWordbookId, reviewOpts)
+      : await api.getReviewToday(reviewWordbookId, reviewOpts);
     reviewQueue = Array.isArray(res) ? res : (res.words || res.data || []);
     // 尝试恢复上次复习位置
     const restored = restoreReviewPosition();
@@ -4129,14 +4595,18 @@ function renderReviewCard() {
     $('#reviewExtraActions').style.display = 'none';
     $('#reviewEmpty').style.display = 'block';
     $('#reviewProgress').textContent = `0 / 0`;
+    const reviewBadgeEmpty = $('#reviewStarBadge');
+    if (reviewBadgeEmpty) reviewBadgeEmpty.style.display = 'none';
     // 根据是否有复习中的单词显示不同提示
     const reviewTotal = homeStatsCache ? (homeStatsCache.review || 0) + (homeStatsCache.mastered || 0) : 0;
     const reviewEmptyEl = $('#reviewEmpty');
     if (reviewEmptyEl) {
-      if (reviewTotal > 0) {
-        reviewEmptyEl.innerHTML = '<p>今日复习已完成</p><p class="empty-sub">没有到期的单词，' + reviewTotal + '个单词按艾宾浩斯曲线安排复习中，继续保持！</p>';
+      if (reviewAllMode) {
+        reviewEmptyEl.innerHTML = '<p>没有可自主复习的单词</p><p class="empty-sub">先把单词学起来，学过的词都能在这里随时复习。</p>';
+      } else if (reviewTotal > 0) {
+        reviewEmptyEl.innerHTML = '<p>今日复习已完成</p><p class="empty-sub">没有到期的单词，' + reviewTotal + '个单词按艾宾浩斯曲线安排复习中，可点击"自主复习"随时回顾，继续保持！</p>';
       } else {
-        reviewEmptyEl.innerHTML = '<p>今日复习已完成</p><p class="empty-sub">没有到期的单词，继续保持！</p>';
+        reviewEmptyEl.innerHTML = '<p>今日复习已完成</p><p class="empty-sub">没有到期的单词，可点击"自主复习"随时回顾，继续保持！</p>';
       }
     }
     return;
@@ -4150,6 +4620,9 @@ function renderReviewCard() {
   }
 
   const word = reviewQueue[reviewIndex];
+  // 当前词是否为重点单词：显示/隐藏重点角标
+  const reviewBadge = $('#reviewStarBadge');
+  if (reviewBadge) reviewBadge.style.display = word.is_starred ? 'inline-block' : 'none';
   $('#reviewProgress').textContent = `${reviewIndex + 1} / ${total}`;
   $('#reviewEmpty').style.display = 'none';
   // 保存复习位置（用于中断恢复）
@@ -4250,27 +4723,20 @@ async function renderReviewChoiceCard(word) {
     console.warn('获取形近词干扰项失败，尝试随机干扰项', e);
     try {
       const excludeIds = reviewQueue.map(w => w.id);
-      const result = await api.getDistractors(reviewWordbookId, excludeIds, 3);
+      const result = await api.getDistractors(word.word, reviewWordbookId, excludeIds, 3);
       distractors = result || [];
     } catch (e2) {
       console.warn('获取随机干扰项也失败', e2);
     }
   }
 
-  // 如果不够3个，从当前队列补充
-  if (distractors.length < 3) {
-    const otherWords = reviewQueue.filter(w => w.word !== word.word && w.id !== word.id);
-    while (distractors.length < 3 && otherWords.length > 0) {
-      const idx = Math.floor(Math.random() * otherWords.length);
-      const w = otherWords[idx];
-      distractors.push({ word: w.word, meaning: w.meaning });
-      otherWords.splice(idx, 1);
-    }
-  }
+  // 从队列补充后，用 ensureThreeDistractors 保证始终有 3 个干扰项（内置词库兜底）
+  const queueDistractors = reviewQueue
+    .filter(w => w.word !== word.word && w.id !== word.id)
+    .map(w => ({ word: w.word, meaning: w.meaning }));
+  distractors = ensureThreeDistractors(word, [...distractors, ...queueDistractors]);
 
-  // 组合选项：过滤干扰项空值，正确答案始终包含
-  distractors = distractors.filter(opt => opt.word && opt.word.trim() && opt.meaning && opt.meaning.trim());
-  distractors = distractors.filter(opt => opt.word.trim() !== word.word.trim());
+  // 组合选项：正确答案始终包含
   const correctMeaning = (word.meaning && word.meaning.trim()) ? word.meaning : '（暂无释义）';
   let options = [{ word: word.word, meaning: correctMeaning }, ...distractors];
   options.sort(() => Math.random() - 0.5);
@@ -4314,12 +4780,9 @@ function handleReviewChoiceAnswer(btn, currentWord) {
   if (isCorrect) {
     btn.classList.add('correct');
     feedback.className = 'quiz-feedback correct';
-    feedback.innerHTML = `回答正确！<span class="quiz-accuracy">正确率：${accuracy}%（${reviewTotalWords}词，错${reviewWrongCount}个）</span>`;
+    feedback.innerHTML = `回答正确！<span class="quiz-accuracy">正确率：${accuracy}%（${reviewTotalWords}词，错${reviewWrongCount}个）</span><span class="quiz-known-hint">点击「已学会」继续</span>`;
     playCorrectSound();
-    reviewAutoNextTimer = setTimeout(() => {
-      reviewAutoNextTimer = null;
-      handleReviewQuizNext();
-    }, 900);
+    // 答对后不自动跳转：由用户点击"已学会"确认后才标记复习完成并进入下一题
   } else {
     btn.classList.add('wrong');
     playWrongSound();
@@ -4355,29 +4818,22 @@ async function renderReviewReverseCard(word) {
   let distractors = [];
   try {
     const excludeIds = reviewQueue.map(w => w.id);
-    const result = await api.getDistractors(reviewWordbookId, excludeIds, 3);
+    const result = await api.getDistractors(word.word, reviewWordbookId, excludeIds, 3);
     distractors = result || [];
   } catch (e) {
     console.warn('获取干扰项失败，使用队列内词', e);
   }
 
-  // 从队列中补充干扰项
-  if (distractors.length < 3) {
-    const otherWords = reviewQueue.filter(w => w.word !== word.word && w.id !== word.id);
-    while (distractors.length < 3 && otherWords.length > 0) {
-      const idx = Math.floor(Math.random() * otherWords.length);
-      const w = otherWords[idx];
-      distractors.push({ word: w.word, meaning: w.meaning });
-      otherWords.splice(idx, 1);
-    }
-  }
-
-  // 过滤
-  distractors = distractors.filter(opt => opt.word && opt.word.trim() && opt.word.trim() !== word.word.trim());
-  distractors = distractors.slice(0, 3);
+  // 从队列补充后，用 ensureThreeDistractors 保证始终有 3 个干扰项（内置词库兜底）
+  const queueDistractors = reviewQueue
+    .filter(w => w.word !== word.word && w.id !== word.id)
+    .map(w => ({ word: w.word, meaning: w.meaning }));
+  distractors = ensureThreeDistractors(word, [...distractors, ...queueDistractors]);
 
   let options = [{ word: word.word, meaning: word.meaning || '' }, ...distractors];
   options.sort(() => Math.random() - 0.5);
+  // 缓存完整选项（含释义），供答错时展示每个选项对应的单词+释义
+  reverseOptionsCache = options.map(o => ({ word: o.word, meaning: o.meaning || '' }));
 
   const optionsEl = $('#reviewReverseOptions');
   optionsEl.innerHTML = options.map(opt => `
@@ -4412,19 +4868,17 @@ function handleReviewReverseAnswer(btn, currentWord) {
     btn.classList.add('correct');
     playCorrectSound();
     feedback.className = 'quiz-feedback correct';
-    feedback.innerHTML = `回答正确！<span class="quiz-accuracy">正确率：${accuracy}%（${reviewTotalWords}词，错${reviewWrongCount}个）</span>`;
+    feedback.innerHTML = `回答正确！<span class="quiz-accuracy">正确率：${accuracy}%（${reviewTotalWords}词，错${reviewWrongCount}个）</span><span class="quiz-known-hint">点击「已学会」继续</span>`;
     optionsEl.querySelectorAll('.quiz-option').forEach(b => b.classList.add('disabled'));
-    reviewAutoNextTimer = setTimeout(() => {
-      handleReviewQuizNext();
-    }, 900);
+    // 答对后不自动跳转：由用户点击"已学会"确认后才标记复习完成并进入下一题
   } else {
     btn.classList.add('wrong');
     playWrongSound();
+    // 选错后：显示所有选项的单词+释义（使用渲染时缓存的完整选项数据）
     optionsEl.querySelectorAll('.quiz-option').forEach(b => {
       const w = b.dataset.word;
-      let meaning = '';
-      const queueWord = reviewQueue.find(qw => qw.word === w);
-      if (queueWord) meaning = queueWord.meaning || '';
+      const opt = reverseOptionsCache.find(o => o.word === w);
+      const meaning = opt ? opt.meaning : '';
       b.innerHTML = `<span class="quiz-option-word">${escapeHtml(w)}</span><span class="quiz-option-meaning">${escapeHtml(meaning)}</span>`;
       if (w === currentWord.word) b.classList.add('correct');
     });
@@ -4474,10 +4928,7 @@ function handleReviewSpellSubmit() {
     feedback.className = 'quiz-feedback correct';
     feedback.textContent = '拼写正确！';
     playCorrectSound();
-    reviewAutoNextTimer = setTimeout(() => {
-      reviewAutoNextTimer = null;
-      handleReviewQuizNext();
-    }, 900);
+    // 答对后不自动跳转：由用户点击"已学会"确认后才标记复习完成并进入下一题
   } else {
     input.classList.add('wrong');
     playWrongSound();
@@ -4502,9 +4953,20 @@ function switchReviewMode(mode) {
 }
 
 /**
- * 复习测验模式"下一题"：提交复习评级并跳到下一个（循环）
+ * 复习测验模式"下一题"：仅跳到下一个（循环），不自动标记
+ * 只有点击"已学会"才提交复习评分
  */
-async function handleReviewQuizNext() {
+function handleReviewQuizNext() {
+  if (reviewAutoNextTimer) { clearTimeout(reviewAutoNextTimer); reviewAutoNextTimer = null; }
+  reviewIndex++;
+  renderReviewCard();
+}
+
+/**
+ * 复习测验模式"已学会"：提交复习评分并跳到下一个（循环）
+ * 只有明确点击"已学会"才记录本次复习完成
+ */
+async function handleReviewQuizKnown() {
   if (reviewAutoNextTimer) { clearTimeout(reviewAutoNextTimer); reviewAutoNextTimer = null; }
   const currentWord = reviewQueue[reviewIndex];
   if (currentWord) {
@@ -4666,6 +5128,16 @@ async function renderStats() {
     $('#statsMastered').textContent = stats.mastered || 0;
     $('#statsStreak').textContent = stats.streak_days || 0;
     $('#statsToday').textContent = stats.today_learned || 0;
+
+    // 复习统计卡片
+    const statsReviewToday = $('#statsReviewToday');
+    if (statsReviewToday) statsReviewToday.textContent = stats.today_review_count || 0;
+    const statsReviewAcc = $('#statsReviewAcc');
+    if (statsReviewAcc) statsReviewAcc.textContent = (stats.today_review_accuracy || 0) + '%';
+    const statsTotalReview = $('#statsTotalReview');
+    if (statsTotalReview) statsTotalReview.textContent = stats.total_review_count || 0;
+    const statsTotalReviewAcc = $('#statsTotalReviewAcc');
+    if (statsTotalReviewAcc) statsTotalReviewAcc.textContent = (stats.total_review_accuracy || 0) + '%';
 
     // 7天学习柱状图
     // 后端 history 格式：[{date, count}, ...]，转为数字数组
@@ -5178,6 +5650,8 @@ async function handleSaveEdit() {
     }
     // 刷新列表
     if ($('#page-library').classList.contains('active')) renderLibrary();
+    // 刷新首页统计（状态变更后同步今日已学等数据）
+    refreshHomeStats();
   } catch (err) {
     handleError(err);
   }
@@ -5579,20 +6053,29 @@ function bindEvents() {
     learnQueue = []; // 重置队列以重新加载
     learnStarredOnly = false; // 普通学习
     switchPage('learn');
+    updateLearnModeUI(); // 同步学习范围提示（普通学习隐藏）
   });
   $('#btnStartReview').addEventListener('click', () => {
     reviewQueue = [];
     reviewStarredOnly = false; // 普通复习
+    reviewAllMode = false; // 普通复习：仅今日到期（避免上次"重点复习/自主复习"的状态残留）
     switchPage('review');
+    // 进入时同步复习范围 UI（默认今日到期）
+    updateReviewModeUI();
   });
 
   // 重点单词学习/复习
+  // 重点单词是当前词本内的"子词本"：重点学习/复习只作用于当前所选词本内的重点单词，
+  // 与主词本分开。若未选词本，则作用于全部词本的重点单词。
   const btnLearnStarred = $('#btnLearnStarred');
   if (btnLearnStarred) {
     btnLearnStarred.addEventListener('click', () => {
       learnQueue = [];
       learnStarredOnly = true; // 仅重点单词
+      // 保留当前所选词本，只学习该词本内的重点单词（重点单词是该词本的子词本）
       switchPage('learn');
+      // 同步学习范围提示
+      updateLearnModeUI();
     });
   }
   const btnReviewStarred = $('#btnReviewStarred');
@@ -5600,7 +6083,12 @@ function bindEvents() {
     btnReviewStarred.addEventListener('click', () => {
       reviewQueue = [];
       reviewStarredOnly = true; // 仅重点单词
+      // 保留当前所选词本，只复习该词本内的重点单词（重点单词是该词本的子词本）
+      // 重点复习使用自主复习：所有重点词都可复习，不受到期限制（避免"没有到期重点词"）
+      reviewAllMode = true;
       switchPage('review');
+      // 同步复习范围 UI
+      updateReviewModeUI();
     });
   }
   $('#goLibraryFromHome').addEventListener('click', () => switchPage('library'));
@@ -5765,8 +6253,15 @@ function bindEvents() {
   // 词库排序
   $('#sortSelect').addEventListener('change', (e) => {
     librarySort = e.target.value;
+    // 自定义顺序需要先选中具体词本才能在列表中显示上移/下移按钮
+    if (librarySort === 'custom' && (libraryWordbook === '' || libraryWordbook === '0')) {
+      showToast('自定义顺序需要先在上方选择一个具体单词本', 'warning');
+    }
     renderLibrary();
   });
+
+  // 自定义顺序：长按 ☰ 手柄拖动排序
+  initDragReorder();
 
   // 设置：学习计划（失焦/改变保存）
   $('#dailyGoalInput').addEventListener('change', handleSaveDailyGoal);
@@ -5999,6 +6494,8 @@ function bindEvents() {
         renderLearnCard();
         showToast('请选择一本词书', 'info');
       }
+      // 同步学习范围提示（重点单词作用域跟随词书变化）
+      updateLearnModeUI();
     });
   }
   // 翻卡模式：加入新词按钮（普通按钮）
@@ -6176,7 +6673,8 @@ function bindEvents() {
   });
   // 测验模式操作按钮
   $('#btnQuizDetail').addEventListener('click', handleLearnDetail);
-  $('#btnQuizKnown').addEventListener('click', handleQuizNext);
+  $('#btnQuizKnown').addEventListener('click', handleQuizKnown);
+  $('#btnQuizSkip').addEventListener('click', handleQuizNext);
   $('#btnQuizPrev').addEventListener('click', handleLearnPrev);
 
   // 复习翻卡
@@ -6251,7 +6749,21 @@ function bindEvents() {
     const word = reviewQueue[reviewIndex];
     if (word) openWordDetail(word.id);
   });
-  $('#btnReviewQuizNext').addEventListener('click', handleReviewQuizNext);
+  $('#btnReviewQuizKnown').addEventListener('click', handleReviewQuizKnown);
+  $('#btnReviewQuizSkip').addEventListener('click', handleReviewQuizNext);
+
+  // 复习页：自主复习切换（所有已学过的词，不受到期限制）
+  const btnReviewAll = $('#btnReviewAll');
+  if (btnReviewAll) {
+    btnReviewAll.addEventListener('click', () => {
+      reviewAllMode = !reviewAllMode;
+      // 手动切换自主复习时，重置为重点词过滤，回到"所有已学过的词"的全局复习
+      reviewStarredOnly = false;
+      updateReviewModeUI();
+      reviewQueue = [];
+      loadReviewQueue();
+    });
+  }
 
   // 音标点击发音（所有音标元素都可点击）
   const phoneticHandler = (getWord) => (e) => {

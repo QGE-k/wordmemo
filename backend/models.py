@@ -81,6 +81,8 @@ class Word(db.Model):
     added_at = db.Column(db.DateTime, default=datetime.utcnow)
     # 上次复习时间
     last_review = db.Column(db.DateTime, nullable=True)
+    # 首次学习时间（第一次从 new 变为已学状态的时间，用于精确统计"今日已学"）
+    first_learned = db.Column(db.DateTime, nullable=True)
     # 复习次数
     review_count = db.Column(db.Integer, default=0)
     # 下次复习时间（用于艾宾浩斯复习算法）
@@ -107,6 +109,8 @@ class Word(db.Model):
     wrong_count = db.Column(db.Integer, default=0)
     # 是否标记为重点单词
     is_starred = db.Column(db.Boolean, default=False)
+    # 词本内排序权重（用户可手动调整单词顺序，数值小的排前面）
+    sort_order = db.Column(db.Integer, default=0)
 
     def to_dict(self):
         """将单词对象转换为字典，用于API响应"""
@@ -130,6 +134,7 @@ class Word(db.Model):
             'wordbook_id': self.wordbook_id,
             'wrong_count': self.wrong_count or 0,
             'is_starred': self.is_starred if self.is_starred is not None else False,
+            'sort_order': self.sort_order if self.sort_order is not None else 0,
         }
 
     @staticmethod

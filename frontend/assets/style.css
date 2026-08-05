@@ -749,6 +749,33 @@ input, textarea, select {
   color: var(--success);
 }
 
+/* 自定义顺序：上移/下移按钮 */
+.word-reorder {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.reorder-btn {
+  width: 26px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: var(--bg-tag, #eef2ff);
+  color: var(--primary, #4f46e5);
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, transform 0.1s;
+}
+.reorder-btn:active {
+  transform: scale(0.9);
+  background: var(--primary-bg, #e0e7ff);
+}
+
 /* 空状态 */
 .empty-state {
   text-align: center;
@@ -1537,6 +1564,13 @@ input, textarea, select {
 .sort-select:focus {
   border-color: var(--primary);
 }
+.sort-hint {
+  flex: 0 0 auto;
+  margin-left: 6px;
+  font-size: 12px;
+  color: var(--warning);
+  white-space: nowrap;
+}
 
 .library-list {
   padding-bottom: 20px;
@@ -2278,6 +2312,29 @@ input, textarea, select {
   transform: scale(0.96);
 }
 
+/* 复习范围说明条 */
+.review-mode-tip {
+  margin: 0 16px 12px;
+  padding: 8px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.review-mode-tip b {
+  color: var(--primary);
+  font-weight: 600;
+}
+.review-mode-tip.active {
+  background: rgba(74, 127, 255, 0.08);
+  border-color: var(--primary);
+}
+.review-mode-tip.active b {
+  color: var(--primary);
+}
+
 /* ===== 测验卡片 ===== */
 .quiz-card {
   width: 100%;
@@ -2400,6 +2457,18 @@ input, textarea, select {
   font-weight: 600;
   display: block;
   margin-top: 4px;
+}
+.quiz-known-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #0d9488;
+  animation: hint-pulse 1.6s ease-in-out infinite;
+}
+@keyframes hint-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
 }
 /* 拼写输入 */
 .spell-input {

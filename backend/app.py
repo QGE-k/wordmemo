@@ -1189,6 +1189,7 @@ def add_word():
         status='new',
         user_id=user_id,
         wordbook_id=wordbook_id,
+        sort_order=get_next_sort_order(user_id, wordbook_id),
     )
     db.session.add(word)
     db.session.commit()
@@ -1353,7 +1354,9 @@ def batch_add_words():
                 new_pending.append((word_text, analysis, starred, client_meaning))
             pending = new_pending
 
-    # 第三步：统一写入数据库
+    # 第三步：统一写入数据库（sort_order 从当前最大值逐个递增，保证按添加顺序排列）
+    _base_order = get_next_sort_order(user_id, wordbook_id)
+    _order_idx = 0
     for word_text, analysis_or_error, is_starred, _ in pending:
         if isinstance(analysis_or_error, Exception):
             failed.append({'word': word_text, 'error': str(analysis_or_error)})
@@ -1377,7 +1380,9 @@ def batch_add_words():
                 wordbook_id=wordbook_id,
                 user_id=user_id,
                 is_starred=is_starred,
+                sort_order=_base_order + _order_idx,
             )
+            _order_idx += 1
             db.session.add(word)
             added.append(word_text)
         except Exception as e:
@@ -1542,13 +1547,16 @@ def update_word(word_id):
                         today_start_utc, today_end_utc = get_today_utc_range()
                         if today_start_utc <= old_last_review < today_end_utc and old_status != 'new':
                             update_learn_history(-1)
-                    # 清空 last_review，不计入今日已学
+                    # 清空 last_review 和 first_learned，不计入今日已学
                     word.last_review = None
+                    word.first_learned = None
                     word.next_review = None
                     word.review_count = 0
                 elif val in ('review', 'mastered') and not word.last_review:
-                    # 首次学习：设置 last_review 为当前时间，增加 LearnHistory 计数
+                    # 首次学习：设置 last_review 和 first_learned 为当前时间，增加 LearnHistory 计数
                     word.last_review = datetime.utcnow()
+                    if word.first_learned is None:
+                        word.first_learned = datetime.utcnow()
                     if old_status == 'new':
                         update_learn_history(1)
             else:
@@ -1631,11 +1639,14 @@ def batch_update_status():
                 learn_history_delta -= 1
             # 清空学习记录，不计入今日已学
             word.last_review = None
+            word.first_learned = None
             word.next_review = None
             word.review_count = 0
         elif new_status in ('review', 'mastered') and not word.last_review:
-            # 首次学习：设置 last_review
+            # 首次学习：设置 last_review 和 first_learned
             word.last_review = now
+            if word.first_learned is None:
+                word.first_learned = now
             if old_status == 'new':
                 learn_history_delta += 1
         updated += 1
@@ -1650,6 +1661,45 @@ def batch_update_status():
         'updated': updated,
         'errors': errors,
         'message': f'成功更新 {updated} 个单词状态'
+    })
+
+
+@app.route('/api/words/reorder', methods=['POST'])
+def reorder_words():
+    """
+    自定义排序：按前端传入的 word_ids 顺序，重新设置每个单词的 sort_order
+    请求体: {"word_ids": [3,1,2]}  ->  3 排第一位(sort_order=0)，1 第二位，2 第三位
+    用于用户手动调整单词顺序（上移/下移）
+    """
+    data = request.get_json()
+    if not data or 'word_ids' not in data:
+        return jsonify({'success': False, 'error': '缺少 word_ids 参数'}), 400
+
+    word_ids = data['word_ids']
+    if not isinstance(word_ids, list) or len(word_ids) == 0:
+        return jsonify({'success': False, 'error': 'word_ids 必须是非空列表'}), 400
+
+    user_id = get_current_user_id()
+    updated = 0
+    for idx, wid in enumerate(word_ids):
+        try:
+            word_id = int(wid)
+        except (TypeError, ValueError):
+            continue
+        word = Word.query.get(word_id)
+        if not word:
+            continue
+        # 权限校验：只能调整自己的单词
+        if user_id and word.user_id and word.user_id != user_id:
+            continue
+        word.sort_order = idx
+        updated += 1
+
+    db.session.commit()
+    return jsonify({
+        'success': True,
+        'updated': updated,
+        'message': f'已更新 {updated} 个单词的排列顺序',
     })
 
 
@@ -1771,6 +1821,23 @@ def get_distractors():
             pass
 
     words = query.order_by(db.func.random()).limit(limit).all()
+
+    # 若词书内干扰项不足，用 ECDICT 形近词补充，保证选项充足
+    if len(words) < limit:
+        target_word = request.args.get('word', '').strip()
+        try:
+            ecdict_similar = dictionary_service.get_similar_words(target_word, limit=limit * 3) if target_word else []
+            existing_words = {w.word.lower() for w in words}
+            for opt in ecdict_similar:
+                if len(words) >= limit:
+                    break
+                if opt['word'].lower() in existing_words:
+                    continue
+                words.append(type('W', (), {'word': opt['word'], 'meaning': opt['meaning']})())
+                existing_words.add(opt['word'].lower())
+        except Exception:
+            pass
+
     return jsonify({
         'success': True,
         'data': [{'word': w.word, 'meaning': w.meaning} for w in words],
@@ -1908,7 +1975,27 @@ def get_similar_distractors():
     # 取前 limit 个最相似的词
     similar_words = scored[:limit]
 
-    # 如果相似词不够，用随机词补充
+    # 如果相似词不够，用 ECDICT 词典中的形近词补充（保证干扰项充足）
+    if len(similar_words) < limit:
+        used_ids = {w.id for w, _ in similar_words}
+        # 从 ECDICT 获取拼写相近的额外词
+        try:
+            ecdict_similar = dictionary_service.get_similar_words(target_word, limit=limit * 3)
+            for opt in ecdict_similar:
+                if len(similar_words) >= limit:
+                    break
+                ew = opt['word']
+                em = opt['meaning']
+                # 过滤：不能和目标词相同、不能和已选词拼音重复
+                if ew == target_word.lower():
+                    continue
+                if any(w.word.lower() == ew for w, _ in similar_words):
+                    continue
+                similar_words.append((type('W', (), {'id': -1, 'word': ew, 'meaning': em})(), 0.0))
+        except Exception:
+            pass
+
+    # 仍不足时，用随机词补充
     if len(similar_words) < limit:
         used_ids = {w.id for w, _ in similar_words}
         remaining = [w for w in all_words if w.id not in used_ids]
@@ -2072,7 +2159,8 @@ def get_wordbook_words(book_id):
     words_query = Word.query.filter_by(wordbook_id=book_id)
     if user_id:
         words_query = words_query.filter_by(user_id=user_id)
-    words = words_query.order_by(Word.added_at.asc()).all()
+    # 默认按自定义顺序 sort_order 排列（用户可手动调整），其次按添加时间
+    words = words_query.order_by(Word.sort_order.asc(), Word.added_at.asc()).all()
     return jsonify({
         'success': True,
         'data': {
@@ -2556,7 +2644,9 @@ def ocr_add_words():
         else:
             ai_map = {}
 
-        # 4. 统一写入数据库
+        # 4. 统一写入数据库（sort_order 从当前最大值逐个递增，保证按添加顺序排列）
+        _base_order = get_next_sort_order(user_id, wordbook_id)
+        _order_idx = 0
         for word_text, dict_result in pending:
             if dict_result is not None:
                 analysis = dict_result
@@ -2584,7 +2674,9 @@ def ocr_add_words():
                     status='new',
                     user_id=user_id,
                     wordbook_id=wordbook_id,
+                    sort_order=_base_order + _order_idx,
                 )
+                _order_idx += 1
                 db.session.add(word)
                 added.append(word_text)
             except Exception as e:
@@ -2810,23 +2902,29 @@ def get_stats():
         review_query = review_query.filter(wb_filter)
     today_review = review_query.count()
 
-    # 今日已学数量：实时统计今天学习的单词（last_review在今天且状态不是new）
-    # 使用时区修正的 UTC 范围，确保本地午夜→UTC 的正确转换
-    today_start_utc, today_end_utc = get_today_utc_range()
-    learned_query = Word.query.filter(
-        Word.last_review.isnot(None),
-        Word.last_review >= today_start_utc,
-        Word.last_review < today_end_utc,
-        Word.status != 'new',
-    )
-    if user_id:
-        learned_query = learned_query.filter_by(user_id=user_id)
-    if wb_filter is not None:
-        learned_query = learned_query.filter(wb_filter)
-    today_learned = learned_query.count()
-
-    # 本地日期（用于 LearnHistory 按天统计）
+    # 今日已学数量：今日首次新学的单词数（与"待学"口径一致，见 update_learn_history）
+    # 首页(未指定词书)时使用 LearnHistory.count（精确的今日新学数，只统计首次从 new->learned 的单词）
+    # 指定词书时按 first_learned（首次学习时间）统计，不包含复习词
     today = date.today()
+    if not wordbook_id:
+        today_learn_history = LearnHistory.query.filter_by(date=today)
+        if user_id:
+            today_learn_history = today_learn_history.filter_by(user_id=user_id)
+        today_learn_history = today_learn_history.first()
+        today_learned = today_learn_history.count if today_learn_history else 0
+    else:
+        today_start_utc, today_end_utc = get_today_utc_range()
+        learned_query = Word.query.filter(
+            Word.first_learned.isnot(None),
+            Word.first_learned >= today_start_utc,
+            Word.first_learned < today_end_utc,
+            Word.status != 'new',
+        )
+        if user_id:
+            learned_query = learned_query.filter_by(user_id=user_id)
+        if wb_filter is not None:
+            learned_query = learned_query.filter(wb_filter)
+        today_learned = learned_query.count()
 
     # 最近7天学习历史（按用户隔离）
     seven_days_ago = today - timedelta(days=6)
@@ -2868,6 +2966,28 @@ def get_stats():
     # 今日待学：每日目标减去今日已学，最低为0
     pending_today = max(0, daily_goal_val - today_learned)
 
+    # ===== 复习统计（按用户隔离）=====
+    # 今日复习次数与准确率（来自 LearnHistory 当天 total_count / correct_count）
+    today_review_count = 0
+    today_review_correct = 0
+    today_review_history = LearnHistory.query.filter_by(date=today)
+    if user_id:
+        today_review_history = today_review_history.filter_by(user_id=user_id)
+    today_review_history = today_review_history.first()
+    if today_review_history:
+        today_review_count = today_review_history.total_count or 0
+        today_review_correct = today_review_history.correct_count or 0
+    today_review_accuracy = round(today_review_correct / today_review_count * 100, 1) if today_review_count else 0.0
+
+    # 累计复习次数与累计正确率（跨所有历史记录）
+    total_review_query = LearnHistory.query
+    if user_id:
+        total_review_query = total_review_query.filter_by(user_id=user_id)
+    all_history_rows = total_review_query.all()
+    total_review_count = sum(h.total_count or 0 for h in all_history_rows)
+    total_review_correct = sum(h.correct_count or 0 for h in all_history_rows)
+    total_review_accuracy = round(total_review_correct / total_review_count * 100, 1) if total_review_count else 0.0
+
     return jsonify({
         'success': True,
         'data': {
@@ -2876,6 +2996,13 @@ def get_stats():
             'review': review_count,
             'mastered': mastered_count,
             'today_review': today_review,
+            # 今日已复习的次数（每次评分记为一次）
+            'today_review_count': today_review_count,
+            # 今日复习正确率（0~100）
+            'today_review_accuracy': today_review_accuracy,
+            # 累计复习次数与累计正确率
+            'total_review_count': total_review_count,
+            'total_review_accuracy': total_review_accuracy,
             'today_learned': today_learned,
             'pending_today': pending_today,
             'daily_goal': daily_goal_val,
@@ -3062,13 +3189,79 @@ def get_today_review():
     if starred_only:
         base_query = base_query.filter(Word.is_starred == True)
 
-    # 排序：随机 or 按到期时间升序（过期最久的先复习）
+    # 排序：随机 or 按到期时间升序（过期最久的先复习），错词优先（wrong_count 高的排前面）
     if random_mode:
         words = base_query.order_by(db.func.random()).all()
     else:
-        words = base_query.order_by(Word.next_review.asc()).all()
+        words = base_query.order_by(
+            Word.wrong_count.desc(),    # 高频错词优先复习
+            Word.next_review.asc()       # 过期最久的其次
+        ).all()
 
     # 每日复习上限
+    limit = request.args.get('limit', None, type=int)
+    if limit is None:
+        limit = setting.daily_review_goal or 0
+    if limit and limit > 0:
+        words = words[:limit]
+
+    return jsonify({
+        'success': True,
+        'data': [w.to_dict() for w in words],
+        'total': len(words),
+    })
+
+
+@app.route('/api/review/all', methods=['GET'])
+def get_all_review():
+    """
+    自主复习接口：返回所有已学过（last_review 非空）且尚未毕业的单词，
+    不受到期时间限制，用户想复习即可复习。
+    
+    筛选条件：
+    - last_review 不为空（已学过）
+    - status 为 review 或 mastered（已掌握词在防遗忘模式下也会纳入）
+    
+    排序：优先高频错词（wrong_count 高），其次按上次复习时间（最久未复习的优先）
+    
+    可通过 ?wordbook_id= 按词书过滤
+    可通过 ?random=1 随机排序
+    可通过 ?limit= 控制数量
+    可通过 ?starred=1 仅复习重点单词
+    """
+    setting = get_setting()
+    user_id = get_current_user_id()
+    wordbook_id = request.args.get('wordbook_id', '').strip()
+    random_mode = request.args.get('random', '').strip() == '1'
+
+    # 所有已学过的词（复习中 + 已掌握），不按 next_review 过滤
+    query = Word.query.filter(
+        Word.last_review.isnot(None),
+        Word.status.in_(['review', 'mastered']),
+    )
+    if user_id:
+        query = query.filter_by(user_id=user_id)
+    if wordbook_id and wordbook_id != '0':
+        try:
+            query = query.filter_by(wordbook_id=int(wordbook_id))
+        except ValueError:
+            pass
+    elif wordbook_id == '0':
+        query = query.filter_by(wordbook_id=None)
+
+    # starred 模式：仅返回重点单词
+    starred_only = request.args.get('starred', '').strip() == '1'
+    if starred_only:
+        query = query.filter(Word.is_starred == True)
+
+    if random_mode:
+        words = query.order_by(db.func.random()).all()
+    else:
+        words = query.order_by(
+            Word.wrong_count.desc(),
+            Word.last_review.asc()
+        ).all()
+
     limit = request.args.get('limit', None, type=int)
     if limit is None:
         limit = setting.daily_review_goal or 0
@@ -3146,19 +3339,37 @@ def submit_review(word_id):
     if not is_correct:
         word.wrong_count = (word.wrong_count or 0) + 1
 
-    # 防遗忘：已掌握单词的回顾，只按 anti_forget_interval 安排，不改变状态
-    if was_mastered and anti_forget:
-        if rating == 'again':
-            # 已掌握但忘了，降级回复习中
-            word.status = 'review'
-            word.next_review = now + timedelta(days=1)
+    # 防遗忘：已掌握单词的回顾
+    if was_mastered:
+        if anti_forget:
+            # 防遗忘模式开启：已掌握词定期回顾
+            if rating == 'again':
+                # 已掌握但忘了，降级回复习中
+                word.status = 'review'
+                word.next_review = now + timedelta(days=1)
+            elif rating == 'hard':
+                # 回顾不熟，缩短回顾间隔（比防遗忘间隔更短）
+                word.status = 'mastered'
+                word.next_review = now + timedelta(days=max(1, anti_forget_interval // 2))
+            else:
+                # good/easy 回顾成功，继续按防遗忘间隔安排
+                word.status = 'mastered'
+                word.next_review = now + timedelta(days=anti_forget_interval)
         else:
-            # 回顾成功，继续按防遗忘间隔安排
-            word.next_review = now + timedelta(days=anti_forget_interval)
+            # 防遗忘模式关闭：已掌握词除非忘了，否则不再安排复习
+            if rating == 'again':
+                # 忘了，降级回复习中
+                word.status = 'review'
+                word.next_review = now + timedelta(days=1)
+            else:
+                # good/easy/hard 都视为已掌握，结束复习（不再出现在复习队列）
+                word.status = 'mastered'
+                word.next_review = None
     else:
+        # 非已掌握词：正常艾宾浩斯间隔算法
         if rating == 'again':
-            # 不会，1分钟后重新出现（重新记忆）
-            word.next_review = now + timedelta(minutes=1)
+            # 不会，10分钟后在当前会话内重新出现（前端队列会重放），避免排期落在历史时间导致次日无限重复
+            word.next_review = now + timedelta(minutes=10)
             word.status = 'review'
 
         elif rating == 'hard':
@@ -3167,11 +3378,18 @@ def submit_review(word_id):
             word.status = 'review'
 
         elif rating == 'good':
-            # 一般，根据复习次数选择间隔
+            # 一般，根据复习次数选择间隔；达到掌握阈值也能毕业（good 也能 mastered，避免长期停留在复习中）
             interval_index = min(word.review_count - 1, len(good_intervals) - 1)
             days = good_intervals[interval_index]
             word.next_review = now + timedelta(days=days)
-            word.status = 'review'
+            if word.review_count >= easy_threshold:
+                word.status = 'mastered'
+                if anti_forget:
+                    word.next_review = now + timedelta(days=anti_forget_interval)
+                else:
+                    word.next_review = None
+            else:
+                word.status = 'review'
 
         elif rating == 'easy':
             # 简单，间隔为最长一档
@@ -3188,8 +3406,10 @@ def submit_review(word_id):
             else:
                 word.status = 'review'
 
-    # 如果单词从 new 变为 review（首次学习），更新今日学习历史
+    # 如果单词从 new 变为 review（首次学习），记录首次学习时间 + 更新今日学习历史
     if was_new and word.status != 'new':
+        if word.first_learned is None:
+            word.first_learned = now
         update_learn_history(1)
 
     db.session.commit()
@@ -3264,25 +3484,29 @@ def get_today_learn():
     new_only = request.args.get('new_only', '').strip() == '1'
     if new_only:
         query = query.filter_by(status='new')
+    else:
+        # 默认学习队列只包含待学(new)和待复习(review)的词，
+        # 排除已掌握(mastered)的词——已掌握词走复习模式的防遗忘回顾，避免浪费学习时间
+        query = query.filter(Word.status.in_(['new', 'review']))
 
     # starred 模式：仅返回重点单词
     starred_only = request.args.get('starred', '').strip() == '1'
     if starred_only:
         query = query.filter(Word.is_starred == True)
 
-    # 排序：随机模式 / new_only 按 added_at / 默认按状态优先级(new>review>mastered)再 added_at
+    # 排序：随机模式 / 顺序模式（含 new_only）优先按自定义顺序 sort_order，其次按添加时间
     random_mode = request.args.get('random', '').strip() == '1'
     if random_mode:
         words = query.order_by(db.func.random()).limit(limit).all()
     elif new_only:
-        words = query.order_by(Word.added_at.asc()).limit(limit).all()
+        words = query.order_by(Word.sort_order.asc(), Word.added_at.asc()).limit(limit).all()
     else:
         status_order = case(
-            {'new': 0, 'review': 1, 'mastered': 2},
+            {'new': 0, 'review': 1},
             value=Word.status,
-            else_=3
+            else_=2
         )
-        words = query.order_by(status_order, Word.added_at.asc()).limit(limit).all()
+        words = query.order_by(status_order, Word.sort_order.asc(), Word.added_at.asc()).limit(limit).all()
 
     return jsonify({
         'success': True,
@@ -3806,6 +4030,62 @@ def ensure_word_starred_column():
         print("[迁移] words.is_starred 列添加完成")
 
 
+def ensure_word_sort_order_column():
+    """
+    数据库迁移：为 words 表添加 sort_order 列（如果不存在）
+    用于词本内自定义排序（用户可手动调整单词顺序，数值小的排前面）
+    """
+    from sqlalchemy import text, inspect
+    inspector = inspect(db.engine)
+    columns = [col['name'] for col in inspector.get_columns('words')]
+    if 'sort_order' not in columns:
+        print("[迁移] 检测到 words 表缺少 sort_order 列，正在添加...")
+        with db.engine.connect() as conn:
+            conn.execute(text("ALTER TABLE words ADD COLUMN sort_order INTEGER DEFAULT 0"))
+            conn.commit()
+        print("[迁移] words.sort_order 列添加完成")
+
+
+def ensure_word_first_learned_column():
+    """
+    数据库迁移：为 words 表添加 first_learned 列（如果不存在）
+    用于精确统计"今日已学"（首次学习时间），避免把复习词也算进今日已学
+    """
+    from sqlalchemy import text, inspect
+    inspector = inspect(db.engine)
+    columns = [col['name'] for col in inspector.get_columns('words')]
+    if 'first_learned' not in columns:
+        print("[迁移] 检测到 words 表缺少 first_learned 列，正在添加...")
+        with db.engine.connect() as conn:
+            conn.execute(text("ALTER TABLE words ADD COLUMN first_learned DATETIME"))
+            conn.commit()
+        print("[迁移] words.first_learned 列添加完成")
+        # 回填：对已有已学单词，将 first_learned 设为 added_at（更接近首次学习时间）。
+        # 注意：不能用 last_review，否则把"今天才复习过的旧词"误算成今日已学。
+        with db.engine.connect() as conn:
+            conn.execute(text("UPDATE words SET first_learned = added_at WHERE first_learned IS NULL AND status != 'new' AND added_at IS NOT NULL"))
+            conn.commit()
+        print("[迁移] 已回填已学单词的 first_learned")
+
+
+def get_next_sort_order(user_id, wordbook_id):
+    """
+    计算下一个 sort_order 值：取指定词本内当前最大 sort_order + 1
+    保证新添加的单词自动排在已有单词之后（满足"按添加顺序排序"需求）
+    """
+    query = Word.query
+    if user_id:
+        query = query.filter_by(user_id=user_id)
+    else:
+        query = query.filter(Word.user_id.is_(None))
+    if wordbook_id:
+        query = query.filter_by(wordbook_id=wordbook_id)
+    else:
+        query = query.filter(Word.wordbook_id.is_(None))
+    max_order = query.with_entities(db.func.max(Word.sort_order)).scalar() or 0
+    return int(max_order) + 1
+
+
 def ensure_learn_history_accuracy_columns():
     """
     数据库迁移：为 learn_history 表添加 correct_count 和 total_count 列（如果不存在）
@@ -3980,6 +4260,10 @@ with app.app_context():
     ensure_learn_history_user_id_column()
     # 迁移：移除 learn_history.date 旧唯一约束，改为 (date, user_id) 联合唯一
     fix_learn_history_unique_constraint()
+    # 迁移：为 words 表添加 sort_order 列（词本内自定义排序）
+    ensure_word_sort_order_column()
+    # 迁移：为 words 表添加 first_learned 列（精确统计今日已学）
+    ensure_word_first_learned_column()
     # 迁移：为 wordbooks 表添加 is_shared / shared_at 列（全局词本分享）
     ensure_wordbook_shared_columns()
     # 插入演示数据

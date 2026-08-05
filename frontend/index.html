@@ -9,7 +9,7 @@
   <!-- 预连接：提前建立TCP/TLS连接，减少首字节时间 -->
   <link rel="preconnect" href="/" crossorigin>
   <link rel="dns-prefetch" href="/">
-  <link rel="stylesheet" href="assets/style.css?v=20260803m">
+  <link rel="stylesheet" href="assets/style.css?v=20260806a">
   <!-- PWA 支持：允许"添加到桌面"当App用 -->
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" type="image/png" href="/icons/icon-192.png">
@@ -334,12 +334,14 @@
         <select class="sort-select" id="sortSelect" title="排序方式">
           <option value="added_desc">最近添加</option>
           <option value="added_asc">最早添加</option>
+          <option value="custom">自定义顺序</option>
           <option value="word_asc">字母 A-Z</option>
           <option value="word_desc">字母 Z-A</option>
           <option value="review_desc">复习次数多</option>
           <option value="review_asc">复习次数少</option>
           <option value="next_review_asc">最快到期</option>
         </select>
+        <span class="sort-hint" id="sortHint"></span>
       </div>
 
       <!-- 单词列表 -->
@@ -468,7 +470,8 @@
       <div class="card-actions" id="quizActions" style="display:none">
         <button class="btn-secondary" id="btnQuizPrev">上一题</button>
         <button class="btn-secondary" id="btnQuizDetail">详情</button>
-        <button class="btn-primary" id="btnQuizKnown">下一题</button>
+        <button class="btn-secondary" id="btnQuizSkip">下一题</button>
+        <button class="btn-primary" id="btnQuizKnown">已学会</button>
       </div>
     </section>
 
@@ -485,7 +488,10 @@
         <select id="reviewWordbookSelect" style="flex:1;min-width:120px;padding:6px 10px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;">
           <option value="">请选择词书</option>
         </select>
+        <button class="btn-secondary" id="btnReviewAll" title="拉到最下方可切换复习范围" style="white-space:nowrap;font-size:13px;padding:6px 10px;">自主复习</button>
       </div>
+      <!-- 复习范围说明：今日到期 / 自主复习 -->
+      <div class="review-mode-tip" id="reviewModeTip" style="display:none"></div>
       <!-- 复习模式切换 -->
       <div class="mode-tabs" id="reviewModeTabs">
         <button class="mode-tab active" data-rmode="flip">翻卡模式</button>
@@ -558,19 +564,22 @@
       </div>
       <!-- 翻卡模式：复习操作按钮 -->
       <div class="rating-actions" id="ratingActions" style="display:none">
-        <button class="rating-btn rating-prev" id="btnReviewPrev" data-action="prev">
+        <button class="rating-btn rating-prev" id="btnReviewPrev" data-action="prev" title="回到上一个单词">
           <span class="rating-label">上一个</span>
         </button>
-        <button class="rating-btn rating-forgot" data-rating="again">
+        <button class="rating-btn rating-forgot" data-rating="again" title="完全想不起来，稍后会再次出现帮你巩固">
           <span class="rating-label">不记得</span>
+          <span class="rating-desc">稍后重看</span>
         </button>
-        <button class="rating-btn rating-hard" data-rating="hard">
+        <button class="rating-btn rating-hard" data-rating="hard" title="有点印象但不熟，明天复习一次">
           <span class="rating-label">模糊</span>
+          <span class="rating-desc">明天再背</span>
         </button>
-        <button class="rating-btn rating-good" data-rating="good">
+        <button class="rating-btn rating-good" data-rating="good" title="记得很清楚，按遗忘曲线安排下次复习">
           <span class="rating-label">记得</span>
+          <span class="rating-desc">加深记忆</span>
         </button>
-        <button class="rating-btn rating-next" id="btnReviewNext" data-action="next">
+        <button class="rating-btn rating-next" id="btnReviewNext" data-action="next" title="正常进入下一个单词">
           <span class="rating-label">下一个</span>
         </button>
       </div>
@@ -582,7 +591,8 @@
       <div class="card-actions" id="reviewQuizActions" style="display:none">
         <button class="btn-secondary" id="btnReviewQuizPrev">上一题</button>
         <button class="btn-secondary" id="btnReviewQuizDetail">详情</button>
-        <button class="btn-primary" id="btnReviewQuizNext">下一题</button>
+        <button class="btn-secondary" id="btnReviewQuizSkip">下一题</button>
+        <button class="btn-primary" id="btnReviewQuizKnown">已学会</button>
       </div>
     </section>
 
@@ -607,6 +617,26 @@
         <div class="stats-cell">
           <span class="stats-num" id="statsToday">0</span>
           <span class="stats-label">今日学习</span>
+        </div>
+      </div>
+
+      <!-- 复习统计卡片 -->
+      <div class="stats-grid">
+        <div class="stats-cell">
+          <span class="stats-num" id="statsReviewToday">0</span>
+          <span class="stats-label">今日复习</span>
+        </div>
+        <div class="stats-cell">
+          <span class="stats-num" id="statsReviewAcc">0%</span>
+          <span class="stats-label">今日正确率</span>
+        </div>
+        <div class="stats-cell">
+          <span class="stats-num" id="statsTotalReview">0</span>
+          <span class="stats-label">累计复习</span>
+        </div>
+        <div class="stats-cell">
+          <span class="stats-num" id="statsTotalReviewAcc">0%</span>
+          <span class="stats-label">累计正确率</span>
         </div>
       </div>
 
@@ -664,7 +694,7 @@
           <label class="setting-label" for="reviewOrderSelect">复习顺序</label>
           <div class="setting-control">
             <select id="reviewOrderSelect" class="setting-input setting-select">
-              <option value="sequential">按时间（昨天先于更早）</option>
+              <option value="sequential">按时间（最早添加先复习）</option>
               <option value="random">随机</option>
             </select>
           </div>
@@ -1096,7 +1126,7 @@
     </div>
   </div>
 
-  <script src="assets/app.js?v=20260804a"></script>
+  <script src="assets/app.js?v=20260806a"></script>
   <!-- PWA service worker 注册：仅在 HTTPS/localhost 生效 -->
   <script>
     if ('serviceWorker' in navigator) {
