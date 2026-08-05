@@ -4056,8 +4056,11 @@ def ensure_word_first_learned_column():
     columns = [col['name'] for col in inspector.get_columns('words')]
     if 'first_learned' not in columns:
         print("[迁移] 检测到 words 表缺少 first_learned 列，正在添加...")
+        # PostgreSQL 用 TIMESTAMP，SQLite 用 DATETIME（兼容部署环境）
+        dialect_name = db.engine.dialect.name
+        timestamp_type = 'TIMESTAMP' if dialect_name == 'postgresql' else 'DATETIME'
         with db.engine.connect() as conn:
-            conn.execute(text("ALTER TABLE words ADD COLUMN first_learned DATETIME"))
+            conn.execute(text(f"ALTER TABLE words ADD COLUMN first_learned {timestamp_type}"))
             conn.commit()
         print("[迁移] words.first_learned 列添加完成")
         # 回填：对已有已学单词，将 first_learned 设为 added_at（更接近首次学习时间）。
