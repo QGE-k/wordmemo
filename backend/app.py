@@ -512,6 +512,39 @@ def admin_reset_user_password():
     })
 
 
+@app.route('/api/admin/debug-ecdict', methods=['GET'])
+def admin_debug_ecdict():
+    """管理员：诊断 ECDICT 数据库加载状态（临时调试用）"""
+    err = require_admin()
+    if err:
+        return err
+    words = request.args.get('words', 'book,computer,knowledge,apple,pressure').split(',')
+    conn = dictionary_service._ecdict
+    out = {'ecdict_loaded': conn is not None, 'rows': {}}
+    if conn:
+        for w in words:
+            w = w.strip()
+            if not w:
+                continue
+            try:
+                row = conn.execute(
+                    'SELECT word, translation, pos FROM stardict WHERE word = ? COLLATE NOCASE',
+                    (w,)
+                ).fetchone()
+                if row:
+                    out['rows'][w] = {
+                        'word': row['word'],
+                        'has_translation': bool(row['translation']),
+                        'translation': (row['translation'] or '')[:80],
+                        'pos': row['pos'] or '',
+                    }
+                else:
+                    out['rows'][w] = {'word': w, 'not_found': True}
+            except Exception as e:
+                out['rows'][w] = {'error': str(e)}
+    return jsonify({'success': True, 'data': out})
+
+
 @app.route('/api/admin/toggle_user', methods=['POST'])
 def admin_toggle_user():
     """管理员：启用/禁用用户账号
