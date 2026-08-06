@@ -76,12 +76,12 @@ class WordAPI {
     }
 
     // 根据请求类型设置不同的超时策略
-    // AI 识别类请求需要很长时间（推理模型处理图片），用 60 秒
+    // AI 识别类请求需要很长时间（后端 120s 超时 + Render 冷启动 30s），用 120 秒
     // 普通请求：首次 10 秒 → 超时重试 30 秒
     const isAIRequest = path.includes('/ai/') || path.includes('/ocr/');
-    const isLongAIRequest = path.includes('/ocr/add-words') || path.includes('/words/batch');
-    const firstTimeout = isLongAIRequest ? 90000 : (isAIRequest ? 60000 : 10000);
-    const retryTimeout = isLongAIRequest ? 150000 : (isAIRequest ? 90000 : 30000);
+    const isLongAIRequest = path.includes('/ocr/add-words') || path.includes('/words/batch') || path.includes('/import/confirm');
+    const firstTimeout = isLongAIRequest ? 120000 : (isAIRequest ? 120000 : 10000);
+    const retryTimeout = isLongAIRequest ? 180000 : (isAIRequest ? 180000 : 30000);
 
     // 带超时的单次请求
     const fetchWithTimeout = async (timeoutMs) => {
@@ -93,11 +93,15 @@ class WordAPI {
 
         if (!res.ok) {
           let errMsg = `请求失败 (${res.status})`;
+          let errData = null;
           try {
-            const errData = await res.json();
+            errData = await res.json();
             errMsg = errData.error || errData.message || errMsg;
           } catch (e) { }
-          throw new Error(errMsg);
+          const err = new Error(errMsg);
+          // 保留后端返回的额外字段（如 quota_exceeded）
+          if (errData && errData.quota_exceeded) err.quota_exceeded = true;
+          throw err;
         }
 
         const text = await res.text();
@@ -127,7 +131,7 @@ class WordAPI {
         return await fetchWithTimeout(retryTimeout);
       } catch (err2) {
         if (err2.name === 'AbortError') {
-          throw new Error(isAIRequest ? 'AI识别超时，请稍后重试' : '请求超时，请稍后重试');
+          throw new Error(isAIRequest ? 'AI识别超时，服务繁忙请稍后重试，或减小图片尺寸' : '请求超时，请稍后重试');
         }
         if (err2 instanceof TypeError && err2.message.includes('Failed to fetch')) {
           throw new Error('无法连接服务器，请检查网络');
@@ -625,6 +629,8 @@ function onLoginSuccess() {
   if (secAnswerInput && currentUser) secAnswerInput.value = '';
   // 加载OCR用量
   loadOcrUsage();
+  // 启动服务保活（每10分钟ping一次，防止Render冷启动超时）
+  startKeepAlive();
   // 管理员显示管理 Tab
   const adminTab = document.querySelector('.tab-admin-only');
   if (adminTab) {
@@ -651,6 +657,17 @@ async function loadOcrUsage() {
   } catch {
     el.textContent = '无法获取';
   }
+}
+
+/** 保持Render服务唤醒（每10分钟ping一次，防止冷启动超时） */
+function startKeepAlive() {
+  setInterval(async () => {
+    try {
+      await fetch('/api/ping', { method: 'GET', cache: 'no-store' });
+    } catch (e) {
+      // 静默失败，不打扰用户
+    }
+  }, 10 * 60 * 1000);
 }
 
 /** 处理登录 */
@@ -1295,6 +1312,25 @@ function updateReviewEstimate(count) {
 }
 
 /**
+ * 统一同步学习范围 UI（重点单词等）
+ */
+function updateLearnModeUI() {
+  const tip = $('#learnModeTip');
+  if (!tip) return;
+  if (learnStarredOnly) {
+    const bookName = learnWordbookId && learnWordbookId !== '0'
+      ? (wordbooks.find(b => b.id === Number(learnWordbookId)) || {}).name
+      : null;
+    tip.innerHTML = '当前学习范围：<b>重点单词</b>' +
+      (bookName ? `（${escapeHtml(bookName)} 内的收藏单词，与主词本分开）` : '（全部词本内的收藏单词）');
+    tip.className = 'review-mode-tip active';
+    tip.style.display = 'block';
+  } else {
+    tip.style.display = 'none';
+  }
+}
+
+/**
  * 统一同步复习范围 UI：按钮文案/激活态 + 顶部说明条
  * 让用户清楚当前复习的是"今日到期"还是"所有学过的词"
  */
@@ -1307,7 +1343,12 @@ function updateReviewModeUI() {
   const tip = $('#reviewModeTip');
   if (tip) {
     if (reviewStarredOnly) {
-      tip.innerHTML = '当前复习范围：<b>重点单词</b>（所有收藏单词，不受到期限制）';
+      const bookName = reviewWordbookId && reviewWordbookId !== '0'
+        ? (wordbooks.find(b => b.id === Number(reviewWordbookId)) || {}).name
+        : null;
+      tip.innerHTML = '当前复习范围：<b>重点单词</b>' +
+        (bookName ? `（${escapeHtml(bookName)} 内的收藏单词，与主词本分开）` : '（全部词本内的收藏单词）') +
+        '，不受到期限制';
       tip.className = 'review-mode-tip';
       tip.style.display = 'block';
     } else if (reviewAllMode) {
@@ -1474,13 +1515,10 @@ function wordItemHtml(word, index) {
   const bookTag = book ? `<span class="word-book-tag" style="border-color:${book.color}40;color:${book.color}">${escapeHtml(book.name)}</span>` : '';
   const num = index !== undefined ? `<span class="word-num">${index}</span>` : '';
   const starTag = word.is_starred ? `<span class="word-star-icon" title="重点单词">★</span>` : '';
-  // 自定义顺序模式下，且在具体某个词本内，显示上移/下移按钮
+  // 自定义顺序模式下，且在具体某个词本内，显示拖动排序手柄（长按拖动）
   const showReorder = librarySort === 'custom' && libraryWordbook !== '' && libraryWordbook !== '0';
-  const reorderBtns = showReorder ? `
-    <div class="word-reorder">
-      <button type="button" class="reorder-btn reorder-up" data-id="${word.id}" title="上移">▲</button>
-      <button type="button" class="reorder-btn reorder-down" data-id="${word.id}" title="下移">▼</button>
-    </div>` : '';
+  const reorderHandle = showReorder ? `
+    <div class="reorder-handle" title="长按拖动排序" data-id="${word.id}">☰</div>` : '';
   return `
     <div class="word-item" data-id="${word.id}">
       ${num}
@@ -1494,7 +1532,7 @@ function wordItemHtml(word, index) {
         <div class="word-meaning">${escapeHtml(word.meaning || '暂无释义')}</div>
       </div>
       <span class="word-status ${word.status}">${statusText(word.status)}</span>
-      ${reorderBtns}
+      ${reorderHandle}
     </div>
   `;
 }
@@ -1757,20 +1795,35 @@ function bindOverviewClicks() {
 }
 
 /**
+ * 跳转到词库并按指定状态筛选
+ * status: all / new / review / mastered / starred
+ */
+function goLibraryWithFilter(status) {
+  libraryFilter = status || 'all';
+  // 同步筛选标签激活态
+  $$('.filter-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.status === libraryFilter);
+  });
+  switchPage('library');
+  renderLibrary();
+}
+
+/**
  * 绑定统计卡片点击跳转
- * 总词数 → 词库，新词 → 学习，复习中 → 复习，已掌握 → 词库
+ * 点击"未学习/复习中/已掌握"卡片 → 词库并只显示对应状态的单词
+ * 总词数 → 词库(全部)
  */
 function bindStatCardClicks() {
   const statCards = document.querySelectorAll('.stat-card');
   if (statCards.length >= 4) {
     statCards[0].style.cursor = 'pointer';
-    statCards[0].onclick = () => switchPage('library');
+    statCards[0].onclick = () => goLibraryWithFilter('all');
     statCards[1].style.cursor = 'pointer';
-    statCards[1].onclick = () => { learnQueue = []; switchPage('learn'); };
+    statCards[1].onclick = () => goLibraryWithFilter('new');
     statCards[2].style.cursor = 'pointer';
-    statCards[2].onclick = () => { reviewQueue = []; switchPage('review'); };
+    statCards[2].onclick = () => goLibraryWithFilter('review');
     statCards[3].style.cursor = 'pointer';
-    statCards[3].onclick = () => switchPage('library');
+    statCards[3].onclick = () => goLibraryWithFilter('mastered');
   }
 }
 
@@ -2085,39 +2138,60 @@ async function handleDocImport() {
   }
   // 获取选择的单词本 ID
   const wordbookId = $('#docWordbookSelect').value || null;
+  // 分批导入，避免一次性提交 2000+ 词导致后端 AI 分析超时
+  // 每批约 40 个：其中若有一半需 AI 分析，5 并发 × 3-8 秒 ≈ 数秒~十几秒，远低于 120s 长超时
+  const BATCH_SIZE = 40;
+  const total = docPendingWords.length;
+  const batches = [];
+  for (let i = 0; i < total; i += BATCH_SIZE) {
+    batches.push(docPendingWords.slice(i, i + BATCH_SIZE));
+  }
+
+  let added = 0, skipped = 0, failed = 0;
   try {
-    showLoading('正在导入单词...');
-    const res = await api.importConfirm(docPendingWords, wordbookId);
+    showLoading(`正在导入单词 0/${total}...`);
+    for (let b = 0; b < batches.length; b++) {
+      const batch = batches[b];
+      showLoading(`正在导入单词 ${Math.min((b + 1) * BATCH_SIZE, total)}/${total}（第 ${b + 1}/${batches.length} 批）...`);
+      const res = await api.importConfirm(batch, wordbookId);
+      if (!res.success) {
+        // 批次级失败：该批全部计入失败
+        failed += batch.length;
+        continue;
+      }
+      const d = res.data;
+      added += d.added_count || 0;
+      skipped += d.skipped_count || 0;
+      failed += d.failed_count || 0;
+      // 批次间短暂停顿，避免连续高频请求触发后端限流/超时
+      if (b < batches.length - 1) {
+        await new Promise(r => setTimeout(r, 300));
+      }
+    }
     hideLoading();
 
-    if (!res.success) {
-      showToast(res.error || '导入失败', 'error');
-      return;
-    }
-
-    const d = res.data;
-    // 渲染结果
+    // 渲染汇总结果
     const resultHtml = `
       <div class="result-row">
         <span>成功导入</span>
-        <span class="result-added">${d.added_count} 个</span>
+        <span class="result-added">${added} 个</span>
       </div>
-      ${d.skipped_count > 0 ? `
+      ${skipped > 0 ? `
       <div class="result-row">
         <span>已存在跳过</span>
-        <span class="result-skipped">${d.skipped_count} 个</span>
+        <span class="result-skipped">${skipped} 个</span>
       </div>` : ''}
-      ${d.failed_count > 0 ? `
+      ${failed > 0 ? `
       <div class="result-row">
         <span>导入失败</span>
-        <span class="result-failed">${d.failed_count} 个</span>
+        <span class="result-failed">${failed} 个</span>
       </div>` : ''}
     `;
     $('#docResult').innerHTML = resultHtml;
     $('#docResult').style.display = 'block';
     $('#docPreview').style.display = 'none';
 
-    showToast(`成功导入 ${d.added_count} 个单词`, 'success');
+    showToast(`成功导入 ${added} 个单词`, 'success');
     // 清空待导入列表
     docPendingWords = [];
     // 刷新单词本列表（更新计数）
@@ -2140,7 +2214,8 @@ function handleScanPick() {
 
 // 压缩图片：限制最长边和大小，避免上传超大原图导致超时/失败
 // 手机拍照原图常达 5-12MB，直接上传到云端极易超时；压缩后既快又不失识别精度
-function compressScanImage(file, maxSize = 1920, quality = 0.88) {
+// 质量用0.95以保证文字清晰可辨，避免过度压缩影响OCR/AI识别率
+function compressScanImage(file, maxSize = 1920, quality = 0.95) {
   return new Promise((resolve) => {
     const reader = new FileReader();
     reader.onload = (ev) => {
@@ -2283,7 +2358,11 @@ async function handleScanRecognize() {
     const modeLabel = scanMode === 'ocr' ? 'OCR极速识别' : 'AI识别';
     // OCR模式并发5（快速），AI模式并发3（避免超时）
     const concurrency = scanMode === 'ocr' ? 5 : 3;
-    showLoading(`${modeLabel}中... (1/${scanFiles.length})`);
+    // 计算预估时间：AI每张约20-30秒，OCR每张约2-3秒
+    const estTime = scanMode === 'ocr'
+      ? Math.ceil(scanFiles.length * 3)
+      : Math.ceil(scanFiles.length * 25);
+    showLoading(`${modeLabel}中... (1/${scanFiles.length}，约${estTime}秒)`);
 
     let allWords = [];
     let completed = 0;
@@ -2293,13 +2372,19 @@ async function handleScanRecognize() {
       const batchResults = await Promise.all(batch.map(async (file, batchIdx) => {
         const globalIdx = i + batchIdx;
         try {
-          showLoading(`${modeLabel}中... (${globalIdx + 1}/${scanFiles.length})`);
+          const remTime = scanMode === 'ocr'
+            ? Math.ceil((scanFiles.length - globalIdx) * 3)
+            : Math.ceil((scanFiles.length - globalIdx) * 25);
+          showLoading(`${modeLabel}中... (${globalIdx + 1}/${scanFiles.length}，约${remTime}秒)`);
           // 根据模式调用不同接口
           const res = scanMode === 'ocr'
             ? await api.ocrScanPreview(file)
             : await api.aiRecognizeImage(file);
           completed++;
-          showLoading(`${modeLabel}中... (${completed}/${scanFiles.length})`);
+          const remTime2 = scanMode === 'ocr'
+            ? Math.ceil((scanFiles.length - completed) * 3)
+            : Math.ceil((scanFiles.length - completed) * 25);
+          showLoading(`${modeLabel}中... (${completed}/${scanFiles.length}，约${remTime2}秒)`);
           if (res && res.success && res.words) {
             return res.words;
           }
@@ -2307,6 +2392,7 @@ async function handleScanRecognize() {
         } catch (err) {
           console.error(`${modeLabel}第${globalIdx + 1}张图片失败:`, err);
           completed++;
+          const errMsg = (err && err.message) || String(err);
           // OCR超限时提示切换AI模式
           if (err && err.quota_exceeded) {
             showToast('当月OCR识别次数已达上限，已自动切换到AI精准模式', 'warning');
@@ -2318,6 +2404,16 @@ async function handleScanRecognize() {
             if (tip) tip.textContent = '拍照或选择图片，AI视觉识别单词和手写内容（每张约20秒）';
             const recognizeBtn = $('#btnScanRecognize');
             if (recognizeBtn) recognizeBtn.textContent = 'AI识别';
+          } else if (errMsg.includes('API Key未配置') || errMsg.includes('API Key not configured')) {
+            showToast('OCR服务未配置API Key，请切换到AI精准模式', 'error');
+            scanMode = 'ai';
+            $$('.scan-mode-item').forEach(b => {
+              b.classList.toggle('active', b.dataset.scanMode === 'ai');
+            });
+          } else if (errMsg.includes('超时')) {
+            showToast(`${modeLabel}超时，请重试或切换到另一种模式`, 'error');
+          } else if (errMsg.includes('失败')) {
+            showToast(errMsg, 'error');
           }
           return [];
         }
@@ -2611,11 +2707,24 @@ let multiSelectIds = new Set();
 
 /**
  * 自定义顺序：上移/下移某个单词
- * 在指定词本内，把该单词在自定义顺序中移动一位，并调用后端保存新顺序
+ * 在指定词本内，把该单词在自定义顺序中移动一位，并调用后端保存新顺序。
+ * 注意：必须基于该词本【全部】单词排序（而非当前筛选后的部分视图），
+ * 否则会把 sort_order 覆盖为只含可见单词的序号，破坏其他单词的顺序。
  */
 async function moveWordInCustomOrder(wordId, delta) {
-  // 获取当前词本内按自定义顺序排列的单词列表
-  const ordered = [...libraryData].sort(
+  if (!libraryWordbook || libraryWordbook === '0') {
+    showToast('请先选择具体单词本', 'warning');
+    return;
+  }
+  // 拉取该词本全部单词（不限状态），保证全局 sort_order 正确
+  let fullList;
+  try {
+    fullList = await api.getWords({ wordbook_id: libraryWordbook });
+  } catch (err) {
+    handleError(err);
+    return;
+  }
+  const ordered = [...fullList].sort(
     (a, b) => (a.sort_order || 0) - (b.sort_order || 0) || (new Date(a.added_at) - new Date(b.added_at))
   );
   const idx = ordered.findIndex(w => w.id === wordId);
@@ -2638,6 +2747,152 @@ async function moveWordInCustomOrder(wordId, delta) {
   } catch (err) {
     handleError(err);
   }
+}
+
+/* ====================================================
+   自定义顺序：长按拖动排序
+   ==================================================== */
+let dragSortState = null;   // {handle, item, pointerId, startX, startY, activated, placeholder, shiftY}
+
+function initDragReorder() {
+  const list = $('#libraryList');
+  if (!list) return;
+
+  // 长按手柄开始拖动（兼容鼠标/触摸/触控笔）
+  list.addEventListener('pointerdown', (e) => {
+    const handle = e.target.closest('.reorder-handle');
+    if (!handle) return;
+    // 仅在自定义顺序 + 具体词本下生效
+    if (librarySort !== 'custom' || libraryWordbook === '' || libraryWordbook === '0') return;
+    const item = handle.closest('.word-item');
+    if (!item) return;
+    e.preventDefault();
+    dragSortState = {
+      handle,
+      item,
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      activated: false,
+      placeholder: null,
+      shiftY: 0,
+      timer: setTimeout(() => activateDragSort(), 450),
+    };
+  });
+
+  list.addEventListener('pointermove', (e) => {
+    if (!dragSortState || e.pointerId !== dragSortState.pointerId) return;
+    const dx = e.clientX - dragSortState.startX;
+    const dy = e.clientY - dragSortState.startY;
+    // 长按期间移动超过阈值则取消（视为滚动）
+    if (!dragSortState.activated && Math.hypot(dx, dy) > 10) {
+      cancelDragSort();
+      return;
+    }
+    if (dragSortState.activated) {
+      e.preventDefault();
+      onDragMove(e.clientY);
+    }
+  });
+
+  list.addEventListener('pointerup', (e) => {
+    if (!dragSortState || e.pointerId !== dragSortState.pointerId) return;
+    finishDragSort();
+  });
+  list.addEventListener('pointercancel', () => cancelDragSort());
+}
+
+function activateDragSort() {
+  if (!dragSortState) return;
+  const { item, handle } = dragSortState;
+  dragSortState.activated = true;
+  // 计算手柄相对 item 的纵向偏移，使拖动时 item 顶部跟随手指
+  const itemRect = item.getBoundingClientRect();
+  const handleRect = handle.getBoundingClientRect();
+  dragSortState.shiftY = handleRect.top - itemRect.top;
+  // 插入占位元素
+  const ph = document.createElement('div');
+  ph.className = 'word-item-placeholder';
+  ph.style.height = item.offsetHeight + 'px';
+  item.parentNode.insertBefore(ph, item);
+  dragSortState.placeholder = ph;
+  item.classList.add('dragging');
+  document.body.classList.add('dragging-active');
+}
+
+function onDragMove(clientY) {
+  if (!dragSortState || !dragSortState.activated) return;
+  const { item, placeholder, shiftY } = dragSortState;
+  // 让被拖动的 item 跟随手指
+  item.style.transform = `translateY(${clientY - dragSortState.startY - shiftY}px)`;
+  item.style.pointerEvents = 'none';
+  // 根据手指位置把占位元素移动到合适位置
+  const list = $('#libraryList');
+  const siblings = Array.from(list.querySelectorAll('.word-item:not(.dragging)'));
+  let targetIndex = 0;
+  for (let i = 0; i < siblings.length; i++) {
+    const r = siblings[i].getBoundingClientRect();
+    if (clientY > r.top + r.height / 2) targetIndex = i + 1;
+  }
+  if (targetIndex >= siblings.length) {
+    list.appendChild(placeholder);
+  } else {
+    list.insertBefore(placeholder, siblings[targetIndex]);
+  }
+}
+
+async function finishDragSort() {
+  if (!dragSortState) return;
+  clearTimeout(dragSortState.timer);
+  const { item, placeholder, activated } = dragSortState;
+  // 清理拖动态
+  item.classList.remove('dragging');
+  item.style.transform = '';
+  item.style.pointerEvents = '';
+  document.body.classList.remove('dragging-active');
+  if (placeholder) placeholder.remove();
+  const state = dragSortState;
+  dragSortState = null;
+  if (!activated) return;
+  // 用占位元素的新位置计算新顺序（当前可见列表）
+  const list = $('#libraryList');
+  const newIds = Array.from(list.querySelectorAll('.word-item')).map(el => parseInt(el.getAttribute('data-id'), 10));
+  const oldIds = libraryData.map(w => w.id);
+  // 若顺序没变则不保存
+  if (JSON.stringify(newIds) === JSON.stringify(oldIds)) {
+    renderLibrary();
+    return;
+  }
+  // 计算被拖动单词在可见列表中的位移量
+  const draggedId = state.item.getAttribute('data-id');
+  const draggedIdNum = parseInt(draggedId, 10);
+  const oldIdx = oldIds.indexOf(draggedIdNum);
+  const newIdx = newIds.indexOf(draggedIdNum);
+  const delta = newIdx - oldIdx;
+  if (!delta || !libraryWordbook || libraryWordbook === '0') {
+    renderLibrary();
+    return;
+  }
+  // 基于该词本【全部】单词移动，保证 sort_order 全局正确
+  try {
+    await moveWordInCustomOrder(draggedIdNum, delta);
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+function cancelDragSort() {
+  if (!dragSortState) return;
+  clearTimeout(dragSortState.timer);
+  const { item, placeholder } = dragSortState;
+  if (item) {
+    item.classList.remove('dragging');
+    item.style.transform = '';
+    item.style.pointerEvents = '';
+  }
+  if (placeholder) placeholder.remove();
+  document.body.classList.remove('dragging-active');
+  dragSortState = null;
 }
 
 function enterMultiSelectMode(firstId) {
@@ -2873,10 +3128,10 @@ async function renderLibrary() {
     const sortHintEl = $('#sortHint');
     if (sortHintEl) {
       if (librarySort === 'custom' && (libraryWordbook === '' || libraryWordbook === '0')) {
-        sortHintEl.textContent = '请先选择具体单词本';
+        sortHintEl.textContent = '自定义排序需先在上方选择一个具体单词本';
         sortHintEl.style.display = 'inline-block';
       } else if (librarySort === 'custom') {
-        sortHintEl.textContent = '可用 ▲▼ 调整顺序';
+        sortHintEl.textContent = '长按单词右侧的 ☰ 手柄，上下拖动即可排序';
         sortHintEl.style.display = 'inline-block';
       } else {
         sortHintEl.style.display = 'none';
@@ -2921,6 +3176,8 @@ async function renderLibrary() {
 
       // 触摸事件（移动端）
       item.addEventListener('touchstart', (e) => {
+        // 点击拖动排序手柄时，不进入长按多选（避免与拖动排序冲突）
+        if (e.target.closest('.reorder-handle')) return;
         triggered = false;
         if (e.touches.length > 0) {
           startX = e.touches[0].clientX;
@@ -2969,6 +3226,8 @@ async function renderLibrary() {
       let mouseTimer = null;
       item.addEventListener('mousedown', (e) => {
         if (e.button !== 0) return; // 只处理左键
+        // 点击拖动排序手柄时，不进入长按多选（避免与拖动排序冲突）
+        if (e.target.closest('.reorder-handle')) return;
         triggered = false;
         mouseTimer = setTimeout(() => {
           triggered = true;
@@ -2988,6 +3247,8 @@ async function renderLibrary() {
       
       // 点击事件
       item.addEventListener('click', (e) => {
+        // 点击拖动排序手柄时，不打开详情
+        if (e.target.closest('.reorder-handle')) { e.stopPropagation(); return; }
         // 如果是长按触发的，跳过本次 click
         if (triggered) {
           triggered = false;
@@ -3681,6 +3942,8 @@ function renderLearnCard() {
     $('#learnEmpty').style.display = 'block';
     $('#learnProgress').textContent = `0 / 0`;
     updateProgressRing(0, 0);
+    const learnBadge = $('#learnStarBadge');
+    if (learnBadge) learnBadge.style.display = 'none';
     return;
   }
 
@@ -3690,6 +3953,9 @@ function renderLearnCard() {
   }
 
   const word = learnQueue[learnIndex];
+  // 当前词是否为重点单词：显示/隐藏重点角标
+  const learnBadge = $('#learnStarBadge');
+  if (learnBadge) learnBadge.style.display = word.is_starred ? 'inline-block' : 'none';
   $('#learnProgress').textContent = `${learnIndex + 1} / ${total}`;
   // 更新环形进度条
   updateProgressRing(learnIndex + 1, total);
@@ -4392,6 +4658,8 @@ function renderReviewCard() {
     $('#reviewExtraActions').style.display = 'none';
     $('#reviewEmpty').style.display = 'block';
     $('#reviewProgress').textContent = `0 / 0`;
+    const reviewBadgeEmpty = $('#reviewStarBadge');
+    if (reviewBadgeEmpty) reviewBadgeEmpty.style.display = 'none';
     // 根据是否有复习中的单词显示不同提示
     const reviewTotal = homeStatsCache ? (homeStatsCache.review || 0) + (homeStatsCache.mastered || 0) : 0;
     const reviewEmptyEl = $('#reviewEmpty');
@@ -4415,6 +4683,9 @@ function renderReviewCard() {
   }
 
   const word = reviewQueue[reviewIndex];
+  // 当前词是否为重点单词：显示/隐藏重点角标
+  const reviewBadge = $('#reviewStarBadge');
+  if (reviewBadge) reviewBadge.style.display = word.is_starred ? 'inline-block' : 'none';
   $('#reviewProgress').textContent = `${reviewIndex + 1} / ${total}`;
   $('#reviewEmpty').style.display = 'none';
   // 保存复习位置（用于中断恢复）
@@ -5845,6 +6116,7 @@ function bindEvents() {
     learnQueue = []; // 重置队列以重新加载
     learnStarredOnly = false; // 普通学习
     switchPage('learn');
+    updateLearnModeUI(); // 同步学习范围提示（普通学习隐藏）
   });
   $('#btnStartReview').addEventListener('click', () => {
     reviewQueue = [];
@@ -5856,13 +6128,17 @@ function bindEvents() {
   });
 
   // 重点单词学习/复习
+  // 重点单词是当前词本内的"子词本"：重点学习/复习只作用于当前所选词本内的重点单词，
+  // 与主词本分开。若未选词本，则作用于全部词本的重点单词。
   const btnLearnStarred = $('#btnLearnStarred');
   if (btnLearnStarred) {
     btnLearnStarred.addEventListener('click', () => {
       learnQueue = [];
       learnStarredOnly = true; // 仅重点单词
-      learnWordbookId = ''; // 重点学习覆盖所有词书的重点词，不受单个词书限制
+      // 保留当前所选词本，只学习该词本内的重点单词（重点单词是该词本的子词本）
       switchPage('learn');
+      // 同步学习范围提示
+      updateLearnModeUI();
     });
   }
   const btnReviewStarred = $('#btnReviewStarred');
@@ -5870,7 +6146,7 @@ function bindEvents() {
     btnReviewStarred.addEventListener('click', () => {
       reviewQueue = [];
       reviewStarredOnly = true; // 仅重点单词
-      reviewWordbookId = ''; // 重点复习覆盖所有词书的重点词，不受单个词书限制
+      // 保留当前所选词本，只复习该词本内的重点单词（重点单词是该词本的子词本）
       // 重点复习使用自主复习：所有重点词都可复习，不受到期限制（避免"没有到期重点词"）
       reviewAllMode = true;
       switchPage('review');
@@ -6047,19 +6323,8 @@ function bindEvents() {
     renderLibrary();
   });
 
-  // 自定义顺序：上移/下移按钮（事件委托，监听词库列表）
-  const libraryListEl = $('#libraryList');
-  if (libraryListEl) {
-    libraryListEl.addEventListener('click', async (e) => {
-      const btn = e.target.closest('.reorder-btn');
-      if (!btn) return;
-      const id = parseInt(btn.dataset.id, 10);
-      const delta = btn.classList.contains('reorder-up') ? -1 : 1;
-      e.stopPropagation();
-      e.preventDefault();
-      await moveWordInCustomOrder(id, delta);
-    });
-  }
+  // 自定义顺序：长按 ☰ 手柄拖动排序
+  initDragReorder();
 
   // 设置：学习计划（失焦/改变保存）
   $('#dailyGoalInput').addEventListener('change', handleSaveDailyGoal);
@@ -6292,6 +6557,8 @@ function bindEvents() {
         renderLearnCard();
         showToast('请选择一本词书', 'info');
       }
+      // 同步学习范围提示（重点单词作用域跟随词书变化）
+      updateLearnModeUI();
     });
   }
   // 翻卡模式：加入新词按钮（普通按钮）

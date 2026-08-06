@@ -79,7 +79,7 @@ class WordAPI {
     // AI 识别类请求需要很长时间（后端 120s 超时 + Render 冷启动 30s），用 120 秒
     // 普通请求：首次 10 秒 → 超时重试 30 秒
     const isAIRequest = path.includes('/ai/') || path.includes('/ocr/');
-    const isLongAIRequest = path.includes('/ocr/add-words') || path.includes('/words/batch');
+    const isLongAIRequest = path.includes('/ocr/add-words') || path.includes('/words/batch') || path.includes('/import/confirm');
     const firstTimeout = isLongAIRequest ? 120000 : (isAIRequest ? 120000 : 10000);
     const retryTimeout = isLongAIRequest ? 180000 : (isAIRequest ? 180000 : 30000);
 
@@ -2138,39 +2138,60 @@ async function handleDocImport() {
   }
   // 获取选择的单词本 ID
   const wordbookId = $('#docWordbookSelect').value || null;
+  // 分批导入，避免一次性提交 2000+ 词导致后端 AI 分析超时
+  // 每批约 40 个：其中若有一半需 AI 分析，5 并发 × 3-8 秒 ≈ 数秒~十几秒，远低于 120s 长超时
+  const BATCH_SIZE = 40;
+  const total = docPendingWords.length;
+  const batches = [];
+  for (let i = 0; i < total; i += BATCH_SIZE) {
+    batches.push(docPendingWords.slice(i, i + BATCH_SIZE));
+  }
+
+  let added = 0, skipped = 0, failed = 0;
   try {
-    showLoading('正在导入单词...');
-    const res = await api.importConfirm(docPendingWords, wordbookId);
+    showLoading(`正在导入单词 0/${total}...`);
+    for (let b = 0; b < batches.length; b++) {
+      const batch = batches[b];
+      showLoading(`正在导入单词 ${Math.min((b + 1) * BATCH_SIZE, total)}/${total}（第 ${b + 1}/${batches.length} 批）...`);
+      const res = await api.importConfirm(batch, wordbookId);
+      if (!res.success) {
+        // 批次级失败：该批全部计入失败
+        failed += batch.length;
+        continue;
+      }
+      const d = res.data;
+      added += d.added_count || 0;
+      skipped += d.skipped_count || 0;
+      failed += d.failed_count || 0;
+      // 批次间短暂停顿，避免连续高频请求触发后端限流/超时
+      if (b < batches.length - 1) {
+        await new Promise(r => setTimeout(r, 300));
+      }
+    }
     hideLoading();
 
-    if (!res.success) {
-      showToast(res.error || '导入失败', 'error');
-      return;
-    }
-
-    const d = res.data;
-    // 渲染结果
+    // 渲染汇总结果
     const resultHtml = `
       <div class="result-row">
         <span>成功导入</span>
-        <span class="result-added">${d.added_count} 个</span>
+        <span class="result-added">${added} 个</span>
       </div>
-      ${d.skipped_count > 0 ? `
+      ${skipped > 0 ? `
       <div class="result-row">
         <span>已存在跳过</span>
-        <span class="result-skipped">${d.skipped_count} 个</span>
+        <span class="result-skipped">${skipped} 个</span>
       </div>` : ''}
-      ${d.failed_count > 0 ? `
+      ${failed > 0 ? `
       <div class="result-row">
         <span>导入失败</span>
-        <span class="result-failed">${d.failed_count} 个</span>
+        <span class="result-failed">${failed} 个</span>
       </div>` : ''}
     `;
     $('#docResult').innerHTML = resultHtml;
     $('#docResult').style.display = 'block';
     $('#docPreview').style.display = 'none';
 
-    showToast(`成功导入 ${d.added_count} 个单词`, 'success');
+    showToast(`成功导入 ${added} 个单词`, 'success');
     // 清空待导入列表
     docPendingWords = [];
     // 刷新单词本列表（更新计数）

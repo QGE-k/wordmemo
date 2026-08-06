@@ -1526,9 +1526,9 @@ def batch_add_words():
                 is_starred=is_starred,
                 sort_order=_base_order + _order_idx,
             )
-            _order_idx += 1
             db.session.add(word)
             added.append(word_text)
+            _order_idx += 1
         except Exception as e:
             failed.append({'word': word_text, 'error': str(e)})
 
@@ -2593,6 +2593,9 @@ def import_confirm():
                         break
         pending = new_pending
 
+    # 按添加顺序分配 sort_order，保证导入的单词按用户输入顺序排列
+    _base_order = get_next_sort_order(user_id, wordbook_id)
+    _order_idx = 0
     for word_text, analysis in pending:
         try:
             if isinstance(analysis, Exception):
@@ -2609,6 +2612,7 @@ def import_confirm():
                 continue
             word = Word(
                 word=word_text,
+                sort_order=_base_order + _order_idx,
                 phonetic=analysis.get('phonetic', ''),
                 meaning=analysis.get('meaning', ''),
                 word_type=analysis.get('type', '基础词'),
@@ -2623,6 +2627,7 @@ def import_confirm():
             )
             db.session.add(word)
             added.append(word_text)
+            _order_idx += 1
         except Exception as e:
             failed.append(word_text)
 
