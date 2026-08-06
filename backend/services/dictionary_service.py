@@ -2512,6 +2512,10 @@ class DictionaryService:
         "in an adj. way": '以一种…的方式',
         "only in this way": '只有通过这种方法',
         "mean doing sth": '意味着做某事',
+        # 常见基础口语词（ECDICT 无中文释义或会被在线英文兜底污染，这里直接内置）
+        "hello": 'int. 你好，喂',
+        "hi": 'int. 你好',
+        "hey": 'int. 嗨，喂',
     }
 
     # ===== 专升本常见短语词典 =====
