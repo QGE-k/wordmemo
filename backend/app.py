@@ -412,6 +412,9 @@ def admin_refresh_word_meanings():
 
     updated = 0
     skipped = 0
+    ai_fixed = 0
+    skipped_details = []
+    use_ai = ai_service.is_available()
     for w in polluted:
         try:
             result = dictionary_service.lookup(w.word)
@@ -424,11 +427,33 @@ def admin_refresh_word_meanings():
                 if result.get('examples'):
                     w.examples = result['examples']
                 updated += 1
+            elif use_ai:
+                # ECDICT 也无中文释义：用 AI 生成中文释义（精简常用）
+                try:
+                    ai_res = ai_service.analyze_word(w.word)
+                    if ai_res and ai_res.get('meaning') and _meaning_has_chinese(ai_res['meaning']):
+                        w.meaning = ai_res['meaning']
+                        if ai_res.get('phonetic'):
+                            w.phonetic = ai_res['phonetic']
+                        if ai_res.get('word_type'):
+                            w.word_type = ai_res['word_type']
+                        if ai_res.get('examples'):
+                            w.examples = ai_res['examples']
+                        ai_fixed += 1
+                        fixed = True
+                    else:
+                        skipped += 1
+                        skipped_details.append({'word': w.word, 'reason': 'AI未返回中文释义'})
+                except Exception as e:
+                    skipped += 1
+                    skipped_details.append({'word': w.word, 'reason': f'AI失败:{e}'})
             else:
                 skipped += 1
+                skipped_details.append({'word': w.word, 'reason': '词典无中文释义且AI不可用'})
         except Exception as e:
             print(f'[admin] 修复释义失败({w.word}): {e}')
             skipped += 1
+            skipped_details.append({'word': w.word, 'reason': f'异常:{e}'})
     db.session.commit()
 
     # 可选：对修复过的词用 AI 重新生成简短专升本例句
@@ -450,8 +475,10 @@ def admin_refresh_word_meanings():
         'success': True,
         'total_polluted': len(polluted),
         'updated': updated,
+        'ai_fixed': ai_fixed,
         'skipped': skipped,
         'examples_refreshed': refreshed_examples,
+        'skipped_details': skipped_details,
     })
 
 
