@@ -119,7 +119,8 @@ class WordAPI {
       return await fetchWithTimeout(firstTimeout);
     } catch (err) {
       const isRetryable = err.name === 'AbortError' ||
-        (err instanceof TypeError && err.message.includes('Failed to fetch'));
+        (err instanceof TypeError && err.message.includes('Failed to fetch')) ||
+        err.name === 'SyntaxError'; // Render免费层休眠时返回HTML页，JSON解析失败，可重试
       if (!isRetryable) throw err;
 
       // 提示用户服务正在唤醒（非阻塞 toast，AI 请求不提示因为有 loading）
@@ -2153,8 +2154,21 @@ async function handleDocImport() {
     for (let b = 0; b < batches.length; b++) {
       const batch = batches[b];
       showLoading(`正在导入单词 ${Math.min((b + 1) * BATCH_SIZE, total)}/${total}（第 ${b + 1}/${batches.length} 批）...`);
-      const res = await api.importConfirm(batch, wordbookId);
-      if (!res.success) {
+      // 单批容错：失败自动重试最多3次（覆盖服务唤醒/临时抖动），仍失败计入失败并继续下一批，避免漏词
+      let res = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          res = await api.importConfirm(batch, wordbookId);
+          if (res && res.success) break;
+        } catch (e) {
+          res = null;
+        }
+        if (attempt < 2) {
+          showLoading(`正在导入单词 ${Math.min((b + 1) * BATCH_SIZE, total)}/${total}（第 ${b + 1} 批，重试 ${attempt + 2}/3）...`);
+          await new Promise(r => setTimeout(r, 1000));
+        }
+      }
+      if (!res || !res.success) {
         // 批次级失败：该批全部计入失败
         failed += batch.length;
         continue;
