@@ -117,6 +117,14 @@ def require_admin():
     return None
 
 
+# ==================== 健康检查/Ping API ====================
+
+@app.route('/api/ping', methods=['GET'])
+def ping():
+    """轻量级健康检查接口，用于保持Render服务唤醒"""
+    return jsonify({'success': True, 'status': 'ok', 'time': datetime.now().isoformat()})
+
+
 # ==================== 认证 API ====================
 
 @app.route('/api/auth/register', methods=['POST'])

@@ -76,12 +76,12 @@ class WordAPI {
     }
 
     // 根据请求类型设置不同的超时策略
-    // AI 识别类请求需要很长时间（推理模型处理图片），用 60 秒
+    // AI 识别类请求需要很长时间（后端 120s 超时 + Render 冷启动 30s），用 120 秒
     // 普通请求：首次 10 秒 → 超时重试 30 秒
     const isAIRequest = path.includes('/ai/') || path.includes('/ocr/');
     const isLongAIRequest = path.includes('/ocr/add-words') || path.includes('/words/batch');
-    const firstTimeout = isLongAIRequest ? 90000 : (isAIRequest ? 60000 : 10000);
-    const retryTimeout = isLongAIRequest ? 150000 : (isAIRequest ? 90000 : 30000);
+    const firstTimeout = isLongAIRequest ? 120000 : (isAIRequest ? 120000 : 10000);
+    const retryTimeout = isLongAIRequest ? 180000 : (isAIRequest ? 180000 : 30000);
 
     // 带超时的单次请求
     const fetchWithTimeout = async (timeoutMs) => {
@@ -93,11 +93,15 @@ class WordAPI {
 
         if (!res.ok) {
           let errMsg = `请求失败 (${res.status})`;
+          let errData = null;
           try {
-            const errData = await res.json();
+            errData = await res.json();
             errMsg = errData.error || errData.message || errMsg;
           } catch (e) { }
-          throw new Error(errMsg);
+          const err = new Error(errMsg);
+          // 保留后端返回的额外字段（如 quota_exceeded）
+          if (errData && errData.quota_exceeded) err.quota_exceeded = true;
+          throw err;
         }
 
         const text = await res.text();
@@ -127,7 +131,7 @@ class WordAPI {
         return await fetchWithTimeout(retryTimeout);
       } catch (err2) {
         if (err2.name === 'AbortError') {
-          throw new Error(isAIRequest ? 'AI识别超时，请稍后重试' : '请求超时，请稍后重试');
+          throw new Error(isAIRequest ? 'AI识别超时，服务繁忙请稍后重试，或减小图片尺寸' : '请求超时，请稍后重试');
         }
         if (err2 instanceof TypeError && err2.message.includes('Failed to fetch')) {
           throw new Error('无法连接服务器，请检查网络');
@@ -625,6 +629,8 @@ function onLoginSuccess() {
   if (secAnswerInput && currentUser) secAnswerInput.value = '';
   // 加载OCR用量
   loadOcrUsage();
+  // 启动服务保活（每10分钟ping一次，防止Render冷启动超时）
+  startKeepAlive();
   // 管理员显示管理 Tab
   const adminTab = document.querySelector('.tab-admin-only');
   if (adminTab) {
@@ -651,6 +657,17 @@ async function loadOcrUsage() {
   } catch {
     el.textContent = '无法获取';
   }
+}
+
+/** 保持Render服务唤醒（每10分钟ping一次，防止冷启动超时） */
+function startKeepAlive() {
+  setInterval(async () => {
+    try {
+      await fetch('/api/ping', { method: 'GET', cache: 'no-store' });
+    } catch (e) {
+      // 静默失败，不打扰用户
+    }
+  }, 10 * 60 * 1000);
 }
 
 /** 处理登录 */
@@ -2173,7 +2190,8 @@ function handleScanPick() {
 
 // 压缩图片：限制最长边和大小，避免上传超大原图导致超时/失败
 // 手机拍照原图常达 5-12MB，直接上传到云端极易超时；压缩后既快又不失识别精度
-function compressScanImage(file, maxSize = 1920, quality = 0.88) {
+// 质量用0.95以保证文字清晰可辨，避免过度压缩影响OCR/AI识别率
+function compressScanImage(file, maxSize = 1920, quality = 0.95) {
   return new Promise((resolve) => {
     const reader = new FileReader();
     reader.onload = (ev) => {
@@ -2316,7 +2334,11 @@ async function handleScanRecognize() {
     const modeLabel = scanMode === 'ocr' ? 'OCR极速识别' : 'AI识别';
     // OCR模式并发5（快速），AI模式并发3（避免超时）
     const concurrency = scanMode === 'ocr' ? 5 : 3;
-    showLoading(`${modeLabel}中... (1/${scanFiles.length})`);
+    // 计算预估时间：AI每张约20-30秒，OCR每张约2-3秒
+    const estTime = scanMode === 'ocr'
+      ? Math.ceil(scanFiles.length * 3)
+      : Math.ceil(scanFiles.length * 25);
+    showLoading(`${modeLabel}中... (1/${scanFiles.length}，约${estTime}秒)`);
 
     let allWords = [];
     let completed = 0;
@@ -2326,13 +2348,19 @@ async function handleScanRecognize() {
       const batchResults = await Promise.all(batch.map(async (file, batchIdx) => {
         const globalIdx = i + batchIdx;
         try {
-          showLoading(`${modeLabel}中... (${globalIdx + 1}/${scanFiles.length})`);
+          const remTime = scanMode === 'ocr'
+            ? Math.ceil((scanFiles.length - globalIdx) * 3)
+            : Math.ceil((scanFiles.length - globalIdx) * 25);
+          showLoading(`${modeLabel}中... (${globalIdx + 1}/${scanFiles.length}，约${remTime}秒)`);
           // 根据模式调用不同接口
           const res = scanMode === 'ocr'
             ? await api.ocrScanPreview(file)
             : await api.aiRecognizeImage(file);
           completed++;
-          showLoading(`${modeLabel}中... (${completed}/${scanFiles.length})`);
+          const remTime2 = scanMode === 'ocr'
+            ? Math.ceil((scanFiles.length - completed) * 3)
+            : Math.ceil((scanFiles.length - completed) * 25);
+          showLoading(`${modeLabel}中... (${completed}/${scanFiles.length}，约${remTime2}秒)`);
           if (res && res.success && res.words) {
             return res.words;
           }
@@ -2340,6 +2368,7 @@ async function handleScanRecognize() {
         } catch (err) {
           console.error(`${modeLabel}第${globalIdx + 1}张图片失败:`, err);
           completed++;
+          const errMsg = (err && err.message) || String(err);
           // OCR超限时提示切换AI模式
           if (err && err.quota_exceeded) {
             showToast('当月OCR识别次数已达上限，已自动切换到AI精准模式', 'warning');
@@ -2351,6 +2380,16 @@ async function handleScanRecognize() {
             if (tip) tip.textContent = '拍照或选择图片，AI视觉识别单词和手写内容（每张约20秒）';
             const recognizeBtn = $('#btnScanRecognize');
             if (recognizeBtn) recognizeBtn.textContent = 'AI识别';
+          } else if (errMsg.includes('API Key未配置') || errMsg.includes('API Key not configured')) {
+            showToast('OCR服务未配置API Key，请切换到AI精准模式', 'error');
+            scanMode = 'ai';
+            $$('.scan-mode-item').forEach(b => {
+              b.classList.toggle('active', b.dataset.scanMode === 'ai');
+            });
+          } else if (errMsg.includes('超时')) {
+            showToast(`${modeLabel}超时，请重试或切换到另一种模式`, 'error');
+          } else if (errMsg.includes('失败')) {
+            showToast(errMsg, 'error');
           }
           return [];
         }

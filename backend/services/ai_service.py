@@ -589,9 +589,9 @@ class AIService:
                     new_w = int(w * max_size / h)
                 img = img.resize((new_w, new_h), Image.LANCZOS)
 
-            # 保存为JPEG，质量85
+            # 保存为JPEG，质量95（提高质量保证文字清晰）
             buf = io.BytesIO()
-            img.save(buf, format='JPEG', quality=85)
+            img.save(buf, format='JPEG', quality=95)
             compressed_b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
 
             original_kb = len(raw_bytes) / 1024

@@ -311,13 +311,13 @@ class OCRService:
                 img = img.resize((new_w, new_h), Image.LANCZOS)
 
             # 增强对比度 + 适度锐化，让文字更清晰（对偏暗/偏灰的拍照图片尤其有效）
-            img = ImageOps.autocontrast(img, cutoff=1)
-            img = ImageEnhance.Contrast(img).enhance(1.15)
-            img = ImageEnhance.Sharpness(img).enhance(1.2)
+            img = ImageOps.autocontrast(img, cutoff=2)
+            img = ImageEnhance.Contrast(img).enhance(1.1)
+            img = ImageEnhance.Sharpness(img).enhance(1.15)
 
-            # 保存为JPEG
+            # 保存为JPEG，提高质量保证文字清晰
             buf = io.BytesIO()
-            img.save(buf, format='JPEG', quality=quality)
+            img.save(buf, format='JPEG', quality=max(quality, 95))
             compressed_b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
 
             original_kb = os.path.getsize(image_path) / 1024
@@ -367,12 +367,12 @@ class OCRService:
                 img = img.resize((new_w, new_h), Image.LANCZOS)
 
             # 增强对比度 + 适度锐化，让文字更清晰
-            img = ImageOps.autocontrast(img, cutoff=1)
-            img = ImageEnhance.Contrast(img).enhance(1.15)
-            img = ImageEnhance.Sharpness(img).enhance(1.2)
+            img = ImageOps.autocontrast(img, cutoff=2)
+            img = ImageEnhance.Contrast(img).enhance(1.1)
+            img = ImageEnhance.Sharpness(img).enhance(1.15)
 
             buf = io.BytesIO()
-            img.save(buf, format='JPEG', quality=quality)
+            img.save(buf, format='JPEG', quality=max(quality, 95))
             compressed_b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
 
             original_kb = len(raw_bytes) / 1024
