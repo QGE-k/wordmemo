@@ -2004,6 +2004,76 @@ async function handleBatchPreview() {
   });
 }
 
+// 批量粘贴导入：带进度条 + 并发批处理 + 按粘贴顺序重排（与文档导入一致）
+// entries: [{word, meaning}]，按用户输入顺序传入
+async function importBatchWordsWithProgress(entries, wordbookId) {
+  const total = entries.length;
+  if (total === 0) return { added: 0, skipped: 0, failed: 0 };
+  const BATCH_SIZE = 40;
+  const batches = [];
+  for (let i = 0; i < total; i += BATCH_SIZE) {
+    batches.push(entries.slice(i, i + BATCH_SIZE));
+  }
+
+  showImportProgress({ done: 0, total, current: '正在启动导入...' });
+
+  const CONCURRENT = 2;
+  let nextIdx = 0;
+  let processedWords = 0;
+  const stats = { added: 0, skipped: 0, failed: 0 };
+
+  async function worker() {
+    while (true) {
+      const idx = nextIdx++;
+      if (idx >= batches.length) break;
+      const batch = batches[idx];
+
+      // 每批内也严格按原始顺序：先纯词（batch接口），再带释义（逐个）
+      const pureWords = batch.filter(w => !w.meaning).map(w => w.word);
+      const withMeaning = batch.filter(w => w.meaning);
+
+      if (pureWords.length > 0) {
+        try {
+          const res = await api.addWordsBatch(pureWords, wordbookId);
+          stats.added += (res && (res.added_count || res.added)) || 0;
+          stats.skipped += (res && res.skipped_count) || 0;
+          stats.failed += (res && res.failed_count) || 0;
+        } catch (e) {
+          stats.failed += pureWords.length;
+        }
+      }
+      for (const w of withMeaning) {
+        try {
+          await api.addWord(w.word, '', w.meaning, wordbookId);
+          stats.added++;
+        } catch (e) {
+          stats.failed++;
+        }
+      }
+
+      processedWords += batch.length;
+      showImportProgress({
+        done: processedWords,
+        total,
+        current: `第 ${idx + 1}/${batches.length} 批：成功 ${stats.added}，跳过 ${stats.skipped}，失败 ${stats.failed}`
+      });
+      await new Promise(r => setTimeout(r, 200));
+    }
+  }
+
+  await Promise.all(Array.from({ length: CONCURRENT }, () => worker()));
+
+  // 全部批次完成后，按粘贴原始顺序整体重排，确保词本顺序与用户输入一致
+  showImportProgress({ done: total, total, current: '正在按粘贴顺序整理词本...' });
+  try {
+    await api.reorderByNames(entries.map(w => w.word), wordbookId);
+  } catch (reorderErr) {
+    console.error('[导入] 按粘贴顺序重排失败:', reorderErr);
+  }
+  hideLoading();
+  return stats;
+}
+
 // 批量确认导入
 async function handleBatchConfirm() {
   if (batchPreviewWords.length === 0) {
@@ -2011,29 +2081,18 @@ async function handleBatchConfirm() {
     return;
   }
   try {
-    showLoading('批量添加中...');
     const batchWordbookId = ($('#batchWordbookSelect') || {}).value || null;
-    const pureWords = batchPreviewWords.filter(w => !w.meaning).map(w => w.word);
-    const withMeaning = batchPreviewWords.filter(w => w.meaning);
-    let added = 0;
-    if (pureWords.length > 0) {
-      const res = await api.addWordsBatch(pureWords, batchWordbookId);
-      added += (res && res.added) || (res && res.count) || pureWords.length;
-    }
-    for (const w of withMeaning) {
-      try {
-        await api.addWord(w.word, '', w.meaning, batchWordbookId);
-        added++;
-      } catch (e) { /* 单个失败继续 */ }
-    }
-    hideLoading();
-    showToast(`成功添加 ${added} 个单词`, 'success');
+    const stats = await importBatchWordsWithProgress(batchPreviewWords, batchWordbookId);
+    showToast(`成功导入 ${stats.added} 个单词`, 'success');
     $('#batchText').value = '';
     $('#batchPreview').style.display = 'none';
     batchPreviewWords = [];
+    // 导入后自动切换到"自定义顺序"，让用户看到按粘贴顺序排列的序号
+    switchLibrarySort('custom');
     // 实时刷新首页统计数据
     refreshHomeStats();
   } catch (err) {
+    hideLoading();
     handleError(err);
   }
 }
@@ -2056,32 +2115,19 @@ async function handleBatchAdd() {
   }
 
   try {
-    showLoading('批量添加中...');
-    // 后端 batch 接口接收纯单词数组；带释义的逐个添加
-    const pureWords = words.filter(w => !w.meaning).map(w => w.word);
-    const withMeaning = words.filter(w => w.meaning);
-
     // 获取选择的单词本
     const batchWordbookId = ($('#batchWordbookSelect') || {}).value || null;
-
-    let added = 0;
-    if (pureWords.length > 0) {
-      const res = await api.addWordsBatch(pureWords, batchWordbookId);
-      added += (res && res.added) || (res && res.count) || pureWords.length;
-    }
-    for (const w of withMeaning) {
-      try {
-        await api.addWord(w.word, '', w.meaning, batchWordbookId);
-        added++;
-      } catch (e) { /* 单个失败继续 */ }
-    }
-
-    hideLoading();
-    showToast(`成功添加 ${added} 个单词`, 'success');
+    // 按原始输入顺序解析出的 entries 直接传入，保证顺序一致
+    const entries = words;
+    const stats = await importBatchWordsWithProgress(entries, batchWordbookId);
+    showToast(`成功导入 ${stats.added} 个单词`, 'success');
     $('#batchText').value = '';
+    // 导入后自动切换到"自定义顺序"，让用户看到按粘贴顺序排列的序号
+    switchLibrarySort('custom');
     // 实时刷新首页统计数据
     refreshHomeStats();
   } catch (err) {
+    hideLoading();
     handleError(err);
   }
 }
@@ -2267,6 +2313,8 @@ async function handleDocImport() {
     showToast(`成功导入 ${added} 个单词`, 'success');
     // 清空待导入列表
     docPendingWords = [];
+    // 导入后自动切换到"自定义顺序"，让用户看到按文档顺序排列的序号
+    switchLibrarySort('custom');
     // 刷新单词本列表（更新计数）
     loadWordbooks();
     // 实时刷新首页统计数据
@@ -2731,6 +2779,17 @@ let librarySearch = '';        // 当前搜索词
 let libraryData = [];          // 词库数据缓存
 let librarySort = 'added_desc'; // 当前排序方式
 let libraryWordbook = '';      // 当前选中的单词本（''=全部, '0'=未归类, 数字=具体单词本）
+
+/**
+ * 切换词库排序方式，并同步下拉框与列表渲染
+ * @param {string} sort - 排序方式：'added_desc'|'added_asc'|'word_asc'|'word_desc'|'custom'|...
+ */
+function switchLibrarySort(sort) {
+  librarySort = sort;
+  const sel = $('#sortSelect');
+  if (sel) sel.value = sort;
+  renderLibrary();
+}
 let wordbooks = [];            // 单词本列表缓存
 let editingWordbookId = null;  // 正在编辑的单词本 ID（null=新建）
 let currentWordbookColor = '#4a7fff'; // 新建单词本时选中的颜色
