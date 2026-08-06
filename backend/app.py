@@ -482,6 +482,134 @@ def admin_refresh_word_meanings():
     })
 
 
+@app.route('/api/admin/reanalyze-words', methods=['POST'])
+def admin_reanalyze_words():
+    """
+    管理员：全量重分析所有单词，用最新词典逻辑（ECDICT + 归一化 + 复合词按单词拆解 +
+    自然例句 + 变形数据）修复云端已有单词的释义/拆解/例句/变形。
+    - 默认只在拿到更优数据（有中文释义、有拆解、有例句）时覆盖更新；
+    - force=true 时无条件覆盖所有字段；
+    - use_ai=true 时对词典无法识别的词用 AI 兜底（较慢，默认关闭）；
+    请求体JSON: {"user_id": 1, "wordbook_id": 2, "force": false, "use_ai": false,
+                 "limit": 500, "offset": 0}
+    """
+    err = require_admin()
+    if err:
+        return err
+
+    data = request.get_json(silent=True) or {}
+    user_id = data.get('user_id')
+    wordbook_id = data.get('wordbook_id')
+    force = bool(data.get('force', False))
+    use_ai = bool(data.get('use_ai', False))
+    limit = data.get('limit')
+    offset = data.get('offset', 0)
+
+    query = Word.query
+    if user_id:
+        query = query.filter_by(user_id=int(user_id))
+    if wordbook_id:
+        query = query.filter_by(wordbook_id=int(wordbook_id))
+    all_words = query.order_by(Word.id).all()
+    total = len(all_words)
+    # 分页处理（用于超大词本分批执行，避免单请求超时）
+    if limit:
+        all_words = all_words[int(offset or 0):int(offset) + int(limit)]
+
+    updated = 0
+    skipped = 0
+    no_data = 0
+    examples_filled = 0
+    splits_filled = 0
+    skipped_details = []
+    for i, w in enumerate(all_words):
+        try:
+            result = dictionary_service.lookup(w.word)
+            source = 'dictionary'
+            if result is None and use_ai and ai_service.is_available():
+                try:
+                    result = ai_service.analyze_word(w.word)
+                    source = 'ai'
+                except Exception:
+                    result = None
+            if result is None:
+                no_data += 1
+                skipped += 1
+                continue
+            new_meaning = (result.get('meaning') or '').strip()
+            # 只接收有中文释义的结果，避免把词典数据覆盖成英文/空
+            if not _meaning_has_chinese(new_meaning):
+                skipped += 1
+                skipped_details.append({'word': w.word, 'reason': '新释义非中文'})
+                continue
+
+            changed = force
+            # 释义：有中文释义才覆盖
+            if w.meaning != new_meaning:
+                w.meaning = new_meaning
+                changed = True
+            # 音标
+            if result.get('phonetic'):
+                if w.phonetic != result['phonetic']:
+                    w.phonetic = result['phonetic']
+                    changed = True
+            # 词性
+            if result.get('word_type'):
+                if w.word_type != result['word_type']:
+                    w.word_type = result['word_type']
+                    changed = True
+            # 拆解：优先用新逻辑（复合词按单词拆解）
+            if result.get('split'):
+                if w.split_data != result['split']:
+                    w.split_data = result['split']
+                    changed = True
+                    splits_filled += 1
+            # 词素
+            if result.get('morph') and not w.morph_data:
+                w.morph_data = result['morph']
+                changed = True
+            # 例句：有例句才覆盖（保证每个词都有例句）
+            if result.get('examples'):
+                if w.examples != result['examples']:
+                    w.examples = result['examples']
+                    changed = True
+                    examples_filled += 1
+            # 记忆方法
+            if result.get('mnemonic') and (not w.mnemonic or len(w.mnemonic) < 10):
+                w.mnemonic = result['mnemonic']
+                changed = True
+            # 变形数据
+            if result.get('tenses'):
+                if w.tenses != result['tenses']:
+                    w.tenses = result['tenses']
+                    changed = True
+
+            if changed:
+                updated += 1
+        except Exception as e:
+            print(f'[admin] 重分析失败({w.word}): {e}')
+            skipped += 1
+            skipped_details.append({'word': w.word, 'reason': f'异常:{e}'})
+
+        # 分批提交，避免一次性事务过大
+        if (i + 1) % 200 == 0:
+            db.session.commit()
+
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'total': total,
+        'processed': len(all_words),
+        'updated': updated,
+        'no_data': no_data,
+        'examples_filled': examples_filled,
+        'splits_filled': splits_filled,
+        'skipped': skipped,
+        'skipped_details': skipped_details[:50],
+    })
+
+
 @app.route('/api/admin/reset_user_password', methods=['POST'])
 def admin_reset_user_password():
     """管理员：重置任意用户的密码

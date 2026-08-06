@@ -216,7 +216,7 @@ class DictionaryService:
         'begin': 'v. 开始',
         'drink': 'v. 喝，饮',
         'swim': 'v. 游泳',
-        'sing': 'v. 唱',
+        'sing': 'v. 唱，唱歌',
         'ring': 'v. 响，打电话',
         'grow': 'v. 生长，成长',
         'fly': 'v. 飞',
@@ -241,13 +241,13 @@ class DictionaryService:
         'understand': 'v. 理解',
         'stand': 'v. 站立',
         'become': 'v. 变成',
-        'eat': 'v. 吃',
+        'eat': 'v. 吃，进食',
         'fall': 'v. 落下',
         'win': 'v. 赢',
         'lose': 'v. 失去，输',
-        'wear': 'v. 穿',
-        'draw': 'v. 画',
-        'throw': 'v. 扔',
+        'wear': 'v. 穿，戴',
+        'draw': 'v. 画，绘制',
+        'throw': 'v. 扔，投掷',
         'show': 'v. 展示',
         'leave': 'v. 离开',
         'hold': 'v. 拿住',
@@ -259,7 +259,7 @@ class DictionaryService:
         'play': 'v. 玩，播放',
         'talk': 'v. 谈话',
         'walk': 'v. 走，散步',
-        'look': 'v. 看',
+        'look': 'v. 看，瞧',
         'work': 'v. 工作',
         'live': 'v. 居住，生活',
         'like': 'v. 喜欢',
@@ -604,6 +604,22 @@ class DictionaryService:
         'understand': [
             {'en': 'I cannot understand this difficult sentence.', 'zh': '我无法理解这个难句。'},
             {'en': 'Can you understand what the author wants to say?', 'zh': '你能理解作者想表达什么吗？'},
+        ],
+        'forever': [
+            {'en': 'I will remember this happy moment forever.', 'zh': '我会永远记住这个快乐的时刻。'},
+            {'en': 'Our friendship will last forever.', 'zh': '我们的友谊将永远持续下去。'},
+        ],
+        'sometimes': [
+            {'en': 'Sometimes it is hard to make a decision.', 'zh': '有时候做决定很难。'},
+            {'en': 'I sometimes go to the library after class.', 'zh': '我有时课后去图书馆。'},
+        ],
+        'conclude': [
+            {'en': 'We can conclude that hard work leads to success.', 'zh': '我们可以得出结论：努力带来成功。'},
+            {'en': 'The meeting concluded with a discussion.', 'zh': '会议以讨论结束。'},
+        ],
+        'purpose': [
+            {'en': 'The purpose of learning English is to communicate.', 'zh': '学英语的目的是交流。'},
+            {'en': 'He studies hard for the purpose of passing the exam.', 'zh': '他努力学习是为了通过考试。'},
         ],
         'thing': [
             {'en': 'The most important thing is to never give up.', 'zh': '最重要的事情是永远不要放弃。'},
@@ -986,6 +1002,7 @@ class DictionaryService:
         'lecture': 'n. 演讲，讲座\nv. 讲课',
         # ECDICT 释义排序错误修正
         'worse': 'adj. 更坏的，更差的\nadv. 更坏地',
+        'affordable': 'adj. 买得起的，负担得起的',
         'stressful': 'adj. 有压力的，紧张的',
         'press': 'n. 压力，印刷机，新闻界\nv. 压，按',
         'good': 'adj. 好的，优良的',
@@ -1027,6 +1044,368 @@ class DictionaryService:
         'run': 'v. 跑，运行',
         'thing': 'n. 事情，东西',
         'write': 'v. 写，书写',
+        # 用户反馈的翻译质量问题：修正为专升本常考释义
+        'conclude': 'v. 得出结论，断定；结束，终止',
+        'purpose': 'n. 目的，意图',
+        'children': 'n. 孩子，儿童（child的复数）',
+        'sometimes': 'adv. 有时，偶尔',
+        'everybody': 'pron. 每个人，人人',
+        'forever': 'adv. 永远，永久',
+        'alike': 'adj. 相似的，相同的\nadv. 同样地',
+        'twice': 'adv. 两次；两倍',
+        'error': 'n. 错误，差错',
+        'conduct': 'n. 行为，举止\nv. 进行，指挥',
+        'carry out': 'v. 执行，实施',
+        'tide': 'n. 潮汐，潮流',
+        'strike': 'v. 打，击；罢工\nn. 罢工，打击',
+        'pain': 'n. 疼痛，痛苦',
+        'gain': 'v. 获得，赢得\nn. 收获，利益',
+        'sight': 'n. 视力，看见；景象',
+        'industry': 'n. 工业，产业；勤奋',
+        'industrious': 'adj. 勤劳的，勤奋的',
+        'parent': 'n. 父母，家长',
+        'mind': 'n. 头脑，思想\nv. 介意，在意',
+        'like': 'v. 喜欢\nprep. 像，如同\nadj. 相似的',
+        'dislike': 'n. 不喜欢\nv. 不喜欢，厌恶',
+        'unlike': 'prep. 不像，和...不同',
+        'judge': 'n. 法官，裁判\nv. 判断，评判',
+        'cover': 'n. 封面，遮盖物\nv. 覆盖，报道',
+        'loud': 'adj. 大声的，响亮的',
+        'action': 'n. 行动，行为',
+        'bird': 'n. 鸟，禽类',
+        'feather': 'n. 羽毛',
+        'flock': 'n. 一群(鸟/羊)\nv. 群集',
+        'trouble': 'n. 麻烦，困难\nv. 使烦恼',
+        'road': 'n. 道路，公路',
+        'medicine': 'n. 药，药物；医学',
+        'bitter': 'adj. 苦的，痛苦的',
+        'will': 'n. 意志，意愿\naux. 将，会',
+        'willpower': 'n. 意志力',
+        'begin': 'v. 开始',
+        'half': 'n. 一半\nadj. 一半的',
+        'smoke': 'n. 烟，烟雾\nv. 冒烟；吸烟',
+        'lab': 'n. 实验室',
+        'experiment': 'n. 实验，试验\nv. 做实验',
+        'lecture': 'n. 讲座，演讲\nv. 讲课',
+        'dine': 'v. 进餐，用餐',
+        'dinner': 'n. 晚餐，正餐',
+        'breakfast': 'n. 早餐',
+        'lunch': 'n. 午餐',
+        'canteen': 'n. 食堂，餐厅',
+        'cafeteria': 'n. 自助餐厅',
+        'restaurant': 'n. 餐馆，饭店',
+        'playground': 'n. 操场，游乐场',
+        'library': 'n. 图书馆',
+        'psychology': 'n. 心理学',
+        'physics': 'n. 物理学',
+        'geography': 'n. 地理学',
+        'biology': 'n. 生物学',
+        'chemistry': 'n. 化学',
+        'curriculum': 'n. 课程，(全部)课程',
+        'compulsory': 'adj. 必修的，义务的',
+        'select': 'v. 挑选，选择',
+        'grade': 'n. 年级；成绩\nv. 评分',
+        'score': 'n. 分数，成绩\nv. 得分',
+        'major': 'n. 专业\nadj. 主要的\nv. 主修',
+        'assignment': 'n. 作业，任务',
+        'homework': 'n. 家庭作业',
+        'housework': 'n. 家务',
+        'quiz': 'n. 测验，小考',
+        'survey': 'n. 调查，民意调查\nv. 调查',
+        'enquiry': 'n. 询问，打听',
+        'inquiry': 'n. 询问，调查',
+        'exam': 'n. 考试',
+        'examination': 'n. 考试；检查',
+        'finger': 'n. 手指',
+        'figure': 'n. 数字；人物；身材\nv. 认为',
+        'character': 'n. 性格，品质；人物；角色',
+        'characteristic': 'n. 特征，特点\nadj. 典型的',
+        'typical': 'adj. 典型的，有代表性的',
+        'represent': 'v. 代表；表现',
+        'representative': 'n. 代表\nadj. 有代表性的',
+        'approval': 'n. 赞成，同意；批准',
+        'approve': 'v. 赞成，同意；批准',
+        'disapprove': 'v. 不赞成，反对',
+        'favorable': 'adj. 有利的，赞成的',
+        'favorite': 'adj. 最喜爱的\nn. 最喜欢的人/物',
+        'supportive': 'adj. 支持的，支援的',
+        'support': 'n. 支持；支柱\nv. 支持，支撑',
+        'neutral': 'adj. 中立的，中性的',
+        'indifferent': 'adj. 冷漠的，不关心的',
+        'negative': 'adj. 消极的，否定的\nn. 否定',
+        'objection': 'n. 反对，异议',
+        'opposition': 'n. 反对，敌对',
+        'critical': 'adj. 批评的；关键的；危急的',
+        'suspicious': 'adj. 可疑的，多疑的',
+        'suspect': 'v. 怀疑，猜想\nn. 嫌疑犯',
+        'subjective': 'adj. 主观的',
+        'subject': 'n. 主题；科目\nadj. 服从的\nv. 使遭受',
+        'objective': 'adj. 客观的\nn. 目标',
+        'tolerant': 'adj. 宽容的，容忍的',
+        'tolerate': 'v. 容忍，忍受',
+        'pessimistic': 'adj. 悲观的',
+        'optimistic': 'adj. 乐观的',
+        'compare': 'v. 比较，对比',
+        'comparison': 'n. 比较，对比',
+        'contrast': 'n. 对比，对照\nv. 对比',
+        'cause': 'n. 原因；事业\nv. 引起，导致',
+        'effective': 'adj. 有效的',
+        'efficient': 'adj. 高效的，效率高的',
+        'struggle': 'n. 奋斗，挣扎\nv. 奋斗',
+        'effort': 'n. 努力，力气',
+        'stamina': 'n. 耐力，持久力',
+        'patience': 'n. 耐心，忍耐',
+        'patient': 'n. 病人\nadj. 有耐心的',
+        'impatient': 'adj. 不耐烦的，没有耐心的',
+        'possible': 'adj. 可能的',
+        'impossible': 'adj. 不可能的',
+        'courage': 'n. 勇气，胆量',
+        'courageous': 'adj. 勇敢的，有胆量的',
+        'brave': 'adj. 勇敢的',
+        'bravery': 'n. 勇敢，勇气',
+        'dare': 'v. 敢，敢于',
+        'coward': 'n. 懦夫，胆小鬼',
+        'timid': 'adj. 胆小的，羞怯的',
+        'crowd': 'n. 人群\nv. 拥挤',
+        'perseverance': 'n. 坚持不懈，毅力',
+        'dilemma': 'n. 困境，进退两难',
+        'setback': 'n. 挫折，倒退',
+        'hardship': 'n. 艰难，困苦',
+        'obstacle': 'n. 障碍，阻碍',
+        'barrier': 'n. 障碍，屏障',
+        'adversity': 'n. 逆境，不幸',
+        'advertise': 'v. 做广告，宣传',
+        'advertisement': 'n. 广告',
+        'progress': 'n. 进步，进展\nv. 前进',
+        'improve': 'v. 改善，提高',
+        'develop': 'v. 发展，开发；培养',
+        'population': 'n. 人口',
+        'popularize': 'v. 推广，普及',
+        'pollution': 'n. 污染',
+        'pollute': 'v. 污染',
+        'contaminate': 'v. 污染，弄脏',
+        'polluted': 'adj. 受污染的',
+        'pollutant': 'n. 污染物',
+        'achievement': 'n. 成就，成绩',
+        'fulfillment': 'n. 完成，实现',
+        'accomplish': 'v. 完成，实现',
+        'accomplishment': 'n. 成就，才艺',
+        'accommodate': 'v. 容纳；为...提供住宿',
+        'accompany': 'v. 陪伴，陪同；伴奏',
+        'company': 'n. 公司；陪伴',
+        'companion': 'n. 同伴，伙伴',
+        'ambition': 'n. 雄心，抱负',
+        'ambitious': 'adj. 有雄心的，有抱负的',
+        'pursue': 'v. 追求，从事',
+        'pursuit': 'n. 追求，追赶',
+        'expectation': 'n. 期望，期待',
+        'unexpected': 'adj. 意想不到的，意外的',
+        'anticipation': 'n. 预期，期待',
+        'exception': 'n. 例外',
+        'launch': 'v. 发射；发起，开展',
+        'campaign': 'n. 运动，活动；战役',
+        'attack': 'n. 攻击，袭击\nv. 攻击',
+        'defend': 'v. 保卫，防御；辩护',
+        'defence': 'n. 防御，保卫',
+        'defense': 'n. 防御，保卫',
+        'defendant': 'n. 被告',
+        'accuse': 'v. 指控，指责',
+        'charge': 'n. 费用；电荷\nv. 收费；充电；指控',
+        'conflict': 'n. 冲突，矛盾\nv. 冲突',
+        'negotiate': 'v. 谈判，协商',
+        'surrender': 'v. 投降，屈服',
+        'loser': 'n. 失败者',
+        'winner': 'n. 获胜者',
+        'enemy': 'n. 敌人，仇敌',
+        'ally': 'n. 同盟国，盟友\nv. 结盟',
+        'alliance': 'n. 联盟，同盟',
+        'kill': 'v. 杀死，消灭',
+        'slay': 'v. 杀死，残杀',
+        'weapon': 'n. 武器，兵器',
+        'gun': 'n. 枪，炮',
+        'tank': 'n. 坦克；水箱',
+        'sword': 'n. 剑，刀',
+        'missile': 'n. 导弹',
+        'bomb': 'n. 炸弹\nv. 轰炸',
+        'bullet': 'n. 子弹',
+        'shield': 'n. 盾牌；保护\nv. 保护',
+        'helmet': 'n. 头盔，安全帽',
+        'bulletproof': 'adj. 防弹的',
+        'waterproof': 'adj. 防水的',
+        'parachute': 'n. 降落伞',
+        'civilization': 'n. 文明，文化',
+        'civil': 'adj. 公民的；国内的；文明的',
+        'ancient': 'adj. 古代的，古老的',
+        'dynasty': 'n. 王朝，朝代',
+        'emperor': 'n. 皇帝',
+        'royal': 'adj. 王室的，皇家的',
+        'empire': 'n. 帝国',
+        'king': 'n. 国王',
+        'kingdom': 'n. 王国',
+        'imperial': 'adj. 帝国的，皇帝的',
+        'prince': 'n. 王子',
+        'princess': 'n. 公主',
+        'colonize': 'v. 开拓殖民地',
+        'industrialization': 'n. 工业化',
+        'globalization': 'n. 全球化',
+        'museum': 'n. 博物馆',
+        'gallery': 'n. 画廊，美术馆',
+        'exhibition': 'n. 展览，展览会',
+        'exhibit': 'n. 展品\nv. 展览，展出',
+        'display': 'n. 陈列，展示\nv. 展示，显示',
+        'collection': 'n. 收藏品，收集',
+        'treasure': 'n. 财宝，珍品\nv. 珍视',
+        'global': 'adj. 全球的',
+        'emit': 'v. 发出，排放',
+        'renewable': 'adj. 可再生的',
+        'eco-friendly': 'adj. 环保的',
+        'conservation': 'n. 保护，保存',
+        'restore': 'v. 恢复，修复',
+        'store': 'n. 商店；储存\nv. 储存',
+        'story': 'n. 故事；楼层',
+        'storey': 'n. 楼层',
+        'floor': 'n. 地板；楼层',
+        'archaeologist': 'n. 考古学家',
+        'archaeology': 'n. 考古学',
+        'unearth': 'v. 发掘，出土',
+        'excavate': 'v. 挖掘，发掘',
+        'ruin': 'n. 废墟；毁灭\nv. 毁坏',
+        'remains': 'n. 遗迹，残余',
+        'coverage': 'n. 覆盖；新闻报道',
+        'edit': 'v. 编辑，剪辑',
+        'editor': 'n. 编辑',
+        'edition': 'n. 版本，版次',
+        'issue': 'n. 问题；发行\nv. 发行，发布',
+        'magazine': 'n. 杂志',
+        'press': 'n. 新闻界；印刷机\nv. 按压',
+        'pressure': 'n. 压力，压强\nv. 迫使',
+        'cooker': 'n. 炊具，炉灶',
+        'chef': 'n. 厨师，主厨',
+        'stress': 'n. 压力；强调\nv. 强调',
+        'stressful': 'adj. 有压力的',
+        'tense': 'adj. 紧张的\nn. 时态',
+        'tension': 'n. 紧张，张力',
+        'nervous': 'adj. 紧张的，神经的',
+        'nerve': 'n. 神经；勇气',
+        'newspaper': 'n. 报纸',
+        'reporter': 'n. 记者',
+        'report': 'n. 报告；报道\nv. 报告，报道',
+        'journalist': 'n. 新闻记者',
+        'correspondent': 'n. 记者，通讯员',
+        'columnist': 'n. 专栏作家',
+        'respond': 'v. 回应，反应',
+        'response': 'n. 回应，反应',
+        'reply': 'n. 回答，答复\nv. 回答',
+        'column': 'n. 专栏；圆柱；列',
+        'volume': 'n. 卷；音量；体积',
+        'section': 'n. 部分；章节；部门',
+        'charity': 'n. 慈善，慈善机构',
+        'hide': 'v. 隐藏，躲藏',
+        'wire': 'n. 电线；金属丝',
+        'thief': 'n. 小偷，贼',
+        'kettle': 'n. 水壶',
+        'boil': 'v. 煮沸，沸腾',
+        'pour': 'v. 倾倒；倾泻；倒(水)',
+        'escape': 'n. 逃跑；逃脱\nv. 逃跑，逃脱',
+        'glove': 'n. 手套',
+        'host': 'n. 主人；主持人\nv. 主办',
+        'hostess': 'n. 女主人；女主持人',
+        'deliver': 'v. 递送，交付；发表',
+        'full-time': 'adj. 全职的',
+        'part-time': 'adj. 兼职的',
+        'headline': 'n. 标题，头条',
+        'body': 'n. 身体；主体',
+        'conclusion': 'n. 结论，结束',
+        'conclude': 'v. 得出结论，断定；结束',
+        'summary': 'n. 摘要，总结',
+        'abstract': 'n. 摘要\nadj. 抽象的',
+        'paper': 'n. 纸；论文；试卷',
+        'journey': 'n. 旅行，旅程',
+        'tour': 'n. 旅行，观光\nv. 旅游',
+        'travel': 'n. 旅行\nv. 旅行',
+        'voyage': 'n. 航行，航海',
+        'tourist': 'n. 游客，旅行者',
+        'tourism': 'n. 旅游业',
+        'hotel': 'n. 旅馆，酒店',
+        'motel': 'n. 汽车旅馆',
+        'backpack': 'n. 背包\nv. 背包旅行',
+        'accommodation': 'n. 住宿，膳宿',
+        'tent': 'n. 帐篷',
+        'means': 'n. 方法，手段',
+        'vehicle': 'n. 车辆，交通工具',
+        'bike': 'n. 自行车',
+        'bicycle': 'n. 自行车',
+        'tram': 'n. 有轨电车',
+        'metro': 'n. 地铁',
+        'underground': 'n. 地铁\nadj. 地下的',
+        'ship': 'n. 船，舰\nv. 运送',
+        'boat': 'n. 小船，船',
+        'ferry': 'n. 渡船，摆渡',
+        'ticket': 'n. 票，入场券',
+        'website': 'n. 网站',
+        'certificate': 'n. 证书，证明',
+        'passport': 'n. 护照',
+        'pass': 'v. 通过，经过\nn. 通行证',
+        'port': 'n. 港口，口岸',
+        'import': 'n. 进口\nv. 进口',
+        'export': 'n. 出口\nv. 出口',
+        'exit': 'n. 出口\nv. 退出',
+        'visa': 'n. 签证',
+        'trip': 'n. 旅行，旅程',
+        'luggage': 'n. 行李',
+        'baggage': 'n. 行李',
+        'depart': 'v. 离开，出发',
+        'departure': 'n. 出发，离开',
+        'gate': 'n. 大门，出入口',
+        'terminal': 'n. 终点站；终端\nadj. 末端的',
+        'declare': 'v. 宣布，声明；申报',
+        'tax': 'n. 税，税款\nv. 征税',
+        'taxpayer': 'n. 纳税人',
+        'quarantine': 'n. 隔离，检疫',
+        'duty': 'n. 责任，义务；关税',
+        'free': 'adj. 自由的；免费的\nadv. 免费地',
+        'freedom': 'n. 自由',
+        'booklet': 'n. 小册子',
+        'leaflet': 'n. 传单，小册子',
+        'guidebook': 'n. 旅游指南',
+        'guide': 'n. 向导，指南\nv. 引导',
+        'brochure': 'n. 小册子，宣传册',
+        'map': 'n. 地图',
+        'mountain': 'n. 山，山脉',
+        'hill': 'n. 小山，丘陵',
+        'peak': 'n. 山顶，顶峰\nv. 达到高峰',
+        'slope': 'n. 斜坡，山坡',
+        'steep': 'adj. 陡峭的',
+        'cliff': 'n. 悬崖，峭壁',
+        'valley': 'n. 山谷，溪谷',
+        'ocean': 'n. 海洋',
+        'sea': 'n. 海，海洋',
+        'overseas': 'adj. 海外的\nadv. 在海外',
+        'wave': 'n. 波浪；挥手\nv. 挥手',
+        'island': 'n. 岛，岛屿',
+        'rock': 'n. 岩石；摇滚乐',
+        'stone': 'n. 石头，石块',
+        'beach': 'n. 海滩，沙滩',
+        'coastal': 'adj. 沿海的，海岸的',
+        'fisherman': 'n. 渔民',
+        'fishery': 'n. 渔业；渔场',
+        'sand': 'n. 沙，沙子',
+        'lake': 'n. 湖，湖泊',
+        'river': 'n. 河流',
+        'riverside': 'n. 河岸，河边',
+        'riverbank': 'n. 河岸',
+        'short': 'adj. 短的；矮的',
+        'shorten': 'v. 缩短，变短',
+        'shortage': 'n. 短缺，不足',
+        'scenery': 'n. 风景，景色',
+        'scenic': 'adj. 风景优美的',
+        'resort': 'n. 度假胜地；凭借',
+        'destination': 'n. 目的地，终点',
+        'landscape': 'n. 风景，景观',
+        'landmark': 'n. 地标，里程碑',
+        'monument': 'n. 纪念碑，历史遗迹',
+        'adventure': 'n. 冒险，奇遇',
+        'fountain': 'n. 喷泉，喷水池',
         # 短语释义覆盖
         'look up to': 'v. 尊敬，敬仰',
         'the best': '最好的（人或物）',
@@ -1055,9 +1434,48 @@ class DictionaryService:
         'sport': 'n. 运动',
     }
 
-    # 【已废弃】专升本例句模板 - 模板生成的例句质量差、句式雷同，尤其对短语会产生语法错误
-    # 现在改用三重保障：1. ZHUANSHENBEN_EXAMPLES精选例句库 2. AI生成例句 3. 在线词典API
-    EXAMPLE_TEMPLATES = {}
+    # 专升本例句模板（兜底方案）
+    # 优先级：ZHUANSHENBEN_EXAMPLES精选例句 > AI例句 > 本模板兜底，保证每个词都至少有例句。
+    # 模板针对不同词性做了语法安全设计（动词用不定式/祈使式，副词用"地"结尾的修饰位置），
+    # 并用 {word} 英文原词 + {zh} 中文释义 组合，避免纯英文释义泄露。
+    EXAMPLE_TEMPLATES = {
+        'verb': [
+            # 动词：统一用不定式，语法对任何动词的动词原形都正确
+            {'en': 'We should learn to {word} step by step.', 'zh': '我们应该学会循序渐进地做到这一点：{zh}。'},
+            {'en': 'It is important to {word} in our daily life.', 'zh': '在我们的日常生活中，能做到{zh}是很重要的。'},
+            {'en': 'I want to {word} it carefully this time.', 'zh': '这次我想认真地把它做到位。'},
+        ],
+        'noun_plural': [
+            # 复数名词：用 These/are，避免 "This children is"
+            {'en': 'These {word} are common in our daily life.', 'zh': '这些{zh}在我们的日常生活中很常见。'},
+            {'en': 'We should pay more attention to {word}.', 'zh': '我们应该给予{zh}更多的关注。'},
+            {'en': 'I learned a lot about {word} this term.', 'zh': '这学期我学到了很多关于{zh}的知识。'},
+        ],
+        'noun': [
+            # 单数名词：放入自然语境，避免 "This children is"
+            {'en': 'The {word} plays an important role in our daily life.', 'zh': '{zh}在我们的日常生活中发挥着重要作用。'},
+            {'en': 'We should pay more attention to {word}.', 'zh': '我们应该给予{zh}更多的关注。'},
+            {'en': 'I am learning about {word} this term.', 'zh': '这学期我正在学习关于{zh}的知识。'},
+        ],
+        'adj': [
+            {'en': 'She is a very {word} student in our class.', 'zh': '她是我们班一个非常{zh}的学生。'},
+            {'en': 'It is {word} to make a good plan.', 'zh': '制定一个好计划是非常{zh}的。'},
+            {'en': 'This book is really {word} for us.', 'zh': '这本书对我们来说确实很{zh}。'},
+        ],
+        'adv': [
+            # 普通副词（非频率副词）：放在动词后作方式状语
+            {'en': 'He answered the question {word} in class.', 'zh': '他在课堂上{zh}地回答了问题。'},
+            {'en': 'She studies {word} to pass the exam.', 'zh': '她{zh}地学习以便通过考试。'},
+        ],
+        'pron': [
+            {'en': 'Everyone should help each other in class.', 'zh': '课堂上每个人都应该互相帮助。'},
+            {'en': 'We must be kind to everyone around us.', 'zh': '我们必须善待身边的每一个人。'},
+        ],
+        'other': [
+            {'en': 'We should use this word in the right way.', 'zh': '我们应该正确地使用这个词。'},
+            {'en': 'This word is useful in our daily English.', 'zh': '这个词在我们的日常英语中很有用。'},
+        ],
+    }
 
     # 预置词典：20个常见单词的完整解析
     # split 每项包含：part(当前部分), meaning(这部分的意思), original(原词),
@@ -1992,6 +2410,18 @@ class DictionaryService:
                 {'en': 'This book is good for improving your vocabulary.', 'zh': '这本书对提高词汇量很有帮助。'},
             ],
         },
+        'goods': {
+            'phonetic': '/ɡʊdz/',
+            'meaning': 'n. 商品，货物',
+            'type': '基础词',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'goods 是 good 的复数形式，但词义不同，指"商品、货物"。',
+            'examples': [
+                {'en': 'The shop sells all kinds of goods.', 'zh': '这家商店出售各种各样的商品。'},
+                {'en': 'These goods are made in China.', 'zh': '这些货物是中国制造的。'},
+            ],
+        },
         'talk': {
             'phonetic': '/tɔːk/',
             'meaning': 'v. 谈话，交谈\nn. 谈话',
@@ -2516,12 +2946,52 @@ class DictionaryService:
         "hello": 'int. 你好，喂',
         "hi": 'int. 你好',
         "hey": 'int. 嗨，喂',
+        # ===== 补充：文档中其余无释义词（句式/谚语/口语，释义精简常用）=====
+        "how time flies!": '时间过得真快！',
+        "i am fine, thank you": '我很好，谢谢',
+        "you deserve it!": '你应得的；真是活该',
+        "what is this in english?": '这个用英语怎么说？',
+        "not…until…": '直到……才……',
+        "have a lot of trouble (in) doing sth": '做某事很困难',
+        "have difficulty (in) doing sth": '做某事有困难',
+        "have a hard time (in) doing sth": '做某事很艰难',
+        "no pains, no gains": '不劳无获',
+        "where there is smoke, there is fire": '无风不起浪',
+        "where there is love, there is hope": '有爱就有希望',
+        "sb spend money (in) doing sth": '某人花钱做某事',
+        "sb spend time (in) doing sth": '某人花时间做某事',
+        "rather than do sth2, would do sth1": '宁愿做某事1，也不愿做某事2',
+        "be short for …": '是……的缩写',
     }
 
     # ===== 专升本常见短语词典 =====
     # ECDICT 对短语的翻译覆盖率有限，这里收录专升本考试常见短语
     # 每个条目格式与 DICTIONARY 相同，至少包含 meaning 和 examples
     PHRASE_DICTIONARY = {
+        'overhead bridge': {
+            'phonetic': '',
+            'meaning': 'n. 立交桥；天桥，高架桥',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'overhead（在头顶的）+ bridge（桥）→ 架在头顶上的桥，即"立交桥/天桥"',
+            'examples': [
+                {'en': 'There is an overhead bridge near the school.', 'zh': '学校附近有一座人行天桥。'},
+                {'en': 'We should walk across the overhead bridge.', 'zh': '我们应该从天桥上走过去。'},
+            ],
+        },
+        'last name': {
+            'phonetic': '',
+            'meaning': 'n. 姓，姓氏',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'last（最后的）+ name（名字）→ 西方名字中排在最后的"姓"',
+            'examples': [
+                {'en': 'My last name is Wang.', 'zh': '我姓王。'},
+                {'en': 'Please write down your first name and last name.', 'zh': '请写下你的名和姓。'},
+            ],
+        },
         'as bad as': {
             'phonetic': '',
             'meaning': '和……一样糟糕',
@@ -3279,6 +3749,208 @@ class DictionaryService:
                 {'en': 'She has always looked up to her older sister.', 'zh': '她一直敬仰她的姐姐。'},
             ],
         },
+        'see through': {
+            'phonetic': '',
+            'meaning': 'v. 看穿，识破；(help sb) 帮某人度过(难关)',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'see(看) + through(穿透) → 看穿、识破',
+            'examples': [
+                {'en': 'His friends helped him see through the hard times.', 'zh': '他的朋友们帮他熬过了艰难时期。'},
+                {'en': 'We can see through his lie.', 'zh': '我们能看穿他的谎言。'},
+            ],
+        },
+        'see off': {
+            'phonetic': '',
+            'meaning': 'v. 为……送行，送别',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'see(送) + off(离开) → 送某人离开 → 送行',
+            'examples': [
+                {'en': 'We went to the airport to see him off.', 'zh': '我们去机场为他送行。'},
+                {'en': 'She saw her parents off at the station.', 'zh': '她在车站送别了父母。'},
+            ],
+        },
+        'be able to': {
+            'phonetic': '',
+            'meaning': 'v. 能够，会（can 的多种时态形式）',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'be(是) + able(能够的) + to do → 能够做某事',
+            'examples': [
+                {'en': 'She will be able to finish the task on time.', 'zh': '她将能够按时完成任务。'},
+                {'en': 'Are you able to come to my birthday party?', 'zh': '你能来参加我的生日聚会吗？'},
+            ],
+        },
+        'regard as': {
+            'phonetic': '',
+            'meaning': 'v. 把……看作，认为',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'regard(看待) + as(作为) → 把……看作',
+            'examples': [
+                {'en': 'We regard him as our best friend.', 'zh': '我们把他看作最好的朋友。'},
+                {'en': 'It is regarded as one of the greatest books.', 'zh': '它被认为是伟大的著作之一。'},
+            ],
+        },
+        'be accustomed to doing sth': {
+            'phonetic': '',
+            'meaning': 'v. 习惯于做某事',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'be accustomed(习惯的) + to → 习惯于',
+            'examples': [
+                {'en': 'She is accustomed to getting up early.', 'zh': '她习惯于早起。'},
+            ],
+        },
+        'get accustomed to doing sth': {
+            'phonetic': '',
+            'meaning': 'v. 变得习惯于做某事',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'get(变得) accustomed(习惯) to → 逐渐习惯',
+            'examples': [
+                {'en': 'You will get accustomed to the new school soon.', 'zh': '你很快就会习惯新学校。'},
+            ],
+        },
+        'be used to doing sth': {
+            'phonetic': '',
+            'meaning': 'v. 习惯于做某事',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'be used(习惯于的) to doing → 习惯了做某事',
+            'examples': [
+                {'en': 'He is used to living in the countryside.', 'zh': '他习惯了住在乡下。'},
+            ],
+        },
+        'used to do sth': {
+            'phonetic': '',
+            'meaning': 'v. 过去常常做某事（现在不做了）',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'used to + do 表示"过去常常做"',
+            'examples': [
+                {'en': 'I used to play basketball after school.', 'zh': '我以前放学后常常打篮球。'},
+            ],
+        },
+        'take advantage of': {
+            'phonetic': '',
+            'meaning': 'v. 利用；占……的便宜',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'take(取) advantage(优势) of → 利用',
+            'examples': [
+                {'en': 'We should take advantage of the sunny weather.', 'zh': '我们应该利用这晴朗的天气。'},
+            ],
+        },
+        'make use of': {
+            'phonetic': '',
+            'meaning': 'v. 利用，使用',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'make(使) use(使用) of → 利用',
+            'examples': [
+                {'en': 'You should make full use of your time.', 'zh': '你应该充分利用你的时间。'},
+            ],
+        },
+        'pay attention to': {
+            'phonetic': '',
+            'meaning': 'v. 注意，关注',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'pay(给予) attention(注意力) to → 注意到，关注',
+            'examples': [
+                {'en': 'Please pay attention to the teacher in class.', 'zh': '上课时请认真听老师讲课。'},
+            ],
+        },
+        'take part in': {
+            'phonetic': '',
+            'meaning': 'v. 参加，参与',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'take part(部分) in → 参加',
+            'examples': [
+                {'en': 'Many students take part in the school activities.', 'zh': '许多学生参加了学校的活动。'},
+            ],
+        },
+        'look forward to': {
+            'phonetic': '',
+            'meaning': 'v. 盼望，期待',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'look(看) forward(向前) to → 向前看 → 期待',
+            'examples': [
+                {'en': 'I look forward to hearing from you.', 'zh': '我期待收到你的来信。'},
+            ],
+        },
+        'get along with': {
+            'phonetic': '',
+            'meaning': 'v. 与……相处融洽；进展',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'get along(相处) with sb → 与某人相处',
+            'examples': [
+                {'en': 'She gets along well with her classmates.', 'zh': '她和同学们相处得很好。'},
+            ],
+        },
+        'come up with': {
+            'phonetic': '',
+            'meaning': 'v. 想出，提出（主意、计划）',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'come up(出现) with → 想出好主意',
+            'examples': [
+                {'en': 'He came up with a good idea for the project.', 'zh': '他为这个项目想出了一个好主意。'},
+            ],
+        },
+        'carry out': {
+            'phonetic': '',
+            'meaning': 'v. 执行，实施（计划、任务）',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'carry(执行) out(出来) → 实施、执行',
+            'examples': [
+                {'en': 'We must carry out the plan carefully.', 'zh': '我们必须认真执行这项计划。'},
+            ],
+        },
+        'put off': {
+            'phonetic': '',
+            'meaning': 'v. 推迟，拖延',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'put(放) off(离开) → 放到一边 → 推迟',
+            'examples': [
+                {'en': 'Never put off what you can do today.', 'zh': '今日事今日毕，不要拖延。'},
+            ],
+        },
+        'give up': {
+            'phonetic': '',
+            'meaning': 'v. 放弃',
+            'type': '短语',
+            'split': [],
+            'morph': [],
+            'mnemonic': 'give(给) up(向上) → 交出 → 放弃',
+            'examples': [
+                {'en': 'Never give up on your dreams.', 'zh': '永远不要放弃你的梦想。'},
+            ],
+        },
     }
 
     def __init__(self):
@@ -3407,15 +4079,39 @@ class DictionaryService:
                     'inflection_type': 'tense',
                 }
 
+        # 5b. 多音节形容词比较级/最高级（more/most），保证形容词都有变形按钮
+        if is_adj and len(word_lower) > 5:
+            return {
+                'positive': word_lower,
+                'comparative': f'more {word_lower}',
+                'superlative': f'the most {word_lower}',
+                'inflection_type': 'degree',
+            }
+
         return None
+
+    # 频率副词（用于例句语法安全：放在句首/动词前，避免错误位置）
+    FREQ_ADVERBS = {
+        'sometimes', 'usually', 'often', 'always', 'never', 'sometimes', 'seldom',
+        'rarely', 'frequently', 'occasionally', 'forever', 'always', 'generally',
+        'normally', 'typically', 'hardly', 'ever', 'twice', 'once',
+    }
+    # 复数名词（例句需用复数be动词/there be，避免 "This children is"）
+    PLURAL_NOUNS = {
+        'children', 'people', 'men', 'women', 'feet', 'teeth', 'mice', 'geese',
+        'oxen', 'elves', 'leaves', 'knives', 'lives', 'goods', 'clothes',
+        'trousers', 'scissors', 'glasses', 'sunglasses', 'data', 'media',
+    }
 
     def _get_zhuanshenben_examples(self, word, meaning=''):
         """
-        获取专升本例句：优先从专门例句库中查找，没有则根据词性用模板生成
+        获取专升本例句：优先从专门例句库中查找，没有则根据词性用语法安全的模板生成。
 
-        参数:
-            word: 单词
-            meaning: 单词释义（用于推断词性）
+        模板做了语法安全设计：
+          - 名词：复数名词用 "These ... are"，单数用 "This ... is"；并避免 "This children is"。
+          - 副词：频率副词（sometimes/forever 等）放在句首或动词前，避免错误位置。
+          - 动词：用不定式/祈使式，避免第三人称单数变化错误。
+          - 代词（somebody/everybody 等）用专门模板，避免 "This somebody is"。
 
         返回:
             list: 例句列表 [{en, zh}, ...]，可能为空
@@ -3427,7 +4123,6 @@ class DictionaryService:
             return self.ZHUANSHENBEN_EXAMPLES[word_lower]
 
         # 2. 尝试去掉复数/时态后缀再查
-        base = word_lower
         if word_lower.endswith('s') and word_lower[:-1] in self.ZHUANSHENBEN_EXAMPLES:
             return self.ZHUANSHENBEN_EXAMPLES[word_lower[:-1]]
         if word_lower.endswith('ing') and word_lower[:-3] in self.ZHUANSHENBEN_EXAMPLES:
@@ -3440,29 +4135,59 @@ class DictionaryService:
         meaning_str = (meaning or '').strip()
         meaning_lower = meaning_str.lower()
         pos = None
-        # 检测词性前缀（兼容 ECDICT 的 vi./vt./a. 等格式）
-        if re.match(r'^(v|vi|vt|aux)\.', meaning_lower) or re.match(r'^(v|vi|vt|aux)\s', meaning_lower):
+        # 检测词性前缀（兼容 ECDICT 的 vi./vt./a./pl. 等格式）
+        if re.match(r'^(v|vi|vt|aux|link)\.', meaning_lower) or re.match(r'^(v|vi|vt|aux)\s', meaning_lower):
             pos = 'verb'
-        elif re.match(r'^n\.', meaning_lower) or re.match(r'^n\s', meaning_lower):
+        elif re.match(r'^(n|pl)\.', meaning_lower) or re.match(r'^(n|pl)\s', meaning_lower):
             pos = 'noun'
         elif re.match(r'^(adj|a)\.', meaning_lower) or re.match(r'^adj\s', meaning_lower):
             pos = 'adj'
         elif re.match(r'^(adv|ad)\.', meaning_lower) or re.match(r'^adv\s', meaning_lower):
             pos = 'adv'
+        elif re.match(r'^(pron|pron)\.', meaning_lower) or re.match(r'^pron\s', meaning_lower):
+            pos = 'pron'
+        elif re.match(r'^(prep|conj)\.', meaning_lower):
+            pos = 'other'
 
         # 4. 如果释义没有标准词性前缀，尝试从单词后缀推断
         if not pos:
-            if word_lower.endswith(('ful', 'ous', 'ive', 'able', 'ible', 'al', 'less', 'ish', 'ic', 'ant', 'ent', 'ary', 'ory')):
+            # 复数名词（children/people/常见+s）优先判为名词，避免被"en"等动词后缀误导
+            if word_lower in self.PLURAL_NOUNS or word_lower.endswith('s') and not word_lower.endswith(('ss', 'us', 'is', 'ous')):
+                pos = 'noun'
+            elif word_lower.endswith(('ful', 'ous', 'ive', 'able', 'ible', 'al', 'less', 'ish', 'ic', 'ant', 'ent', 'ary', 'ory')):
                 pos = 'adj'
-            elif word_lower.endswith(('tion', 'sion', 'ment', 'ness', 'ity', 'ship', 'hood', 'ance', 'ence', 'dom', 'ism', 'ist')):
+            elif word_lower.endswith(('tion', 'sion', 'ment', 'ness', 'ity', 'ship', 'hood', 'ance', 'ence', 'dom', 'ism', 'ist', 'age')):
                 pos = 'noun'
             elif word_lower.endswith(('ly', 'ward', 'wise')):
                 pos = 'adv'
-            elif word_lower.endswith(('ize', 'ise', 'ify', 'en', 'ate')):
+            elif word_lower.endswith(('ize', 'ise', 'ify', 'ate')):
                 pos = 'verb'
             else:
                 # 默认按名词处理（最常见的词性）
                 pos = 'noun'
+
+        # 代词（somebody/everybody/anything 等）使用专门模板
+        if word_lower in ('somebody', 'everybody', 'anybody', 'nobody', 'someone',
+                          'everyone', 'anyone', 'something', 'everything', 'anything', 'nothing'):
+            return [
+                {'en': f'Everyone should help {word_lower} in need.', 'zh': '每个人都应该帮助需要帮助的人。'},
+                {'en': f'{word_lower.capitalize()} can make a difference in our daily life.',
+                 'zh': '每个人都能在日常生活的某方面产生影响。'},
+            ]
+
+        # 频率副词使用专门模板（避免 "sometimes in class" 的错误位置）
+        if pos == 'adv' and word_lower in self.FREQ_ADVERBS:
+            return [
+                {'en': f'{word_lower.capitalize()}, I read English books in the morning.',
+                 'zh': '有时，我早上会读英语书。'},
+                {'en': f'We should study hard {word_lower} to pass the exam.',
+                 'zh': '我们应该经常努力学习以通过考试。'},
+            ]
+
+        # 复数名词使用复数模板（避免 "This children is"）
+        if pos == 'noun' and (word_lower in self.PLURAL_NOUNS or
+                              (word_lower.endswith('s') and not word_lower.endswith(('ss', 'us', 'is', 'ous')))):
+            pos = 'noun_plural'
 
         if pos and pos in self.EXAMPLE_TEMPLATES:
             # 提取中文释义（去掉词性前缀、括号注释，只取第一条释义）
@@ -3470,8 +4195,8 @@ class DictionaryService:
             # 只取第一行（ECDICT 多词性释义用换行分隔）
             zh_meaning = zh_meaning.split('\n')[0].strip()
             # 去掉所有词性前缀（包括缩写和完整形式：adj./adjective./vi./vt. 等）
-            zh_meaning = re.sub(r'^(adjective|adverb|noun|verb|vi|vt|aux|n|v|adj|adv|ad|a|prep|conj|pron|num|art|interj)\.\s*', '', zh_meaning, flags=re.IGNORECASE)
-            zh_meaning = re.sub(r'^(adjective|adverb|noun|verb|vi|vt|aux|n|v|adj|adv|ad|a|prep|conj|pron|num|art|interj)\s+', '', zh_meaning, flags=re.IGNORECASE)
+            zh_meaning = re.sub(r'^(adjective|adverb|noun|verb|vi|vt|aux|pl|n|v|adj|adv|ad|a|prep|conj|pron|num|art|interj)\.\s*', '', zh_meaning, flags=re.IGNORECASE)
+            zh_meaning = re.sub(r'^(adjective|adverb|noun|verb|vi|vt|aux|pl|n|v|adj|adv|ad|a|prep|conj|pron|num|art|interj)\s+', '', zh_meaning, flags=re.IGNORECASE)
             # 去掉方括号注释如 [体] [法] [医]
             zh_meaning = re.sub(r'\[.*?\]', '', zh_meaning)
             # 去掉圆括号注释如 (书名)
@@ -3793,17 +4518,23 @@ class DictionaryService:
 
         clean_lines.sort(key=_pos_priority)
 
-        # 精简释义：从排序后的行中提取最多2个释义
-        # 优先保留多字释义（如"压力"优于"压"），避免单字释义造成歧义
-        meanings = []
+        # 精简释义：按词性分组，合并同词性重复行，输出考试向精简释义。
+        # 目标：合并 "adv. 有时\nadv. 时常" → "adv. 有时，时常"，
+        #       合并 "vt. 结束\nvt. 作结论" → "vt. 作结论，结束"（按频率排序）。
+        # 最多保留 2 个词性组，每组最多 3 个释义，避免重复和碎片化。
+        pos_groups = {}  # pos_code -> {'prefix': std_prefix, 'meanings': [...]}
         for line in clean_lines:
-            # 提取词性前缀（如 "a." "n." "v." "adj." 等）
             pos_match = _re.match(r'^([a-z]+\.)\s*', line.lower())
             pos_prefix = pos_match.group(1) if pos_match else ''
-            # 去掉词性前缀，按分号/逗号分割释义
+            code = _pos_code(line)
+            # 词性前缀标准化：ECDICT 用 a./r. 等缩写，统一转为 adj./adv. 等标准形式
+            pos_std = pos_prefix
+            if pos_prefix == 'a.':
+                pos_std = 'adj.'
+            elif pos_prefix in ('r.', 'ad.'):
+                pos_std = 'adv.'
             content = _re.sub(r'^[a-z]+\.\s*', '', line)
             parts = _re.split(r'[;；,，]', content)
-            # 过滤候选释义：去空、去过长、去生僻标记
             candidates = []
             for part in parts:
                 part = part.strip()
@@ -3812,8 +4543,6 @@ class DictionaryService:
                 # 过滤过长的释义（超过15个字的专业术语）
                 if len(part) > 15:
                     continue
-                # 过滤含有生僻标记的释义（精确匹配，避免误伤如"文化"含"化"）
-                # 只过滤以这些标记开头或结尾的释义，或标记本身作为独立释义
                 skip = False
                 for marker in ['人名', '地名', '药名', '网络用语']:
                     if part == marker or part.startswith(marker):
@@ -3829,21 +4558,31 @@ class DictionaryService:
             multi_char = [c for c in candidates if len(c) >= 2]
             chosen = multi_char if multi_char else (candidates[:1] if candidates else [])
             for part in chosen:
-                # 词性前缀标准化：ECDICT 用 a./r. 等缩写，统一转为 adj./adv. 等标准形式
-                pos_std = pos_prefix
-                if pos_prefix == 'a.':
-                    pos_std = 'adj.'
-                elif pos_prefix in ('r.', 'ad.'):
-                    pos_std = 'adv.'
-                # 加上词性前缀
-                if pos_std:
-                    meanings.append(f'{pos_std} {part}')
-                else:
-                    meanings.append(part)
-                if len(meanings) >= 2:
-                    break
-            if len(meanings) >= 2:
-                break
+                g = pos_groups.setdefault(code, {'prefix': pos_std, 'meanings': []})
+                if part not in g['meanings']:
+                    g['meanings'].append(part)
+
+        if not pos_groups:
+            return clean_lines[0][:40]
+
+        # 词性组排序：有 pos 频率数据按频率降序，否则 名词>动词>形容词>副词>其他
+        def _group_priority(code):
+            if pos_freq:
+                return -pos_freq.get(code, 0)
+            order = {'n': 0, 'v': 1, 'j': 2, 'r': 3, 'o': 4}
+            return order.get(code, 4)
+
+        ordered_codes = sorted(pos_groups.keys(), key=_group_priority)
+        meanings = []
+        for code in ordered_codes[:2]:
+            g = pos_groups[code]
+            # 同一词性内，优先多字释义（更贴近考试释义），再按出现顺序
+            parts = g['meanings'][:3]
+            joined = '，'.join(parts)
+            if g['prefix']:
+                meanings.append(f"{g['prefix']} {joined}")
+            else:
+                meanings.append(joined)
 
         return '\n'.join(meanings) if meanings else clean_lines[0][:40]
 
@@ -3895,75 +4634,322 @@ class DictionaryService:
             }
         return None
 
+    def _is_common_ecdict_word(self, word, conn, allow_inflection=True):
+        """
+        判断一个词是否足够常用（用于复合词拆解质量控制，避免把生僻词拆解得支离破碎）。
+        常用定义：ECDICT 有中文释义，且 BNC 词频排名 <= 5000（BNC 越小越常用），
+        且释义中不含网络/专业/人名地名/外来语等生僻标记。
+        若本身不是常用词，则尝试识别其常用原词的复数/时态变形（如 times→time, studies→study）。
+        返回 (is_common, base_word)；base_word 为识别出的常用原形。
+        """
+        rare_markers = ['[网络]', '[机]', '[法]', '[医]', '[化]', '[生]', '[药]', '[俗]',
+                        '[人名]', '[地名]', '[数]', '[物]', '[经]', '[无]', '[军]', '[林]']
+        try:
+            r = conn.execute(
+                'SELECT bnc, translation FROM stardict WHERE word = ? COLLATE NOCASE AND translation IS NOT NULL AND translation != ""',
+                (word,)
+            ).fetchone()
+        except Exception:
+            r = None
+        if r:
+            t = r['translation'] or ''
+            if any(m in t for m in rare_markers):
+                return False, word
+            if not any('\u4e00' <= c <= '\u9fff' for c in t):
+                return False, word
+            bnc = r['bnc']
+            if bnc is not None and bnc <= 5000:
+                return True, word
+        # 尝试识别变形：复数/第三人称/过去式/现在分词 → 常用原词
+        if allow_inflection and len(word) > 3:
+            candidates = []
+            if word.endswith('ies') and len(word) > 4:
+                candidates.append(word[:-3] + 'y')
+            elif word.endswith('es') and len(word) > 4:
+                candidates.append(word[:-2])
+            elif word.endswith('s') and not word.endswith('ss'):
+                candidates.append(word[:-1])
+            if word.endswith('ed') and len(word) > 4:
+                candidates.append(word[:-2])
+            if word.endswith('ing') and len(word) > 5:
+                candidates.append(word[:-3])
+                candidates.append(word[:-3] + 'e')
+            for cand in candidates:
+                ok, base = self._is_common_ecdict_word(cand, conn, allow_inflection=False)
+                if ok:
+                    return True, cand
+        return False, word
+
     def _try_compound_split(self, word):
         """
-        第一层拆解：尝试将单词拆分为两个已知独立单词（复合词检测）
-        例如: basketball -> basket + ball
-        质量控制：两部分至少3字符，排除人名/地名/网络用语等非常用词
+        第一层拆解：尝试将单词拆分为两个已知高频独立单词（复合词检测）
+        例如: basketball -> basket + ball, sometimes -> some + times(time的复数)
+        质量控制：两部分至少3字符，且都必须是常用词（BNC 词频靠前、含中文释义、
+        非网络/专业/生僻词），否则视为无意义拆分并放弃复合词拆解，交给词缀分析。
         """
         conn = self._ecdict
         if not conn:
             return None
-        # 排除标记：翻译中包含这些标记的词条视为非常用词（人名、地名等）
-        bad_markers = ['[人名]', '[地名]', '[网络]', '[药]', '[化]', '[生]', '[医]']
+        best = None
+        best_score = -1
         for i in range(3, len(word) - 2):
             part1 = word[:i]
             part2 = word[i:]
-            # 两部分都至少3个字符
             if len(part1) < 3 or len(part2) < 3:
                 continue
-            # 如果任一部分是已知前缀/后缀，不是复合词
+            # 任一部分是已知前缀/后缀，不是复合词
             if part1 in self.PREFIXES or part2 in self.SUFFIXES or part1 in self.SUFFIXES or part2 in self.PREFIXES:
                 continue
-            try:
-                r1 = conn.execute(
-                    'SELECT translation FROM stardict WHERE word = ? COLLATE NOCASE AND translation IS NOT NULL AND translation != ""',
-                    (part1,)
-                ).fetchone()
-                r2 = conn.execute(
-                    'SELECT translation FROM stardict WHERE word = ? COLLATE NOCASE AND translation IS NOT NULL AND translation != ""',
-                    (part2,)
-                ).fetchone()
-                if r1 and r2:
-                    m1 = self._clean_meaning(r1[0] or '')
-                    m2 = self._clean_meaning(r2[0] or '')
-                    # 排除人名/地名/网络用语等
-                    if any(bm in m1 for bm in bad_markers) or any(bm in m2 for bm in bad_markers):
-                        continue
-                    # 排除词条翻译以 suff./pref./abbr. 开头的（这些是词缀或缩写，不是独立单词）
-                    m1_stripped = m1.strip()
-                    m2_stripped = m2.strip()
-                    if m1_stripped.startswith(('suff.', 'pref.', 'abbr.', 'prefix', 'suffix')) or \
-                       m2_stripped.startswith(('suff.', 'pref.', 'abbr.', 'prefix', 'suffix')):
-                        continue
-                    # 翻译至少要有词性标记（如 n. v. adj.）或中文字符
-                    has_meaning_1 = any(c for c in 'nvadjrp.' if c in m1[:5]) or any('\u4e00' <= c <= '\u9fff' for c in m1)
-                    has_meaning_2 = any(c for c in 'nvadjrp.' if c in m2[:5]) or any('\u4e00' <= c <= '\u9fff' for c in m2)
-                    if not has_meaning_1 or not has_meaning_2:
-                        continue
-                    m1 = m1.split('\n')[0][:60]
-                    m2 = m2.split('\n')[0][:60]
-                    return [
-                        {
-                            'part': part1,
-                            'meaning': m1,
-                            'original': part1,
-                            'original_meaning': m1,
-                            'transform': '原形不变',
-                            'explain': '独立单词',
-                        },
-                        {
-                            'part': part2,
-                            'meaning': m2,
-                            'original': part2,
-                            'original_meaning': m2,
-                            'transform': '原形不变',
-                            'explain': '独立单词',
-                        },
-                    ]
-            except Exception:
-                pass
-        return None
+            ok1, base1 = self._is_common_ecdict_word(part1, conn)
+            ok2, base2 = self._is_common_ecdict_word(part2, conn)
+            if not (ok1 and ok2):
+                continue
+            # 评分：两部分都是原形（非变形）的复合词更标准，其次总长度越长越好
+            score = len(part1) + len(part2)
+            if base1 == part1 and base2 == part2:
+                score += 100
+            if score > best_score:
+                best_score = score
+                best = (part1, part2, base1, base2)
+        if best is None:
+            return None
+        part1, part2, base1, base2 = best
+
+        def _part_entry(part, base):
+            bd = self._query_ecdict(base)
+            bm = self._clean_meaning(bd.get('translation', ''), bd.get('pos', '')) if bd else ''
+            bm = bm.split('\n')[0][:60] if bm else base
+            if base != part:
+                return {
+                    'part': part,
+                    'meaning': bm,
+                    'original': base,
+                    'original_meaning': bm,
+                    'transform': f'是"{base}"的变形',
+                    'explain': f'"{base}"的变形形式',
+                }
+            return {
+                'part': part,
+                'meaning': bm,
+                'original': part,
+                'original_meaning': bm,
+                'transform': '原形不变',
+                'explain': '独立单词',
+            }
+
+        return [_part_entry(part1, base1), _part_entry(part2, base2)]
+
+    # 复合词精确拆解覆盖表（用户更看重"按单词拆解"）
+    # ECDICT 把某些常见复合词标为某词的变形（如 sometimes 是 sometime 的复数），
+    # 但按单词拆解对背单词更有帮助，故在此覆盖：
+    # value 为拆解列表，每项 {part, base, meaning, transform, explain}
+    COMPOUND_SPLITS = {
+        'sometimes': [
+            {'part': 'some', 'base': 'some', 'meaning': 'adj/adv. 一些，大约', 'transform': '原形不变', 'explain': '独立单词'},
+            {'part': 'times', 'base': 'time', 'meaning': 'n. 时间', 'transform': '是"time"的复数', 'explain': '"time"的复数形式（多次）'},
+        ],
+        'everyday': [
+            {'part': 'every', 'base': 'every', 'meaning': 'adj. 每个的', 'transform': '原形不变', 'explain': '独立单词'},
+            {'part': 'day', 'base': 'day', 'meaning': 'n. 天，日子', 'transform': '原形不变', 'explain': '独立单词'},
+        ],
+        'everybody': [
+            {'part': 'every', 'base': 'every', 'meaning': 'adj. 每个的', 'transform': '原形不变', 'explain': '独立单词'},
+            {'part': 'body', 'base': 'body', 'meaning': 'n. 身体', 'transform': '原形不变', 'explain': '独立单词（every+body=每个人）'},
+        ],
+        'anything': [
+            {'part': 'any', 'base': 'any', 'meaning': 'pron. 任何', 'transform': '原形不变', 'explain': '独立单词'},
+            {'part': 'thing', 'base': 'thing', 'meaning': 'n. 东西，事物', 'transform': '原形不变', 'explain': '独立单词（any+thing=任何东西）'},
+        ],
+        'nothing': [
+            {'part': 'no', 'base': 'no', 'meaning': 'adj. 没有', 'transform': '原形不变', 'explain': '独立单词'},
+            {'part': 'thing', 'base': 'thing', 'meaning': 'n. 东西，事物', 'transform': '原形不变', 'explain': '独立单词（no+thing=没有东西）'},
+        ],
+        'everything': [
+            {'part': 'every', 'base': 'every', 'meaning': 'adj. 每个的', 'transform': '原形不变', 'explain': '独立单词'},
+            {'part': 'thing', 'base': 'thing', 'meaning': 'n. 东西，事物', 'transform': '原形不变', 'explain': '独立单词'},
+        ],
+        'someone': [
+            {'part': 'some', 'base': 'some', 'meaning': 'adj/adv. 一些', 'transform': '原形不变', 'explain': '独立单词'},
+            {'part': 'one', 'base': 'one', 'meaning': 'num. 一个', 'transform': '原形不变', 'explain': '独立单词（some+one=某人）'},
+        ],
+        'somebody': [
+            {'part': 'some', 'base': 'some', 'meaning': 'adj/adv. 一些', 'transform': '原形不变', 'explain': '独立单词'},
+            {'part': 'body', 'base': 'body', 'meaning': 'n. 身体', 'transform': '原形不变', 'explain': '独立单词（some+body=某人）'},
+        ],
+        'nobody': [
+            {'part': 'no', 'base': 'no', 'meaning': 'adj. 没有', 'transform': '原形不变', 'explain': '独立单词'},
+            {'part': 'body', 'base': 'body', 'meaning': 'n. 身体', 'transform': '原形不变', 'explain': '独立单词（no+body=没有人）'},
+        ],
+        'anybody': [
+            {'part': 'any', 'base': 'any', 'meaning': 'pron. 任何', 'transform': '原形不变', 'explain': '独立单词'},
+            {'part': 'body', 'base': 'body', 'meaning': 'n. 身体', 'transform': '原形不变', 'explain': '独立单词（any+body=任何人）'},
+        ],
+        'without': [
+            {'part': 'with', 'base': 'with', 'meaning': 'prep. 和，随着', 'transform': '原形不变', 'explain': '独立单词'},
+            {'part': 'out', 'base': 'out', 'meaning': 'adv. 在外', 'transform': '原形不变', 'explain': '独立单词（with+out=没有）'},
+        ],
+        'throughout': [
+            {'part': 'through', 'base': 'through', 'meaning': 'prep. 穿过，通过', 'transform': '原形不变', 'explain': '独立单词'},
+            {'part': 'out', 'base': 'out', 'meaning': 'adv. 在外', 'transform': '原形不变', 'explain': '独立单词（through+out=遍及，贯穿）'},
+        ],
+        'understand': [
+            {'part': 'under', 'base': 'under', 'meaning': 'prep. 在……之下', 'transform': '原形不变', 'explain': '独立单词'},
+            {'part': 'stand', 'base': 'stand', 'meaning': 'v. 站立', 'transform': '原形不变', 'explain': '独立单词（under+stand=理解）'},
+        ],
+        'forever': [
+            {'part': 'for', 'base': 'for', 'meaning': 'prep. 为了', 'transform': '原形不变', 'explain': '独立单词'},
+            {'part': 'ever', 'base': 'ever', 'meaning': 'adv. 曾经', 'transform': '原形不变', 'explain': '独立单词（for+ever=永远）'},
+        ],
+        'friendship': [
+            {'part': 'friend', 'base': 'friend', 'meaning': 'n. 朋友', 'transform': '原形不变', 'explain': '词根'},
+            {'part': '-ship', 'base': 'ship', 'meaning': 'n. 关系，状态（ship后缀）', 'transform': '本身是后缀', 'explain': '名词后缀，表示关系'},
+        ],
+    }
+
+    # 自动复合词表：词义透明、确属两个单词合成的复合词。
+    # 与 COMPOUND_SPLITS 不同，这里不手工写每部分的释义，而是运行时从 ECDICT 自动取。
+    # 值 = (part1, part2)，如 weekday → (week, day)。
+    # 只收录"词义确实由两部分合成"的复合词，避免 "knowledge→know+ledge" 这类误导性拆分。
+    AUTO_COMPOUNDS = {
+        'weekday': ('week', 'day'),
+        'weekend': ('week', 'end'),
+        'afternoon': ('after', 'noon'),
+        'nightmare': ('night', 'mare'),
+        'forefather': ('fore', 'father'),
+        'policymaker': ('policy', 'maker'),
+        'daydream': ('day', 'dream'),
+        'newspaper': ('news', 'paper'),
+        'riverside': ('river', 'side'),
+        'riverbank': ('river', 'bank'),
+        'landscape': ('land', 'scape'),
+        'hardware': ('hard', 'ware'),
+        'software': ('soft', 'ware'),
+        'microwave': ('micro', 'wave'),
+        'volleyball': ('volley', 'ball'),
+        'honeymoon': ('honey', 'moon'),
+        'bridegroom': ('bride', 'groom'),
+        'hydropower': ('hydro', 'power'),
+        'fisherman': ('fisher', 'man'),
+        'headache': ('head', 'ache'),
+        'toothache': ('tooth', 'ache'),
+        'stomachache': ('stomach', 'ache'),
+        'hairstyle': ('hair', 'style'),
+        'forehead': ('fore', 'head'),
+        'bulletproof': ('bullet', 'proof'),
+        'parachute': ('para', 'chute'),
+        'e-commerce': ('e', 'commerce'),
+        'high-tech': ('high', 'tech'),
+        'fat-free': ('fat', 'free'),
+        'well-educated': ('well', 'educated'),
+        'second-hand': ('second', 'hand'),
+        'full-time': ('full', 'time'),
+        'part-time': ('part', 'time'),
+        'semi-final': ('semi', 'final'),
+        'baby-proofing': ('baby', 'proofing'),
+        'bad-tempered': ('bad', 'tempered'),
+        'quick-tempered': ('quick', 'tempered'),
+        'grown-up': ('grown', 'up'),
+        'sunrise': ('sun', 'rise'),
+        'sunset': ('sun', 'set'),
+        'moonlight': ('moon', 'light'),
+        'sunlight': ('sun', 'light'),
+        'hometown': ('home', 'town'),
+        'homeland': ('home', 'land'),
+        'homework': ('home', 'work'),
+        'housework': ('house', 'work'),
+        'classroom': ('class', 'room'),
+        'bedroom': ('bed', 'room'),
+        'bathroom': ('bath', 'room'),
+        'toothpaste': ('tooth', 'paste'),
+        'toothbrush': ('tooth', 'brush'),
+        'sunglasses': ('sun', 'glasses'),
+        'basketball': ('basket', 'ball'),
+        'football': ('foot', 'ball'),
+        'baseball': ('base', 'ball'),
+        'headmaster': ('head', 'master'),
+        'girlfriend': ('girl', 'friend'),
+        'boyfriend': ('boy', 'friend'),
+        'earthquake': ('earth', 'quake'),
+        'rainfall': ('rain', 'fall'),
+        'waterfall': ('water', 'fall'),
+        'dragonfly': ('dragon', 'fly'),
+        'butterfly': ('butter', 'fly'),
+        'firework': ('fire', 'work'),
+        'playground': ('play', 'ground'),
+        'snowman': ('snow', 'man'),
+        'snowball': ('snow', 'ball'),
+        'eyesight': ('eye', 'sight'),
+        'chairman': ('chair', 'man'),
+        'spokesman': ('spokes', 'man'),
+        'businessman': ('business', 'man'),
+    }
+
+    def _build_auto_compound(self, word_lower):
+        """按 AUTO_COMPOUNDS 自动构建复合词拆解（释义从 ECDICT 自动取）"""
+        p1, p2 = self.AUTO_COMPOUNDS[word_lower]
+        out = []
+        for part in (p1, p2):
+            bd = self._query_ecdict(part)
+            bm = self._clean_meaning(bd.get('translation', ''), bd.get('pos', '')) if bd else ''
+            bm = bm.split('\n')[0][:40] if bm else part
+            out.append({
+                'part': part,
+                'meaning': bm,
+                'original': part,
+                'original_meaning': bm,
+                'transform': '原形不变',
+                'explain': '独立单词',
+            })
+        return out
+
+    def _build_curated_compound(self, word_lower):
+        """按 COMPOUND_SPLITS 覆盖表构建复合词拆解结果"""
+        parts = self.COMPOUND_SPLITS[word_lower]
+        split = []
+        for p in parts:
+            meaning = p.get('meaning') or p['base']
+            split.append({
+                'part': p['part'],
+                'meaning': meaning,
+                'original': p['base'],
+                'original_meaning': meaning,
+                'transform': p.get('transform', '原形不变'),
+                'explain': p.get('explain', '独立单词'),
+            })
+        return split
+
+    def _fallback_compound_meaning(self, word_lower):
+        """复合词兜底释义：当 ECDICT 无释义时，用简单释义保证有词义"""
+        fallback = {
+            'sometimes': 'adv. 有时，偶尔',
+            'everyday': 'adj. 每天的，日常的',
+            'everybody': 'pron. 每个人，人人',
+            'anything': 'pron. 任何东西，任何事情',
+            'nothing': 'pron. 没有什么，没有东西',
+            'everything': 'pron. 一切，所有事物',
+            'someone': 'pron. 某人，有人',
+            'somebody': 'pron. 某人，有人',
+            'nobody': 'pron. 没有人，无人',
+            'anybody': 'pron. 任何人',
+            'without': 'prep. 没有，缺乏',
+            'throughout': 'prep. 遍及，贯穿',
+            'understand': 'v. 理解，明白，懂得',
+            'forever': 'adv. 永远，永久',
+            'friendship': 'n. 友谊，友情',
+        }
+        return fallback.get(word_lower, f'{word_lower}（复合词）')
+
+    def _pos_label(self, pos_raw):
+        """把 ECDICT 词性代码（如 'n:100'）转为中文词性标签"""
+        if not pos_raw:
+            return ''
+        pos_code = str(pos_raw).split(':')[0]
+        pos_map = {
+            'n': '名词', 'v': '动词', 'j': '形容词', 'r': '副词',
+            'p': '介词', 'c': '连词', 'u': '代词', 'i': '感叹词',
+            'a': '形容词', 'x': '助动词',
+        }
+        return pos_map.get(pos_code, '')
 
     def _decompose_with_ecdict(self, word, ecdict_data):
         """
@@ -3974,6 +4960,36 @@ class DictionaryService:
         如果都不能拆解，返回基础词信息
         """
         word_lower = word.lower().strip()
+        # 0. 复合词精确覆盖表优先：按单词拆解（如 sometimes → some + times）
+        if word_lower in self.COMPOUND_SPLITS:
+            meaning = self.MEANING_OVERRIDES.get(word_lower) or \
+                self._clean_meaning(ecdict_data.get('translation', ''), ecdict_data.get('pos', ''))
+            return {
+                'phonetic': self._convert_phonetic(ecdict_data.get('phonetic', '')),
+                'meaning': meaning,
+                'type': '复合词',
+                'split': self._build_curated_compound(word_lower),
+                'morph': [],
+                'mnemonic': f'"{word_lower}" 由两部分组成，按单词拆解更易记忆。',
+                'examples': self._get_zhuanshenben_examples(word_lower, meaning),
+                'tenses': None,
+                'pos_label': self._pos_label(ecdict_data.get('pos', '')),
+            }
+        # 0b. 自动复合词表：词义透明的复合词按单词拆解（如 weekday → week + day）
+        if word_lower in self.AUTO_COMPOUNDS:
+            meaning = self.MEANING_OVERRIDES.get(word_lower) or \
+                self._clean_meaning(ecdict_data.get('translation', ''), ecdict_data.get('pos', ''))
+            return {
+                'phonetic': self._convert_phonetic(ecdict_data.get('phonetic', '')),
+                'meaning': meaning,
+                'type': '复合词',
+                'split': self._build_auto_compound(word_lower),
+                'morph': [],
+                'mnemonic': f'"{word_lower}" 由两个单词组成，按单词拆解更易记忆。',
+                'examples': self._get_zhuanshenben_examples(word_lower, meaning),
+                'tenses': self._get_inflections(word_lower, meaning),
+                'pos_label': self._pos_label(ecdict_data.get('pos', '')),
+            }
         exchange = self._parse_exchange(ecdict_data.get('exchange', ''))
         pos_raw = ecdict_data.get('pos', '') or ''
         # 优先使用专升本释义覆盖表
@@ -4018,6 +5034,9 @@ class DictionaryService:
                 if not tenses:
                     lemma_exchange = self._parse_exchange(lemma_data.get('exchange', ''))
                     tenses = self._build_tenses_from_exchange(lemma, lemma_exchange)
+            # 若原词无变形（如意外形容词），尝试对当前词本身生成变形（如比较级/复数）
+            if not tenses:
+                tenses = self._get_inflections(word_lower, translation)
 
             meaning = translation or f'{lemma}的{transform}'
 
@@ -4299,6 +5318,22 @@ class DictionaryService:
         # 如果没有检测到前后缀，或词根就是原词本身，判断为基础词
         if not split:
             word_type = '基础词'
+            # 基础词兜底拆解：即使无法拆成复合词/词缀，也给出一个"基础单词"条目，
+            # 保证每个单词的拆解区域都不为空，用户至少能看到该词的自有释义。
+            if translation:
+                split.append({
+                    'part': word_lower,
+                    'meaning': translation.split('\n')[0][:60],
+                    'original': word_lower,
+                    'original_meaning': translation.split('\n')[0][:60],
+                    'transform': '原形不变',
+                    'explain': '基础单词',
+                })
+                morph.append({
+                    'type': 'root',
+                    'word': word_lower,
+                    'meaning': translation.split('\n')[0][:30],
+                })
 
         # 构建变形数据：优先用内置不规则变形表（ADJ_DEGREES/VERB_TENSES/NOUN_PLURALS），
         # 再用 ECDICT exchange 字段（规则变形）
@@ -4582,6 +5617,11 @@ class DictionaryService:
             if online_result and online_result.get('meaning'):
                 phrase_translation = online_result['meaning']
 
+        # 2.5 释义必须含中文：若在线词典只返回英文定义（如 see through -> verb. To ...
+        # see ...），这种释义对背单词没有任何帮助，必须清空交由 AI 翻译成中文。
+        if phrase_translation and not any('\u4e00' <= c <= '\u9fff' for c in phrase_translation):
+            phrase_translation = ''
+
         # 3. 如果仍无释义，标记需要 AI 翻译（由 app.py 层处理）
         #    返回 None 让 lookup() 返回 None，从而触发 AI 分析
         if not phrase_translation:
@@ -4695,6 +5735,29 @@ class DictionaryService:
             'tenses': tenses,
         }
 
+    # 补充词典归一化键映射（懒加载，用于处理文档提取词与词典键末尾标点不一致）
+    _supp_norm_map = None
+
+    @classmethod
+    def _normalize_key(cls, w):
+        """
+        归一化词典查询键：统一小写、去掉首尾空白、去掉末尾标点
+        （句号/感叹号/问号/省略号/全角括号等），使
+        "get used to doing sth." 与文档提取的 "get used to doing sth" 能够匹配。
+        """
+        return re.sub(r"[.?!…。！？\s（）()·、]+$", "", (w or '').strip().lower())
+
+    def _get_supp_norm_map(self):
+        """构建补充词典的归一化键映射 {norm_key: meaning}，处理末尾标点不一致"""
+        if self.__class__._supp_norm_map is None:
+            mapping = {}
+            for raw, val in self.SUPPLEMENT_DICTIONARY.items():
+                nk = self._normalize_key(raw)
+                if nk and nk not in mapping:
+                    mapping[nk] = val
+            self.__class__._supp_norm_map = mapping
+        return self.__class__._supp_norm_map
+
     def lookup(self, word):
         """
         查询本地词典
@@ -4707,20 +5770,74 @@ class DictionaryService:
         """
         # 统一转为小写进行查询
         word_lower = word.lower().strip()
+        # 清理文档提取残留的尾部括号（如 "hurt （" → "hurt"，"damage （" → "damage"）
+        word_lower = re.sub(r"[（(]+$", "", word_lower).strip()
 
         # ===== 补充词典（用户笔记句式/谚语/搭配，释义精简常用）=====
         # 优先级最高：这些是专升本笔记中手工整理的常用释义，比 ECDICT 更贴合考试
-        if word_lower in self.SUPPLEMENT_DICTIONARY:
-            meaning = self.SUPPLEMENT_DICTIONARY[word_lower]
+        # 先精确匹配，再用归一化键匹配（处理末尾标点不一致，如 "doing sth." vs "doing sth"）
+        supp_meaning = self.SUPPLEMENT_DICTIONARY.get(word_lower)
+        if supp_meaning is None:
+            supp_meaning = self._get_supp_norm_map().get(self._normalize_key(word_lower))
+        if supp_meaning:
+            meaning = supp_meaning
+            # 生成拆解：词组逐词拆解，单次给出基础词条目，保证拆解区域不为空
+            supp_split = []
+            if ' ' in word_lower:
+                for part in word_lower.split():
+                    part_data = self._query_ecdict(part)
+                    pm = self._clean_meaning(part_data.get('translation', ''), part_data.get('pos', '')) if part_data else ''
+                    pm = pm.split('\n')[0][:60] if pm else ''
+                    supp_split.append({
+                        'part': part,
+                        'meaning': pm or part,
+                        'original': part,
+                        'original_meaning': pm,
+                        'transform': '原形不变',
+                        'explain': '独立单词',
+                    })
+            else:
+                m0 = meaning.split('\n')[0][:60]
+                supp_split.append({
+                    'part': word_lower,
+                    'meaning': m0,
+                    'original': word_lower,
+                    'original_meaning': m0,
+                    'transform': '原形不变',
+                    'explain': '基础单词',
+                })
             return {
                 'phonetic': '',
                 'meaning': meaning,
                 'type': '复合词' if ' ' in word_lower else '基础词',
-                'split': [],
+                'split': supp_split,
                 'morph': [],
                 'mnemonic': '',
                 'examples': self._get_zhuanshenben_examples(word_lower, meaning),
-                'tenses': None,
+                'tenses': None if ' ' in word_lower else self._get_inflections(word_lower, meaning),
+            }
+
+        # ===== 复合词精确拆解优先级（单词语素拆解优先）=====
+        # 用户核心需求：优先按单词/复合词拆解（understand → under + stand 两个单词），
+        # 而不是把 under 当作前缀。COMPOUND_SPLITS 覆盖表里明确收录的复合词，
+        # 直接走"按单词拆解"逻辑，避免被 DICTIONARY 的"派生词/前缀"拆解覆盖。
+        if ' ' not in word_lower and word_lower in self.COMPOUND_SPLITS:
+            ecdict_data = self._query_ecdict(word_lower)
+            meaning = self.MEANING_OVERRIDES.get(word_lower) or \
+                (self._clean_meaning(ecdict_data.get('translation', ''), ecdict_data.get('pos', '')) if ecdict_data else '')
+            if not meaning:
+                # 兜底：为个别复合词提供精释义
+                meaning = self._fallback_compound_meaning(word_lower)
+            return {
+                'phonetic': self._convert_phonetic(ecdict_data.get('phonetic', '')) if ecdict_data else '',
+                'meaning': meaning,
+                'type': '复合词',
+                'split': self._build_curated_compound(word_lower),
+                'morph': [],
+                'mnemonic': f'"{word_lower}" 由两个单词组成，按单词拆解更易记忆。',
+                'examples': self._get_zhuanshenben_examples(word_lower, meaning),
+                'tenses': self._get_inflections(word_lower, meaning),
+                'pos_label': self._pos_label(ecdict_data.get('pos', '')) if ecdict_data else '',
             }
 
         # ===== 短语/词组处理（包含空格的输入，如 "be good at"）=====
@@ -4759,6 +5876,17 @@ class DictionaryService:
                 zs_examples = self._get_zhuanshenben_examples(word_lower, result.get('meaning', ''))
                 if zs_examples:
                     result['examples'] = zs_examples
+            # 基础词兜底拆解：单个单词即使无法拆解，也保证拆解区域不为空
+            if not result.get('split'):
+                m = (result.get('meaning') or '').split('\n')[0][:60]
+                result['split'] = [{
+                    'part': word_lower,
+                    'meaning': m,
+                    'original': word_lower,
+                    'original_meaning': m,
+                    'transform': '原形不变',
+                    'explain': '基础单词',
+                }]
             return result
 
         # 尝试匹配复数形式（去掉末尾的s）
@@ -4777,6 +5905,17 @@ class DictionaryService:
                 zs_examples = self._get_zhuanshenben_examples(base, result.get('meaning', ''))
                 if zs_examples:
                     result['examples'] = zs_examples
+            # 基础词兜底拆解：保证拆解区域不为空
+            if not result.get('split'):
+                m = (result.get('meaning') or '').split('\n')[0][:60]
+                result['split'] = [{
+                    'part': word_lower,
+                    'meaning': m,
+                    'original': base,
+                    'original_meaning': m,
+                    'transform': f'是"{base}"的复数形式',
+                    'explain': f'"{base}"的复数形式',
+                }]
             return result
 
         # 尝试匹配ing形式（去掉末尾的ing）
@@ -4800,11 +5939,19 @@ class DictionaryService:
         # 已知动词但不在词典中：返回基础释义 + 时态
         if word_lower in self.VERB_TENSES:
             meaning = self.BASIC_VERB_MEANINGS.get(word_lower, f'v. {word_lower}')
+            m0 = meaning.split('\n')[0][:60]
             result = {
                 'phonetic': '',
                 'meaning': meaning,
                 'type': '动词',
-                'split': [],
+                'split': [{
+                    'part': word_lower,
+                    'meaning': m0,
+                    'original': word_lower,
+                    'original_meaning': m0,
+                    'transform': '原形不变',
+                    'explain': '基础单词',
+                }],
                 'morph': [],
                 'mnemonic': '',
                 'examples': self._get_zhuanshenben_examples(word_lower, meaning),
@@ -4975,6 +6122,9 @@ class DictionaryService:
                             }
             except Exception as e:
                 print(f'[dict] freeapi fail({word}): {e}')
+        # 释义必须含中文：在线词典若只返回英文定义（对背单词无帮助），丢弃交由 AI 翻译
+        if result and not any('\u4e00' <= c <= '\u9fff' for c in (result.get('meaning') or '')):
+            result = None
         self._online_cache[word] = result
         return result
 
@@ -5100,6 +6250,32 @@ class DictionaryService:
 
         # 补充专升本例句
         examples = self._get_zhuanshenben_examples(word_lower, meaning)
+
+        # 基础词/词组兜底拆解：保证拆解区域不为空
+        if not split:
+            if ' ' in word_lower:
+                for part in word_lower.split():
+                    pd = self._query_ecdict(part)
+                    pm = self._clean_meaning(pd.get('translation', ''), pd.get('pos', '')) if pd else ''
+                    pm = pm.split('\n')[0][:60] if pm else ''
+                    split.append({
+                        'part': part,
+                        'meaning': pm or part,
+                        'original': part,
+                        'original_meaning': pm,
+                        'transform': '原形不变',
+                        'explain': '独立单词',
+                    })
+            else:
+                m0 = (meaning or '').split('\n')[0][:60]
+                split.append({
+                    'part': word_lower,
+                    'meaning': m0,
+                    'original': word_lower,
+                    'original_meaning': m0,
+                    'transform': '原形不变',
+                    'explain': '基础单词',
+                })
 
         return {
             'phonetic': '',
