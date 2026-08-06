@@ -6,7 +6,9 @@
 
 set -e
 
-DATA_DIR="$(dirname "$0")/data"
+# 使用绝对路径，避免 cd 后相对路径解析错误导致误报
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+DATA_DIR="$SCRIPT_DIR/data"
 DB_PATH="$DATA_DIR/stardict.db"
 ZIP_PATH="$DATA_DIR/ecdict.zip"
 
