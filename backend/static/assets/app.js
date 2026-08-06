@@ -101,8 +101,9 @@ class WordAPI {
             errMsg = errData.error || errData.message || errMsg;
           } catch (e) { }
           const err = new Error(errMsg);
-          // 保留后端返回的额外字段（如 quota_exceeded）
+          // 保留后端返回的额外字段（如 quota_exceeded、状态码）
           if (errData && errData.quota_exceeded) err.quota_exceeded = true;
+          err.status = res.status;
           throw err;
         }
 
@@ -2027,6 +2028,7 @@ async function importBatchWordsWithProgress(entries, wordbookId) {
   let nextIdx = 0;
   let processedWords = 0;
   const stats = { added: 0, skipped: 0, failed: 0 };
+  const failedDetails = []; // 收集失败词及原因，便于结束后展示
 
   async function worker() {
     while (true) {
@@ -2034,28 +2036,22 @@ async function importBatchWordsWithProgress(entries, wordbookId) {
       if (idx >= batches.length) break;
       const batch = batches[idx];
 
-      // 每批内也严格按原始顺序：先纯词（batch接口），再带释义（逐个）
-      const pureWords = batch.filter(w => !w.meaning).map(w => w.word);
-      const withMeaning = batch.filter(w => w.meaning);
-
-      if (pureWords.length > 0) {
+      // 统一走批量接口：批量接口会正确处理重复词（计入"跳过"而非"失败"），
+      // 并返回真实失败词及原因；带释义的词以 {word, meaning} 形式传入，释义作为兜底。
+      if (batch.length > 0) {
         try {
+          const dictBatch = batch.map(w => ({ word: w.word, meaning: w.meaning || '', starred: w.starred || false }));
           // 导入期间不弹"服务唤醒中"提示（有进度条），并给批量添加更长超时
-          const res = await api.addWordsBatch(pureWords, wordbookId, { suppressWakeToast: true, timeout: 60000 });
-          stats.added += (res && (res.added_count || res.added)) || 0;
-          stats.skipped += (res && res.skipped_count) || 0;
-          stats.failed += (res && res.failed_count) || 0;
+          const res = await api.addWordsBatch(dictBatch, wordbookId, { suppressWakeToast: true, timeout: 60000 });
+          stats.added += (res && (res.added_count || (res.added || []).length)) || 0;
+          stats.skipped += (res && (res.skipped_count || (res.skipped || []).length)) || 0;
+          stats.failed += (res && (res.failed_count || (res.failed || []).length)) || 0;
+          if (res && Array.isArray(res.failed) && res.failed.length) {
+            failedDetails.push(...res.failed.map(f => ({ word: f.word, error: f.error })));
+          }
         } catch (e) {
-          stats.failed += pureWords.length;
-        }
-      }
-      for (const w of withMeaning) {
-        try {
-          // 单个添加也用更长超时，避免频繁触发重试与误导提示
-          await api.addWord(w.word, '', w.meaning, wordbookId, { suppressWakeToast: true, timeout: 30000 });
-          stats.added++;
-        } catch (e) {
-          stats.failed++;
+          stats.failed += batch.length;
+          failedDetails.push(...batch.map(w => ({ word: w.word, error: (e && e.message) || '请求失败' })));
         }
       }
 
@@ -2079,6 +2075,7 @@ async function importBatchWordsWithProgress(entries, wordbookId) {
     console.error('[导入] 按粘贴顺序重排失败:', reorderErr);
   }
   hideLoading();
+  stats.failedDetails = failedDetails;
   return stats;
 }
 
@@ -2092,6 +2089,7 @@ async function handleBatchConfirm() {
     const batchWordbookId = ($('#batchWordbookSelect') || {}).value || null;
     const stats = await importBatchWordsWithProgress(batchPreviewWords, batchWordbookId);
     showToast(`成功导入 ${stats.added} 个单词`, 'success');
+    showImportFailedWords(stats.failedDetails);
     $('#batchText').value = '';
     $('#batchPreview').style.display = 'none';
     batchPreviewWords = [];
@@ -2129,6 +2127,7 @@ async function handleBatchAdd() {
     const entries = words;
     const stats = await importBatchWordsWithProgress(entries, batchWordbookId);
     showToast(`成功导入 ${stats.added} 个单词`, 'success');
+    showImportFailedWords(stats.failedDetails);
     $('#batchText').value = '';
     // 导入后自动切换到"自定义顺序"，让用户看到按粘贴顺序排列的序号
     switchLibrarySort('custom');
@@ -2138,6 +2137,34 @@ async function handleBatchAdd() {
     hideLoading();
     handleError(err);
   }
+}
+
+/**
+ * 导入结束后展示失败单词及原因（若有）
+ * 说明：重复词已自动归入"跳过"；此处仅展示真正的失败词，方便用户定位/重试
+ */
+function showImportFailedWords(failedDetails) {
+  if (!failedDetails || failedDetails.length === 0) return;
+  const rows = failedDetails
+    .slice(0, 50)
+    .map(f => `<div class="failed-row"><b>${escapeHtml(f.word)}</b><span>${escapeHtml(f.error)}</span></div>`)
+    .join('');
+  const more = failedDetails.length > 50 ? `<div class="failed-more">… 共 ${failedDetails.length} 个失败</div>` : '';
+  const modal = document.createElement('div');
+  modal.id = 'importFailedModal';
+  modal.className = 'modal-overlay';
+  modal.style.alignItems = 'center';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width:360px;text-align:left;">
+      <h3 style="margin:0 0 12px;font-size:18px;">导入失败 ${failedDetails.length} 个单词</h3>
+      <div class="failed-list" style="max-height:300px;overflow-y:auto;background:#f5f5f7;border-radius:10px;padding:10px;margin-bottom:12px;">${rows}${more}</div>
+      <p class="failed-tip" style="color:#666;font-size:13px;margin:0 0 16px;">这些单词可能因格式或内容问题未能导入，可复制到文本框中单独重试。</p>
+      <button class="btn-primary" id="importFailedOk" style="width:100%;">知道了</button>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  modal.querySelector('#importFailedOk').addEventListener('click', () => modal.remove());
+  modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
 }
 
 // ===== 文档导入 =====
