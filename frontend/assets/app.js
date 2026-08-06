@@ -1838,6 +1838,25 @@ async function handleManualAdd() {
   }
 }
 
+// 批量粘贴解析：按第一个中文字符分隔单词与释义，保留多词短语/句型
+// 例如 "give up v. 放弃" -> {word:"give up", meaning:"放弃"}
+function parseBatchLine(line) {
+  const cnIdx = line.search(/[\u4e00-\u9fff]/);
+  let word, meaning;
+  if (cnIdx > 0) {
+    word = line.slice(0, cnIdx).trim();
+    meaning = line.slice(cnIdx).trim();
+  } else {
+    word = line.trim();
+    meaning = '';
+  }
+  // 剥离尾部词性标记（如 "abandon v." -> "abandon"）
+  word = word.replace(/\s+(?:n|v|vt|vi|adj|adv|ad|prep|conj|pron|num|art|int|interj|aux|modal|det|ger|part|colloc|phr|phrase)\.?\s*$/i, '');
+  // 剥离尾部标点
+  word = word.replace(/[\.\,\;\)\]\}\:\s]+$/, '').trim();
+  return { word, meaning };
+}
+
 // 批量预览
 let batchPreviewWords = [];
 async function handleBatchPreview() {
@@ -1847,13 +1866,7 @@ async function handleBatchPreview() {
     return;
   }
   const lines = text.split(/\n+/).map(l => l.trim()).filter(Boolean);
-  batchPreviewWords = lines.map(line => {
-    const idx = line.search(/\s/);
-    if (idx > 0) {
-      return { word: line.slice(0, idx).trim(), meaning: line.slice(idx + 1).trim() };
-    }
-    return { word: line, meaning: '' };
-  }).filter(w => w.word);
+  batchPreviewWords = lines.map(line => parseBatchLine(line)).filter(w => w.word);
 
   if (batchPreviewWords.length === 0) {
     showToast('未解析到有效单词', 'warning');
@@ -1940,19 +1953,9 @@ async function handleBatchAdd() {
     return;
   }
 
-  // 解析每行：支持 "word" 或 "word meaning" 格式
+  // 解析每行：支持 "word" 或 "word 释义" 格式（保留多词短语/句型）
   const lines = text.split(/\n+/).map(l => l.trim()).filter(Boolean);
-  const words = lines.map(line => {
-    // 第一个空格分隔单词与释义
-    const idx = line.search(/\s/);
-    if (idx > 0) {
-      return {
-        word: line.slice(0, idx).trim(),
-        meaning: line.slice(idx + 1).trim()
-      };
-    }
-    return { word: line, meaning: '' };
-  }).filter(w => w.word);
+  const words = lines.map(line => parseBatchLine(line)).filter(w => w.word);
 
   if (words.length === 0) {
     showToast('未解析到有效单词', 'warning');

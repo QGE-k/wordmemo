@@ -1,6 +1,10 @@
 """
 文档导入解析服务
 支持 txt / docx / xlsx / pdf 格式，提取单词并过滤非单词内容
+
+核心目标：让多词短语、固定搭配、句型、谚语能够【完整】导入，
+而不是被拆分成零散的单词（如 "be accustomed to doing sth." 不能再被
+拆成 "be" / "accustomed to doing sth."）。
 """
 import re
 import io
@@ -13,10 +17,14 @@ WORD_PATTERN = re.compile(
     r'$'
 )
 
-# 用来从任意文本中抽取候选 token
+# 短语/条目标题正则：允许字母、空格、连字符、撇号、缩写点（如 sth. / e.g.）
+ENTRY_PATTERN = re.compile(r'^[a-zA-Z][a-zA-Z\-\.\' ]*$')
+
+# 用来从任意文本中抽取候选 token（兜底用）
 TOKEN_PATTERN = re.compile(r'[a-zA-Z][a-zA-Z\- ]{0,39}[a-zA-Z]')
 
-# 常见无意义词/误识别噪声
+# 常见无意义词/误识别噪声（仅用于过滤“单独成词”的填充词，
+# 不影响多词短语的完整性）
 NOISE_WORDS = {
     'the', 'a', 'an', 'and', 'or', 'but', 'of', 'to', 'in', 'on', 'at',
     'is', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had',
@@ -30,6 +38,17 @@ NOISE_WORDS = {
     'so', 'than', 'too', 'very', 'just', 'also', 'page', 'chapter',
     'http', 'https', 'www', 'com', 'org', 'net', 'email', 'tel',
 }
+
+# 词性标记（如 "abandon v." -> 剥离 "v."，保留 "abandon"）
+POS_MARKER_RE = re.compile(
+    r'\s+(?:n|v|vt|vi|adj|adv|ad|prep|conj|pron|num|art|int|interj|aux|'
+    r'modal|det|ger|part|colloc|phr|phrase)\.?\s*$',
+    re.IGNORECASE
+)
+
+# 短语最大长度 / 短语允许的最大单词数（避免把整句当短语）
+MAX_PHRASE_LEN = 60
+MAX_PHRASE_WORDS = 10
 
 
 def is_valid_word(text):
@@ -69,43 +88,124 @@ def is_valid_word(text):
     return True
 
 
-def extract_words_from_text(text):
+def is_valid_phrase(text):
     """
-    从任意文本中提取候选单词列表
-    返回去重后的有序列表（保持出现顺序）
+    判断是否为有效的多词短语（如 "sports meeting"、"in the long run"、
+    "be accustomed to doing sth"、"It is high time that sb did sth"）
+    - 2 个及以上单词
+    - 只含字母、空格、连字符、撇号、缩写点
+    - 不能全部是噪声词
+    - 至少一个词包含元音
     """
     if not text:
-        return []
-    # 用非字母字符分割出候选 token（保留内部空格和连字符）
-    # 先按换行/制表符/中文字符/标点（除空格和连字符外）分割
-    raw_tokens = re.split(r'[\n\r\t,;:。，；：、！？!?"\'\(\)\[\]\{\}<>【】《》·…—\*#+/\\|]+', text)
-    seen = set()
-    result = []
+        return False
+    text = text.strip()
+    if len(text) < 2 or len(text) > MAX_PHRASE_LEN:
+        return False
+    if not ENTRY_PATTERN.match(text):
+        return False
+    parts = [p for p in text.split() if p]
+    if len(parts) < 2 or len(parts) > MAX_PHRASE_WORDS:
+        return False
+    # 不能全部是噪声词
+    content = [p for p in parts if p.lower() not in NOISE_WORDS]
+    if not content:
+        return False
+    # 至少一个词包含元音
+    if not re.search(r'[aeiouAEIOU]', text):
+        return False
+    return True
+
+
+def _clean_entry(english_part):
+    """清洗英文部分：剥离词性标记和尾部标点，返回规范条目标题"""
+    s = english_part.strip()
+    if not s:
+        return ''
+    # 剥离尾部词性标记（如 "abandon v." -> "abandon"）
+    s = POS_MARKER_RE.sub('', s)
+    # 剥离尾部标点（句点、逗号、右括号、冒号分号等）
+    s = re.sub(r'[\.\,\;\)\]\}\:\s]+$', '', s)
+    s = s.strip()
+    return s
+
+
+def _add_unique(result, seen, text):
+    """去重追加"""
+    key = text.lower()
+    if key not in seen:
+        seen.add(key)
+        result.append(text)
+
+
+def _extract_entry_from_line(line):
+    """
+    从单行中提取完整条目（优先保留多词短语/句型/谚语）
+    返回条目标题字符串，若无法提取返回 None
+    """
+    line = line.strip()
+    if not line:
+        return None
+    # 以第一个中文字符为界，隔离出英文部分
+    m = re.search(r'[\u4e00-\u9fff]', line)
+    has_cn = m is not None
+    english_part = line[:m.start()] if m else line
+    entry = _clean_entry(english_part)
+    if not entry:
+        return None
+    parts = [p for p in entry.split() if p]
+    if has_cn:
+        # 明确是单词/短语条目（带中文释义），尽量完整保留
+        if len(entry) <= MAX_PHRASE_LEN and ENTRY_PATTERN.match(entry):
+            return entry
+        return None
+    # 纯英文行
+    if len(parts) == 1:
+        if is_valid_word(entry):
+            return entry
+        return None
+    if is_valid_phrase(entry):
+        return entry
+    return None
+
+
+def _extract_tokens_from_text(text, result, seen):
+    """从非条目文本中按 token 抽取单词（兜底，处理多词混排的文本）"""
+    raw_tokens = re.split(
+        r'[\n\r\t,;:。，；：、！？!?"\'\(\)\[\]\{\}<>【】《》·…—\*#+/\\|]+', text)
     for token in raw_tokens:
         token = token.strip()
         if not token:
             continue
-        # 复合词：可能包含空格，如 "sports meeting"
-        # 也可能整段是 "apple n.苹果"，需要拆出 "apple"
-        # 先按空格分割，取第一个英文部分
         parts = token.split()
-        # 尝试整体作为单词
         if is_valid_word(token):
-            key = token.lower()
-            if key not in seen:
-                seen.add(key)
-                result.append(token)
+            _add_unique(result, seen, token)
             continue
-        # 整体不合法，尝试每个部分
         for part in parts:
-            # 去除尾部标点
             part = re.sub(r'[^a-zA-Z\- ]+$', '', part)
             part = re.sub(r'^[^a-zA-Z\- ]+', '', part)
             if is_valid_word(part):
-                key = part.lower()
-                if key not in seen:
-                    seen.add(key)
-                    result.append(part)
+                _add_unique(result, seen, part)
+
+
+def extract_words_from_text(text):
+    """
+    从任意文本中提取单词列表
+    优先按行提取完整条目（保留多词短语/固定搭配/句型/谚语），
+    无法识别的行再退化为按 token 抽取。
+    返回去重后的有序列表（保持出现顺序）
+    """
+    if not text:
+        return []
+    lines = text.splitlines()
+    seen = set()
+    result = []
+    for line in lines:
+        entry = _extract_entry_from_line(line)
+        if entry:
+            _add_unique(result, seen, entry)
+        else:
+            _extract_tokens_from_text(line, result, seen)
     return result
 
 
