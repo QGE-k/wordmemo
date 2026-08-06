@@ -222,6 +222,16 @@ class WordAPI {
     });
   }
 
+  // 按文档顺序重排词本内单词，保证导入后顺序与用户原始文档一致
+  reorderByNames(names, wordbookId) {
+    const payload = { names };
+    if (wordbookId) payload.wordbook_id = wordbookId;
+    return this.request('/words/reorder-by-names', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+  }
+
   // 自定义排序：按 wordIds 的顺序重新排列单词
   reorderWords(wordIds) {
     return this.request('/words/reorder', {
@@ -2181,6 +2191,15 @@ async function handleDocImport() {
       if (b < batches.length - 1) {
         await new Promise(r => setTimeout(r, 300));
       }
+    }
+
+    // 全部批次完成后，按文档原始顺序整体重排，确保词本顺序与用户文档完全一致
+    // （即使中途有批失败/漏词，重排后也会归位到文档对应位置，不会排到末尾）
+    showLoading('正在按文档顺序整理词本...');
+    try {
+      await api.reorderByNames(docPendingWords, wordbookId);
+    } catch (reorderErr) {
+      console.error('[导入] 按文档顺序重排失败:', reorderErr);
     }
     hideLoading();
 

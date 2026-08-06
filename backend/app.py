@@ -1847,6 +1847,63 @@ def reorder_words():
     })
 
 
+@app.route('/api/words/reorder-by-names', methods=['POST'])
+def reorder_words_by_names():
+    """
+    按文档顺序重排单词：前端传入有序单词名称列表，后端把该词本内匹配的词按此顺序
+    重新分配 sort_order，保证词本顺序与用户原始文档/导入顺序完全一致（补导漏词也不会乱序）
+    请求体: {"names": ["good", "be good for", ...], "wordbook_id": 1}
+    """
+    data = request.get_json()
+    names = data.get('names') if data else None
+    if not isinstance(names, list) or not names:
+        return jsonify({'success': False, 'error': '缺少 names 参数'}), 400
+
+    user_id = get_current_user_id()
+    wordbook_id = data.get('wordbook_id')
+
+    # 查询目标词本内所有单词
+    query = Word.query
+    if user_id:
+        query = query.filter_by(user_id=user_id)
+    else:
+        query = query.filter(Word.user_id.is_(None))
+    if wordbook_id:
+        query = query.filter_by(wordbook_id=wordbook_id)
+    else:
+        query = query.filter(Word.wordbook_id.is_(None))
+    all_words = query.all()
+
+    # 建立名称 -> 对象 映射（统一小写）
+    by_name = {}
+    for w in all_words:
+        by_name.setdefault(w.word.lower(), w)
+
+    matched = set()
+    idx = 0
+    for raw in names:
+        name = str(raw).strip().lower()
+        w = by_name.get(name)
+        if w is None or id(w) in matched:
+            continue
+        w.sort_order = idx
+        matched.add(id(w))
+        idx += 1
+
+    # 未出现在 names 中的词（如词本里其他词），挪到足够大的偏移，避免与重排词冲突
+    offset = idx + 1
+    for w in all_words:
+        if id(w) not in matched:
+            w.sort_order = offset + (w.sort_order if w.sort_order else 0)
+
+    db.session.commit()
+    return jsonify({
+        'success': True,
+        'updated': len(matched),
+        'message': f'已按文档顺序重排 {len(matched)} 个单词',
+    })
+
+
 @app.route('/api/words/batch-move', methods=['POST'])
 def batch_move_words():
     """批量移动单词到指定词本
