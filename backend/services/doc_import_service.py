@@ -17,8 +17,10 @@ WORD_PATTERN = re.compile(
     r'$'
 )
 
-# 短语/条目标题正则：允许字母、空格、连字符、撇号、缩写点（如 sth. / e.g.）
-ENTRY_PATTERN = re.compile(r'^[a-zA-Z][a-zA-Z\-\.\' ]*$')
+# 短语/条目标题正则：允许字母、数字、空格、连字符、撇号（直/弯）、缩写点（如 sth.）、
+# 逗号、问号、感叹号、冒号分号、省略号、括号、加号（如 "How are you?"、"no sooner...than..."、
+# "out of sight, out of mind"、"sb1 charge sb2 money for sth"）
+ENTRY_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9\s\-'’\":.,?!…;()（）+]*$")
 
 # 用来从任意文本中抽取候选 token（兜底用）
 TOKEN_PATTERN = re.compile(r'[a-zA-Z][a-zA-Z\- ]{0,39}[a-zA-Z]')
@@ -118,14 +120,15 @@ def is_valid_phrase(text):
 
 
 def _clean_entry(english_part):
-    """清洗英文部分：剥离词性标记和尾部标点，返回规范条目标题"""
+    """清洗英文部分：剥离词性标记和尾部残缺符号，返回规范条目标题"""
     s = english_part.strip()
     if not s:
         return ''
     # 剥离尾部词性标记（如 "abandon v." -> "abandon"）
     s = POS_MARKER_RE.sub('', s)
-    # 剥离尾部标点（句点、逗号、右括号、冒号分号等）
-    s = re.sub(r'[\.\,\;\)\]\}\:\s]+$', '', s)
+    # 剥离尾部残缺/孤立符号：空格、点、省略号、全角逗号顿号分号冒号、括号、加号
+    # 保留句子尾部标点如 ? !（How are you?）以及内部逗号、撇号
+    s = re.sub(r'[\s\.…，、；;:：（）)\]\[{}+]+$', '', s)
     s = s.strip()
     return s
 

@@ -1282,11 +1282,12 @@ def add_word():
         return jsonify({'success': False, 'error': '单词不能为空'}), 400
 
     # 校验：必须是有效的英文单词或短语
-    # 允许：英文字母、空格（短语）、连字符（如 well-known）、撇号（如 don't）、
-    #       点号（如 Dr.、造句占位符 adj./sth.）、数字（如 sb1）、冒号
+    # 允许：英文字母、空格（短语）、连字符（如 well-known）、撇号（如 don't / 弯引号 ’）、
+    #       点号（如 Dr.、造句占位符 adj./sth.）、数字（如 sb1）、冒号、逗号、问号叹号、
+    #       省略号、括号、加号（支持句型/谚语，如 "How are you?"、"no sooner...than..."）
     # 拒纯数字、中文、特殊符号等非英文内容
     import re
-    if not re.match(r"^[a-z][a-z0-9\s\-'’:.]*$", word_text):
+    if not re.match(r"^[a-z][a-z0-9\s\-'’”:.,?!…;()（）+]*$", word_text):
         return jsonify({'success': False, 'error': '请输入有效的英文单词或短语（仅支持英文字母）'}), 400
     # 长度校验
     if len(word_text) < 1 or len(word_text) > 100:
@@ -1396,8 +1397,8 @@ def batch_add_words():
             client_meaning = ''
         if not word_text:
             continue
-        # 校验：只允许英文单词/短语（字母、空格、连字符、撇号/弯引号、点号、数字、冒号）
-        if not re.match(r"^[a-z][a-z0-9\s\-'’:.]*$", word_text):
+        # 校验：只允许英文单词/短语（字母、空格、连字符、撇号/弯引号、点号、数字、冒号、逗号、问号叹号、省略号、括号、加号）
+        if not re.match(r"^[a-z][a-z0-9\s\-'’”:.,?!…;()（）+]*$", word_text):
             failed.append({'word': word_text, 'error': '非有效英文单词'})
             continue
         word_text = re.sub(r'\s+', ' ', word_text).strip()
