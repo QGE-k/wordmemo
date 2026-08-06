@@ -66,12 +66,14 @@ class WordAPI {
    * @returns {Promise<any>} 返回 JSON 数据
    */
   async request(path, options = {}) {
+    // 支持单次请求自定义超时（如导入场景）与隐藏"服务唤醒"提示（导入有进度条，避免误导）
+    const { timeout: customTimeout, suppressWakeToast = false, ...fetchOptions } = options;
     const url = this.baseURL + path;
     // 默认请求头
-    const headers = { ...options.headers };
+    const headers = { ...fetchOptions.headers };
 
     // 若不是 FormData，则设置 JSON Content-Type
-    if (!(options.body instanceof FormData)) {
+    if (!(fetchOptions.body instanceof FormData)) {
       headers['Content-Type'] = 'application/json';
     }
 
@@ -80,15 +82,15 @@ class WordAPI {
     // 普通请求：首次 10 秒 → 超时重试 30 秒
     const isAIRequest = path.includes('/ai/') || path.includes('/ocr/');
     const isLongAIRequest = path.includes('/ocr/add-words') || path.includes('/words/batch') || path.includes('/import/confirm');
-    const firstTimeout = isLongAIRequest ? 120000 : (isAIRequest ? 120000 : 10000);
-    const retryTimeout = isLongAIRequest ? 180000 : (isAIRequest ? 180000 : 30000);
+    const firstTimeout = customTimeout || (isLongAIRequest ? 120000 : (isAIRequest ? 120000 : 10000));
+    const retryTimeout = customTimeout ? Math.round(customTimeout * 1.5) : (isLongAIRequest ? 180000 : (isAIRequest ? 180000 : 30000));
 
     // 带超时的单次请求
     const fetchWithTimeout = async (timeoutMs) => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
       try {
-        const res = await fetch(url, { ...options, headers, credentials: 'include', signal: controller.signal });
+        const res = await fetch(url, { ...fetchOptions, headers, credentials: 'include', signal: controller.signal });
         clearTimeout(timeoutId);
 
         if (!res.ok) {
@@ -124,7 +126,8 @@ class WordAPI {
       if (!isRetryable) throw err;
 
       // 提示用户服务正在唤醒（非阻塞 toast，AI 请求不提示因为有 loading）
-      if (!isAIRequest && typeof showToast === 'function') {
+      // 导入场景已传 suppressWakeToast=true（有进度条），不再弹误导提示
+      if (!isAIRequest && !suppressWakeToast && typeof showToast === 'function') {
         showToast('服务唤醒中，请稍候...', 'info');
       }
 
@@ -162,24 +165,26 @@ class WordAPI {
 
   // 添加单个单词
   // 返回值：{success, data, source}
-  async addWord(word, phonetic = '', meaning = '', wordbookId = null) {
+  async addWord(word, phonetic = '', meaning = '', wordbookId = null, opts = {}) {
     const payload = { word, phonetic, meaning };
     if (wordbookId && wordbookId !== '0' && wordbookId !== 0) payload.wordbook_id = wordbookId;
     const res = await this.request('/words', {
       method: 'POST',
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      ...opts
     });
     return res;  // 返回完整响应（含 source 字段）
   }
 
   // 批量添加单词（可选 wordbook_id 指定单词本）
   // 返回值：{success, added, skipped, failed, added_count, ...}
-  async addWordsBatch(words, wordbookId) {
+  async addWordsBatch(words, wordbookId, opts = {}) {
     const payload = { words };
     if (wordbookId && wordbookId !== '0' && wordbookId !== 0) payload.wordbook_id = wordbookId;
     const res = await this.request('/words/batch', {
       method: 'POST',
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      ...opts
     });
     return res;  // 返回完整响应
   }
@@ -223,12 +228,13 @@ class WordAPI {
   }
 
   // 按文档顺序重排词本内单词，保证导入后顺序与用户原始文档一致
-  reorderByNames(names, wordbookId) {
+  reorderByNames(names, wordbookId, opts = {}) {
     const payload = { names };
     if (wordbookId) payload.wordbook_id = wordbookId;
     return this.request('/words/reorder-by-names', {
       method: 'POST',
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      ...opts
     });
   }
 
@@ -2034,7 +2040,8 @@ async function importBatchWordsWithProgress(entries, wordbookId) {
 
       if (pureWords.length > 0) {
         try {
-          const res = await api.addWordsBatch(pureWords, wordbookId);
+          // 导入期间不弹"服务唤醒中"提示（有进度条），并给批量添加更长超时
+          const res = await api.addWordsBatch(pureWords, wordbookId, { suppressWakeToast: true, timeout: 60000 });
           stats.added += (res && (res.added_count || res.added)) || 0;
           stats.skipped += (res && res.skipped_count) || 0;
           stats.failed += (res && res.failed_count) || 0;
@@ -2044,7 +2051,8 @@ async function importBatchWordsWithProgress(entries, wordbookId) {
       }
       for (const w of withMeaning) {
         try {
-          await api.addWord(w.word, '', w.meaning, wordbookId);
+          // 单个添加也用更长超时，避免频繁触发重试与误导提示
+          await api.addWord(w.word, '', w.meaning, wordbookId, { suppressWakeToast: true, timeout: 30000 });
           stats.added++;
         } catch (e) {
           stats.failed++;
@@ -2066,7 +2074,7 @@ async function importBatchWordsWithProgress(entries, wordbookId) {
   // 全部批次完成后，按粘贴原始顺序整体重排，确保词本顺序与用户输入一致
   showImportProgress({ done: total, total, current: '正在按粘贴顺序整理词本...' });
   try {
-    await api.reorderByNames(entries.map(w => w.word), wordbookId);
+    await api.reorderByNames(entries.map(w => w.word), wordbookId, { suppressWakeToast: true, timeout: 60000 });
   } catch (reorderErr) {
     console.error('[导入] 按粘贴顺序重排失败:', reorderErr);
   }
@@ -2283,7 +2291,7 @@ async function handleDocImport() {
     // （即使中途有批失败/漏词，重排后也会归位到文档对应位置，不会排到末尾）
     showImportProgress({ done: total, total, current: '正在按文档顺序整理词本...' });
     try {
-      await api.reorderByNames(docPendingWords, wordbookId);
+      await api.reorderByNames(docPendingWords, wordbookId, { suppressWakeToast: true, timeout: 60000 });
     } catch (reorderErr) {
       console.error('[导入] 按文档顺序重排失败:', reorderErr);
     }
@@ -2708,7 +2716,7 @@ async function handleScanAddSelected() {
 
   try {
     showLoading(`正在添加 ${selected.length} 个单词...`);
-    const res = await api.addWordsBatch(wordsToAdd, scanWordbookId);
+    const res = await api.addWordsBatch(wordsToAdd, scanWordbookId, { suppressWakeToast: true, timeout: 60000 });
     hideLoading();
     const addedCount = res.added_count || (res.added || []).length;
     const skippedCount = res.skipped_count || (res.skipped || []).length;
