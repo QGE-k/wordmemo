@@ -3951,6 +3951,1033 @@ class DictionaryService:
                 {'en': 'Never give up on your dreams.', 'zh': '永远不要放弃你的梦想。'},
             ],
         },
+        # ===== 补充：常见短语（避免依赖在线翻译，释义准确、例句贴合）=====
+        'be adept at': {
+            'phonetic': '', 'meaning': 'v. 擅长于，善于', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'adept(熟练的) + at → 在某方面熟练 → 擅长于',
+            'examples': [
+                {'en': 'She is adept at solving math problems.', 'zh': '她擅长解数学题。'},
+                {'en': 'He is adept at playing the piano.', 'zh': '他擅长弹钢琴。'},
+            ],
+        },
+        'summer camp': {
+            'phonetic': '', 'meaning': 'n. 夏令营', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'summer(夏天) + camp(营地) → 夏令营',
+            'examples': [
+                {'en': 'I went to a summer camp last July.', 'zh': '去年七月我参加了一个夏令营。'},
+                {'en': 'The summer camp is full of fun activities.', 'zh': '夏令营里充满了有趣的活动。'},
+            ],
+        },
+        'as soon as': {
+            'phonetic': '', 'meaning': 'conj. 一……就……', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'as soon as 表示"一……就……"，引导时间状语从句',
+            'examples': [
+                {'en': 'I will call you as soon as I arrive.', 'zh': '我一到就给你打电话。'},
+                {'en': 'As soon as the bell rang, the students left.', 'zh': '铃声一响，学生们就离开了。'},
+            ],
+        },
+        'the instant': {
+            'phonetic': '', 'meaning': 'conj. 一……就……（=as soon as）', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'the instant 可作连词，相当于 as soon as，表示"一……就"',
+            'examples': [
+                {'en': 'The instant I saw him, I knew the truth.', 'zh': '我一见到他就知道了真相。'},
+                {'en': 'She smiled the instant she heard the news.', 'zh': '她一听到这个消息就笑了。'},
+            ],
+        },
+        'swimming pool': {
+            'phonetic': '', 'meaning': 'n. 游泳池', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'swimming(游泳) + pool(池) → 游泳池',
+            'examples': [
+                {'en': 'There is a big swimming pool near our school.', 'zh': '我们学校附近有一个大游泳池。'},
+                {'en': 'We often swim in the swimming pool in summer.', 'zh': '夏天我们经常在游泳池里游泳。'},
+            ],
+        },
+        'the authorities': {
+            'phonetic': '', 'meaning': 'n. 当局，官方；权威人士', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'authority(权威) 的复数形式，指"当局/官方"',
+            'examples': [
+                {'en': 'The authorities are taking measures to protect the environment.', 'zh': '当局正在采取措施保护环境。'},
+                {'en': 'The local authorities should solve this problem.', 'zh': '当地政府应该解决这个问题。'},
+            ],
+        },
+        'thank you': {
+            'phonetic': '', 'meaning': '谢谢你', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'thank(感谢) + you(你) → 谢谢你',
+            'examples': [
+                {'en': 'Thank you for your help.', 'zh': '谢谢你的帮助。'},
+                {'en': 'Thank you very much for your invitation.', 'zh': '非常感谢你的邀请。'},
+            ],
+        },
+        'as a result': {
+            'phonetic': '', 'meaning': '因此，结果；作为结果', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'as a result 表示"因此/结果"，常与 of 连用',
+            'examples': [
+                {'en': 'He studied hard, and as a result he passed the exam.', 'zh': '他学习很努力，结果通过了考试。'},
+                {'en': 'As a result of the rain, the match was put off.', 'zh': '由于下雨，比赛被推迟了。'},
+            ],
+        },
+        'in english': {
+            'phonetic': '', 'meaning': '用英语', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'in + 语言 表示"用……语言"',
+            'examples': [
+                {'en': 'Please answer the question in English.', 'zh': '请用英语回答这个问题。'},
+                {'en': 'Can you say this word in English?', 'zh': '你能用英语说出这个词吗？'},
+            ],
+        },
+        'in chinese': {
+            'phonetic': '', 'meaning': '用中文，用汉语', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'in + 语言 表示"用……语言"',
+            'examples': [
+                {'en': 'Please explain the sentence in Chinese.', 'zh': '请用中文解释这个句子。'},
+                {'en': 'He can translate the article into Chinese.', 'zh': '他能把这篇文章译成中文。'},
+            ],
+        },
+        'originate from': {
+            'phonetic': '', 'meaning': 'v. 起源于，源自', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'originate(起源) + from(从) → 起源于',
+            'examples': [
+                {'en': 'Tea culture originated from China.', 'zh': '茶文化起源于中国。'},
+                {'en': 'These customs originate from ancient times.', 'zh': '这些习俗起源于古代。'},
+            ],
+        },
+        'generation gap': {
+            'phonetic': '', 'meaning': 'n. 代沟', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'generation(一代人) + gap(差距) → 代沟',
+            'examples': [
+                {'en': 'There is a generation gap between parents and children.', 'zh': '父母和孩子之间存在着代沟。'},
+                {'en': 'We should bridge the generation gap through communication.', 'zh': '我们应该通过沟通来弥合代沟。'},
+            ],
+        },
+        'education background': {
+            'phonetic': '', 'meaning': 'n. 教育背景，学历', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'education(教育) + background(背景) → 教育背景',
+            'examples': [
+                {'en': 'She has a good education background.', 'zh': '她有良好的教育背景。'},
+                {'en': 'Please fill in your education background on the form.', 'zh': '请在表格上填写你的教育背景。'},
+            ],
+        },
+        'first name': {
+            'phonetic': '', 'meaning': 'n. 名字（名，如 John）', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': '西方人名中 first name 排在前面，指"名"',
+            'examples': [
+                {'en': 'My first name is Tom.', 'zh': '我的名字叫汤姆。'},
+                {'en': 'Please write your first name here.', 'zh': '请在这里写上你的名字。'},
+            ],
+        },
+        'family name': {
+            'phonetic': '', 'meaning': 'n. 姓，姓氏', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'family(家庭) + name(名字) → 家族的姓 → 姓氏',
+            'examples': [
+                {'en': 'Wang is my family name.', 'zh': '王是我的姓。'},
+                {'en': 'In China, the family name comes first.', 'zh': '在中国，姓排在前面。'},
+            ],
+        },
+        'answer the phone': {
+            'phonetic': '', 'meaning': '接电话', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'answer(回应) + the phone(电话) → 接电话',
+            'examples': [
+                {'en': 'Please answer the phone, it is ringing.', 'zh': '请接一下电话，它在响。'},
+                {'en': 'She was busy answering the phone.', 'zh': '她正忙着接电话。'},
+            ],
+        },
+        "in one's +": {
+            'phonetic': '', 'meaning': '在某人的……（中），如 in one\u2019s opinion 依某人看来', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': "in + 物主代词 + 名词，如 in my opinion 依我看来",
+            'examples': [
+                {'en': 'In my opinion, reading is very important.', 'zh': '在我看来，阅读非常重要。'},
+                {'en': 'In his free time, he likes playing basketball.', 'zh': '在他空闲时，他喜欢打篮球。'},
+            ],
+        },
+        'senior high': {
+            'phonetic': '', 'meaning': 'n. 高中', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'senior(较高年级的) + high(高中) → 高中',
+            'examples': [
+                {'en': 'He studies in a senior high school.', 'zh': '他在一所高中上学。'},
+                {'en': 'Senior high life is busy but meaningful.', 'zh': '高中生活忙碌而有意义。'},
+            ],
+        },
+        'middle aged': {
+            'phonetic': '', 'meaning': 'adj. 中年的', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'middle(中间) + aged(年纪的) → 中年的',
+            'examples': [
+                {'en': 'He is a middle-aged man.', 'zh': '他是个中年人。'},
+                {'en': 'Middle-aged people should have regular check-ups.', 'zh': '中年人应该定期体检。'},
+            ],
+        },
+        'junior high school': {
+            'phonetic': '', 'meaning': 'n. 初中', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'junior(较低年级的) + high school(中学) → 初中',
+            'examples': [
+                {'en': 'I studied in a junior high school for three years.', 'zh': '我在一所初中学习了三年。'},
+                {'en': 'She teaches English at a junior high school.', 'zh': '她在一所初中教英语。'},
+            ],
+        },
+        'junior high': {
+            'phonetic': '', 'meaning': 'n. 初中', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'junior high 是 junior high school 的简称，指"初中"',
+            'examples': [
+                {'en': 'He is a student in junior high.', 'zh': '他是一名初中生。'},
+                {'en': 'Junior high is an important stage for learning.', 'zh': '初中是学习的重要阶段。'},
+            ],
+        },
+        'senior high school': {
+            'phonetic': '', 'meaning': 'n. 高中', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'senior(较高年级的) + high school(中学) → 高中',
+            'examples': [
+                {'en': 'She is studying in a senior high school.', 'zh': '她正在一所高中读书。'},
+                {'en': 'Senior high school students work hard for the exam.', 'zh': '高中生为考试而努力。'},
+            ],
+        },
+        'be senior to': {
+            'phonetic': '', 'meaning': '比……年长；比……资历深', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'be senior to sb 表示"比某人年长/资历深"，to 后接比较对象',
+            'examples': [
+                {'en': 'He is senior to me in this company.', 'zh': '他在公司里资历比我深。'},
+                {'en': 'She is three years senior to her brother.', 'zh': '她比她弟弟大三岁。'},
+            ],
+        },
+        'graduate from': {
+            'phonetic': '', 'meaning': 'v. 从……毕业', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'graduate(毕业) + from(从) → 从……毕业',
+            'examples': [
+                {'en': 'He graduated from a famous university.', 'zh': '他毕业于一所著名大学。'},
+                {'en': 'She will graduate from college next year.', 'zh': '她明年将从大学毕业。'},
+            ],
+        },
+        'run out of': {
+            'phonetic': '', 'meaning': 'v. 用完，耗尽', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'run out(耗尽) + of → 用完某物',
+            'examples': [
+                {'en': 'We have run out of paper.', 'zh': '我们的纸用完了。'},
+                {'en': 'The car ran out of gas on the way.', 'zh': '汽车在半路上没油了。'},
+            ],
+        },
+        'in fact': {
+            'phonetic': '', 'meaning': '事实上，实际上', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'in fact 表示"事实上/实际上"，用于说明真实情况',
+            'examples': [
+                {'en': 'In fact, English is not so difficult.', 'zh': '事实上，英语并没有那么难。'},
+                {'en': 'He looks young, but in fact he is forty.', 'zh': '他看起来年轻，但实际上他四十岁了。'},
+            ],
+        },
+        'as a matter of fact': {
+            'phonetic': '', 'meaning': '事实上，实际上', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'as a matter of fact 与 in fact 同义，表示"事实上"',
+            'examples': [
+                {'en': 'As a matter of fact, I knew the answer.', 'zh': '事实上，我早就知道答案了。'},
+                {'en': 'As a matter of fact, he is not from Beijing.', 'zh': '事实上，他不是北京人。'},
+            ],
+        },
+        'in theory': {
+            'phonetic': '', 'meaning': '理论上，从理论上讲', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'in theory 表示"理论上"，与 in practice(实际上)相对',
+            'examples': [
+                {'en': 'In theory, this plan should work.', 'zh': '理论上，这个计划应该可行。'},
+                {'en': 'In theory, everyone is equal.', 'zh': '从理论上讲，人人平等。'},
+            ],
+        },
+        'in advance': {
+            'phonetic': '', 'meaning': '提前，预先', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'in advance 表示"提前/预先"，如 book in advance(提前预订)',
+            'examples': [
+                {'en': 'Please book the tickets in advance.', 'zh': '请提前订票。'},
+                {'en': 'You should prepare for the exam in advance.', 'zh': '你应该提前为考试做准备。'},
+            ],
+        },
+        'in case': {
+            'phonetic': '', 'meaning': '以防万一，万一；假如', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'in case 表示"以防万一"，in case of 表示"如果发生"',
+            'examples': [
+                {'en': 'Take an umbrella in case it rains.', 'zh': '带把伞以防下雨。'},
+                {'en': 'In case of fire, call 119.', 'zh': '如果发生火灾，拨打119。'},
+            ],
+        },
+        'in detail': {
+            'phonetic': '', 'meaning': '详细地', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'in detail 表示"详细地"，相当于 in a detailed way',
+            'examples': [
+                {'en': 'Please explain the rules in detail.', 'zh': '请详细说明一下规则。'},
+                {'en': 'He described the accident in detail.', 'zh': '他详细描述了这次事故。'},
+            ],
+        },
+        'face to face': {
+            'phonetic': '', 'meaning': '面对面地', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'face(脸) + to + face(脸) → 面对面',
+            'examples': [
+                {'en': 'They talked face to face.', 'zh': '他们面对面地交谈。'},
+                {'en': 'We should communicate face to face sometimes.', 'zh': '我们有时应该面对面交流。'},
+            ],
+        },
+        'in addition': {
+            'phonetic': '', 'meaning': '此外，另外', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'in addition 表示"此外"，in addition to 表示"除……之外"',
+            'examples': [
+                {'en': 'In addition, he is good at sports.', 'zh': '此外，他擅长运动。'},
+                {'en': 'In addition to English, she learns French.', 'zh': '除了英语，她还学法语。'},
+            ],
+        },
+        'in general': {
+            'phonetic': '', 'meaning': '总的来说，一般来说', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'in general 表示"总的来说/一般来说"',
+            'examples': [
+                {'en': 'In general, students like the new teacher.', 'zh': '总的来说，学生们喜欢这位新老师。'},
+                {'en': 'In general, exercise is good for health.', 'zh': '一般来说，运动有益健康。'},
+            ],
+        },
+        'in front of': {
+            'phonetic': '', 'meaning': '在……前面', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'in front of 表示"在……（外部）前面"，in the front of 表示"在……（内部）前部"',
+            'examples': [
+                {'en': 'There is a tree in front of the house.', 'zh': '房子前面有一棵树。'},
+                {'en': 'He sits in front of the classroom.', 'zh': '他坐在教室的前面。'},
+            ],
+        },
+        'in no time': {
+            'phonetic': '', 'meaning': '立刻，马上，很快', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'in no time 字面"没有时间"→ 表示"很快/立刻"',
+            'examples': [
+                {'en': 'The bus will come in no time.', 'zh': '公交车很快就到。'},
+                {'en': 'He finished the work in no time.', 'zh': '他很快就把工作做完了。'},
+            ],
+        },
+        'in particular': {
+            'phonetic': '', 'meaning': '尤其，特别', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'in particular 表示"尤其/特别"，相当于 especially',
+            'examples': [
+                {'en': 'I like sports, basketball in particular.', 'zh': '我喜欢运动，尤其是篮球。'},
+                {'en': 'He cares about the environment in particular.', 'zh': '他尤其关注环境问题。'},
+            ],
+        },
+        'at last': {
+            'phonetic': '', 'meaning': '最后，终于', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'at last 表示"最后/终于"，用于长期等待后',
+            'examples': [
+                {'en': 'At last, we arrived at the station.', 'zh': '最后，我们终于到达了车站。'},
+                {'en': 'He passed the exam at last.', 'zh': '他终于通过了考试。'},
+            ],
+        },
+        'without any doubt': {
+            'phonetic': '', 'meaning': '毫无疑问', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'without(没有) + doubt(怀疑) → 毫无疑问',
+            'examples': [
+                {'en': 'Without any doubt, she is the best student.', 'zh': '毫无疑问，她是最好的学生。'},
+                {'en': 'He will win without any doubt.', 'zh': '他会毫无疑问地获胜。'},
+            ],
+        },
+        'thrift store': {
+            'phonetic': '', 'meaning': 'n. 旧货店，二手商店', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'thrift(节俭) + store(商店) → 卖旧货的店 → 旧货店',
+            'examples': [
+                {'en': 'She bought a book at the thrift store.', 'zh': '她在旧货店买了一本书。'},
+                {'en': 'The thrift store sells cheap second-hand things.', 'zh': '这家旧货店出售便宜的二手物品。'},
+            ],
+        },
+        'live in': {
+            'phonetic': '', 'meaning': 'v. 居住在，住在', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'live(居住) + in(在……里) → 居住在',
+            'examples': [
+                {'en': 'I live in a small town.', 'zh': '我住在一个小镇上。'},
+                {'en': 'They live in the countryside.', 'zh': '他们住在乡下。'},
+            ],
+        },
+        'make friends': {
+            'phonetic': '', 'meaning': 'v. 交朋友', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'make(交) + friends(朋友) → 交朋友，make friends with sb 与某人交朋友',
+            'examples': [
+                {'en': 'He is good at making friends.', 'zh': '他擅长交朋友。'},
+                {'en': 'I want to make friends with new classmates.', 'zh': '我想和新同学交朋友。'},
+            ],
+        },
+        'leave for': {
+            'phonetic': '', 'meaning': 'v. 动身前往，出发去', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'leave(离开) + for(前往) → 动身前往某地',
+            'examples': [
+                {'en': 'We will leave for Shanghai tomorrow.', 'zh': '我们明天动身去上海。'},
+                {'en': 'He left for Beijing early this morning.', 'zh': '他今天一早就出发去北京了。'},
+            ],
+        },
+        'job hunting': {
+            'phonetic': '', 'meaning': 'n. 找工作，求职', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'job(工作) + hunting(寻找) → 找工作',
+            'examples': [
+                {'en': 'He is busy with job hunting now.', 'zh': '他现在正忙着找工作。'},
+                {'en': 'Job hunting is not easy for graduates.', 'zh': '对毕业生来说，找工作并不容易。'},
+            ],
+        },
+        'learn from': {
+            'phonetic': '', 'meaning': 'v. 向……学习；从……中学习', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'learn(学习) + from(从/向) → 向……学习',
+            'examples': [
+                {'en': 'We should learn from each other.', 'zh': '我们应该互相学习。'},
+                {'en': 'Learn from your mistakes.', 'zh': '从你的错误中学习。'},
+            ],
+        },
+        'keep away': {
+            'phonetic': '', 'meaning': 'v. 远离，不靠近', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'keep(保持) + away(离开) → 保持距离 → 远离',
+            'examples': [
+                {'en': 'Please keep away from the fire.', 'zh': '请远离火源。'},
+                {'en': 'Keep away from danger.', 'zh': '远离危险。'},
+            ],
+        },
+        'bird flu': {
+            'phonetic': '', 'meaning': 'n. 禽流感', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'bird(鸟) + flu(流感) → 禽流感',
+            'examples': [
+                {'en': 'Bird flu can spread among birds.', 'zh': '禽流感会在禽类中传播。'},
+                {'en': 'We should eat well-cooked food to avoid bird flu.', 'zh': '我们应该吃煮熟的食品以防禽流感。'},
+            ],
+        },
+        'where there is a will, there is a way': {
+            'phonetic': '', 'meaning': '有志者事竟成', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'where(哪里) + there is(有) + a will(意志) → 有志者事竟成',
+            'examples': [
+                {'en': 'Where there is a will, there is a way.', 'zh': '有志者事竟成。'},
+                {'en': 'Keep trying, for where there is a will, there is a way.', 'zh': '继续努力，因为有志者事竟成。'},
+            ],
+        },
+        'compulsory course': {
+            'phonetic': '', 'meaning': 'n. 必修课', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'compulsory(强制的) + course(课程) → 必修课',
+            'examples': [
+                {'en': 'English is a compulsory course in college.', 'zh': '英语是大学的一门必修课。'},
+                {'en': 'Every student must take the compulsory courses.', 'zh': '每个学生都必须修读必修课。'},
+            ],
+        },
+        'selective course': {
+            'phonetic': '', 'meaning': 'n. 选修课', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'selective(选择的) + course(课程) → 选修课',
+            'examples': [
+                {'en': 'She chose a selective course on music.', 'zh': '她选了一门音乐选修课。'},
+                {'en': 'Students can choose selective courses freely.', 'zh': '学生可以自由选择选修课。'},
+            ],
+        },
+        'report card': {
+            'phonetic': '', 'meaning': 'n. 成绩单', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'report(报告) + card(卡片) → 成绩单',
+            'examples': [
+                {'en': 'He got good grades on his report card.', 'zh': '他的成绩单上取得了好成绩。'},
+                {'en': 'Parents look at the report card carefully.', 'zh': '家长会仔细看成绩单。'},
+            ],
+        },
+        'skip classes': {
+            'phonetic': '', 'meaning': 'v. 逃课，旷课', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'skip(跳过) + classes(课) → 逃课',
+            'examples': [
+                {'en': 'He should not skip classes.', 'zh': '他不应该逃课。'},
+                {'en': 'Students who skip classes will be punished.', 'zh': '逃课的学生会受到处罚。'},
+            ],
+        },
+        'in public': {
+            'phonetic': '', 'meaning': '公开地，当众', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'in public 表示"公开地/当众"，与 in private(私下)相对',
+            'examples': [
+                {'en': 'Don\u2019t speak loudly in public.', 'zh': '不要在公共场合大声说话。'},
+                {'en': 'He praised her in public.', 'zh': '他当众表扬了她。'},
+            ],
+        },
+        'compared with': {
+            'phonetic': '', 'meaning': '与……相比', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'compared(比较) + with(和) → 与……相比',
+            'examples': [
+                {'en': 'Compared with last year, the price is higher.', 'zh': '与去年相比，价格更高了。'},
+                {'en': 'Compared with him, I still have a lot to learn.', 'zh': '与他相比，我还有很多东西要学。'},
+            ],
+        },
+        'for example': {
+            'phonetic': '', 'meaning': '例如，比如', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'for example 表示"例如"，常缩写为 e.g.',
+            'examples': [
+                {'en': 'Many fruits are healthy, for example, apples.', 'zh': '很多水果很健康，例如苹果。'},
+                {'en': 'For example, you can take a bus to school.', 'zh': '例如，你可以坐公交车去学校。'},
+            ],
+        },
+        'civil war': {
+            'phonetic': '', 'meaning': 'n. 内战', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'civil(国内的) + war(战争) → 内战',
+            'examples': [
+                {'en': 'The country suffered a long civil war.', 'zh': '这个国家经历了长期的内战。'},
+                {'en': 'The civil war broke out in 1861.', 'zh': '内战于1861年爆发。'},
+            ],
+        },
+        'cultural relics': {
+            'phonetic': '', 'meaning': 'n. 文物，文化遗产', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'cultural(文化的) + relics(遗物) → 文物',
+            'examples': [
+                {'en': 'We should protect the cultural relics.', 'zh': '我们应该保护文物。'},
+                {'en': 'These cultural relics are very precious.', 'zh': '这些文物非常珍贵。'},
+            ],
+        },
+        'morning edition': {
+            'phonetic': '', 'meaning': 'n. 晨报，早间版', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'morning(早晨) + edition(版本) → 晨报',
+            'examples': [
+                {'en': 'He reads the morning edition of the newspaper.', 'zh': '他读报纸的晨报版。'},
+                {'en': 'The morning edition comes out at six.', 'zh': '晨报六点出版。'},
+            ],
+        },
+        'evening edition': {
+            'phonetic': '', 'meaning': 'n. 晚报，晚间版', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'evening(晚上) + edition(版本) → 晚报',
+            'examples': [
+                {'en': 'The evening edition has the latest news.', 'zh': '晚报刊登了最新消息。'},
+                {'en': 'He bought the evening edition on his way home.', 'zh': '他在回家路上买了晚报。'},
+            ],
+        },
+        'sleeping bag': {
+            'phonetic': '', 'meaning': 'n. 睡袋', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'sleeping(睡觉) + bag(袋子) → 睡袋',
+            'examples': [
+                {'en': 'He brought a sleeping bag for the camp.', 'zh': '他为露营带了一个睡袋。'},
+                {'en': 'You need a warm sleeping bag at night.', 'zh': '晚上你需要一个暖和的睡袋。'},
+            ],
+        },
+        'by means of': {
+            'phonetic': '', 'meaning': '通过……的方法，借助……', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'by means of 表示"通过/借助……的方式"',
+            'examples': [
+                {'en': 'We can learn English by means of listening.', 'zh': '我们可以通过听来学英语。'},
+                {'en': 'He solved the problem by means of a computer.', 'zh': '他借助电脑解决了问题。'},
+            ],
+        },
+        'departure gate': {
+            'phonetic': '', 'meaning': 'n. 登机口，出发闸口', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'departure(出发) + gate(门) → 登机口',
+            'examples': [
+                {'en': 'Please go to Gate 8, the departure gate.', 'zh': '请前往8号登机口。'},
+                {'en': 'The departure gate is near the shop.', 'zh': '登机口在商店附近。'},
+            ],
+        },
+        'customs office': {
+            'phonetic': '', 'meaning': 'n. 海关', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'customs(海关) + office(办公处) → 海关部门',
+            'examples': [
+                {'en': 'He had to go through the customs office.', 'zh': '他必须通过海关。'},
+                {'en': 'The customs office checks the luggage.', 'zh': '海关检查行李。'},
+            ],
+        },
+        'duty free': {
+            'phonetic': '', 'meaning': 'adj. 免税的', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'duty(税) + free(免除) → 免税的',
+            'examples': [
+                {'en': 'She bought some duty-free goods at the airport.', 'zh': '她在机场买了一些免税商品。'},
+                {'en': 'Duty-free shops are popular with travelers.', 'zh': '免税店很受旅客欢迎。'},
+            ],
+        },
+        'free of charge': {
+            'phonetic': '', 'meaning': '免费', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'free(免费的) + of charge(费用) → 免费',
+            'examples': [
+                {'en': 'The museum is free of charge on Sundays.', 'zh': '博物馆周日免费开放。'},
+                {'en': 'The service is free of charge.', 'zh': '这项服务是免费的。'},
+            ],
+        },
+        'go camping': {
+            'phonetic': '', 'meaning': 'v. 去露营', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'go + camping(露营) → 去露营',
+            'examples': [
+                {'en': 'We went camping near the lake last weekend.', 'zh': '上周末我们去湖边露营了。'},
+                {'en': 'They often go camping in summer.', 'zh': '他们夏天经常去露营。'},
+            ],
+        },
+        'go hiking': {
+            'phonetic': '', 'meaning': 'v. 去徒步，去远足', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'go + hiking(徒步) → 去远足',
+            'examples': [
+                {'en': 'We will go hiking in the mountains.', 'zh': '我们将去山里远足。'},
+                {'en': 'Going hiking is good for health.', 'zh': '远足对健康有益。'},
+            ],
+        },
+        'hot spring': {
+            'phonetic': '', 'meaning': 'n. 温泉', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'hot(热的) + spring(泉水) → 温泉',
+            'examples': [
+                {'en': 'They relaxed in the hot spring.', 'zh': '他们在温泉里放松。'},
+                {'en': 'The hot spring is good for the body.', 'zh': '温泉对身体有益。'},
+            ],
+        },
+        'bungee jumping': {
+            'phonetic': '', 'meaning': 'n. 蹦极', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'bungee(蹦极绳) + jumping(跳) → 蹦极',
+            'examples': [
+                {'en': 'Bungee jumping is an exciting sport.', 'zh': '蹦极是一项刺激的运动。'},
+                {'en': 'He tried bungee jumping for the first time.', 'zh': '他第一次尝试了蹦极。'},
+            ],
+        },
+        'be fit for': {
+            'phonetic': '', 'meaning': 'v. 适合，适宜于', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'be fit for 表示"适合"，相当于 be suitable for',
+            'examples': [
+                {'en': 'He is fit for the job.', 'zh': '他适合这份工作。'},
+                {'en': 'This water is not fit for drinking.', 'zh': '这水不适合饮用。'},
+            ],
+        },
+        'cooperate with': {
+            'phonetic': '', 'meaning': 'v. 与……合作', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'cooperate(合作) + with(和) → 与……合作',
+            'examples': [
+                {'en': 'We should cooperate with each other.', 'zh': '我们应该互相合作。'},
+                {'en': 'The two companies cooperate with each other.', 'zh': '这两家公司互相合作。'},
+            ],
+        },
+        'nursery school': {
+            'phonetic': '', 'meaning': 'n. 幼儿园', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'nursery(托儿所) + school(学校) → 幼儿园',
+            'examples': [
+                {'en': 'The child goes to a nursery school.', 'zh': '这个孩子上幼儿园。'},
+                {'en': 'Nursery school is important for children.', 'zh': '幼儿园对孩子们很重要。'},
+            ],
+        },
+        'lung cancer': {
+            'phonetic': '', 'meaning': 'n. 肺癌', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'lung(肺) + cancer(癌症) → 肺癌',
+            'examples': [
+                {'en': 'Smoking can cause lung cancer.', 'zh': '吸烟会导致肺癌。'},
+                {'en': 'He gave up smoking to avoid lung cancer.', 'zh': '他戒烟以避免肺癌。'},
+            ],
+        },
+        'be confronted with': {
+            'phonetic': '', 'meaning': 'v. 面临，面对', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'confront(面对) 的被动式 → 面临',
+            'examples': [
+                {'en': 'We are confronted with many difficulties.', 'zh': '我们面临许多困难。'},
+                {'en': 'He was confronted with a hard choice.', 'zh': '他面临一个艰难的选择。'},
+            ],
+        },
+        'hand over': {
+            'phonetic': '', 'meaning': 'v. 移交，交出', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'hand(递交) + over(过去) → 移交',
+            'examples': [
+                {'en': 'He handed over the keys to me.', 'zh': '他把钥匙交给了我。'},
+                {'en': 'Please hand over the report to the manager.', 'zh': '请把报告交给经理。'},
+            ],
+        },
+        'hot pot': {
+            'phonetic': '', 'meaning': 'n. 火锅', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'hot(热的) + pot(锅) → 火锅',
+            'examples': [
+                {'en': 'We had hot pot together last night.', 'zh': '我们昨晚一起吃了火锅。'},
+                {'en': 'Hot pot is popular in Chongqing.', 'zh': '火锅在重庆很受欢迎。'},
+            ],
+        },
+        'french fries': {
+            'phonetic': '', 'meaning': 'n. 炸薯条', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'French(法国的) + fries(油炸食品) → 炸薯条',
+            'examples': [
+                {'en': 'He likes eating French fries with ketchup.', 'zh': '他喜欢蘸番茄酱吃炸薯条。'},
+                {'en': 'French fries are a popular fast food.', 'zh': '炸薯条是一种受欢迎的快餐。'},
+            ],
+        },
+        'raw food': {
+            'phonetic': '', 'meaning': 'n. 生食，生鲜食物', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'raw(生的) + food(食物) → 生食',
+            'examples': [
+                {'en': 'Some people prefer raw food.', 'zh': '有些人更喜欢吃生食。'},
+                {'en': 'Raw food may carry bacteria.', 'zh': '生食可能携带细菌。'},
+            ],
+        },
+        'tai chi': {
+            'phonetic': '', 'meaning': 'n. 太极拳', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'tai chi 是"太极"的音译，指太极拳',
+            'examples': [
+                {'en': 'My grandfather practices tai chi every morning.', 'zh': '我爷爷每天早上打太极拳。'},
+                {'en': 'Tai chi is good for the elderly.', 'zh': '太极拳对老年人有好处。'},
+            ],
+        },
+        'world cup': {
+            'phonetic': '', 'meaning': 'n. 世界杯', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'world(世界) + cup(杯) → 世界杯',
+            'examples': [
+                {'en': 'The World Cup is held every four years.', 'zh': '世界杯每四年举办一次。'},
+                {'en': 'Many people watch the World Cup on TV.', 'zh': '许多人在电视上看世界杯。'},
+            ],
+        },
+        'be filled with': {
+            'phonetic': '', 'meaning': 'v. 充满，装满', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'be filled with 表示"充满"，相当于 be full of',
+            'examples': [
+                {'en': 'The room is filled with books.', 'zh': '房间里堆满了书。'},
+                {'en': 'Her heart is filled with hope.', 'zh': '她的心中充满了希望。'},
+            ],
+        },
+        'for the time being': {
+            'phonetic': '', 'meaning': '暂时，眼下', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'for the time being 表示"暂时/眼下"',
+            'examples': [
+                {'en': 'For the time being, we can stay here.', 'zh': '暂时我们可以待在这里。'},
+                {'en': 'This is enough for the time being.', 'zh': '眼下这些就够了。'},
+            ],
+        },
+        'be absent from': {
+            'phonetic': '', 'meaning': 'v. 缺席，不在', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'be absent from 表示"缺席"，absent(缺席的) + from',
+            'examples': [
+                {'en': 'He was absent from class yesterday.', 'zh': '他昨天上课缺席了。'},
+                {'en': 'She is absent from school because of illness.', 'zh': '她因病没有上学。'},
+            ],
+        },
+        'solar energy': {
+            'phonetic': '', 'meaning': 'n. 太阳能', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'solar(太阳的) + energy(能量) → 太阳能',
+            'examples': [
+                {'en': 'Solar energy is clean and renewable.', 'zh': '太阳能是清洁且可再生的。'},
+                {'en': 'People use solar energy to generate power.', 'zh': '人们利用太阳能发电。'},
+            ],
+        },
+        'take away': {
+            'phonetic': '', 'meaning': 'v. 带走；拿走；外卖', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'take(拿) + away(离开) → 带走，take-away 作名词指外卖',
+            'examples': [
+                {'en': 'Please take away the rubbish.', 'zh': '请把垃圾带走。'},
+                {'en': 'We can order take-away food.', 'zh': '我们可以点外卖。'},
+            ],
+        },
+        'take place': {
+            'phonetic': '', 'meaning': 'v. 发生，举行', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'take place 表示"发生/举行"，不用于被动语态',
+            'examples': [
+                {'en': 'The meeting will take place tomorrow.', 'zh': '会议将在明天举行。'},
+                {'en': 'Great changes have taken place in my hometown.', 'zh': '我的家乡发生了巨大的变化。'},
+            ],
+        },
+        'take the place of': {
+            'phonetic': '', 'meaning': 'v. 代替，取代', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'take(占) + the place(位置) + of → 取代……的位置',
+            'examples': [
+                {'en': 'Computers have taken the place of typewriters.', 'zh': '电脑已经取代了打字机。'},
+                {'en': 'Who will take the place of the manager?', 'zh': '谁将接替经理？'},
+            ],
+        },
+        'take pride in': {
+            'phonetic': '', 'meaning': 'v. 以……为自豪，为……感到骄傲', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'take pride(自豪) in → 以……为豪，相当于 be proud of',
+            'examples': [
+                {'en': 'She takes pride in her work.', 'zh': '她为自己的工作感到自豪。'},
+                {'en': 'We take pride in our school.', 'zh': '我们为学校感到骄傲。'},
+            ],
+        },
+        'hydropower station': {
+            'phonetic': '', 'meaning': 'n. 水电站', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'hydropower(水力发电) + station(站) → 水电站',
+            'examples': [
+                {'en': 'A new hydropower station was built on the river.', 'zh': '河上新建了一座水电站。'},
+                {'en': 'The hydropower station supplies electricity to the town.', 'zh': '这座水电站为小镇供电。'},
+            ],
+        },
+        'power failure': {
+            'phonetic': '', 'meaning': 'n. 停电，断电', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'power(电力) + failure(故障) → 停电',
+            'examples': [
+                {'en': 'There was a power failure in our area.', 'zh': '我们这一带停电了。'},
+                {'en': 'The power failure lasted two hours.', 'zh': '停电持续了两个小时。'},
+            ],
+        },
+        'electric fan': {
+            'phonetic': '', 'meaning': 'n. 电风扇', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'electric(电的) + fan(扇子) → 电风扇',
+            'examples': [
+                {'en': 'It is hot, please turn on the electric fan.', 'zh': '天很热，请打开电风扇。'},
+                {'en': 'The electric fan is on the table.', 'zh': '电风扇在桌子上。'},
+            ],
+        },
+        'online shopping': {
+            'phonetic': '', 'meaning': 'n. 网上购物', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'online(在线的) + shopping(购物) → 网上购物',
+            'examples': [
+                {'en': 'Online shopping is becoming more and more popular.', 'zh': '网上购物越来越受欢迎。'},
+                {'en': 'She does online shopping once a week.', 'zh': '她每周网购一次。'},
+            ],
+        },
+        'log in': {
+            'phonetic': '', 'meaning': 'v. 登录，登入', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'log in 表示"登录"，log(记录) + in，反义词 log out(退出)',
+            'examples': [
+                {'en': 'Please log in with your account.', 'zh': '请用你的账号登录。'},
+                {'en': 'He logged in to check his email.', 'zh': '他登录查看邮件。'},
+            ],
+        },
+        'return ticket': {
+            'phonetic': '', 'meaning': 'n. 往返票', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'return(返回) + ticket(票) → 往返票',
+            'examples': [
+                {'en': 'He bought a return ticket to Beijing.', 'zh': '他买了一张去北京的往返票。'},
+                {'en': 'A return ticket is cheaper than two single tickets.', 'zh': '往返票比两张单程票便宜。'},
+            ],
+        },
+        'single ticket': {
+            'phonetic': '', 'meaning': 'n. 单程票', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'single(单程的) + ticket(票) → 单程票',
+            'examples': [
+                {'en': 'I only need a single ticket.', 'zh': '我只需要一张单程票。'},
+                {'en': 'A single ticket costs ten yuan.', 'zh': '单程票价十元。'},
+            ],
+        },
+        'shop assistant': {
+            'phonetic': '', 'meaning': 'n. 售货员，店员', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'shop(商店) + assistant(助手) → 店员',
+            'examples': [
+                {'en': 'The shop assistant is very friendly.', 'zh': '那位售货员很友好。'},
+                {'en': 'Ask the shop assistant for help.', 'zh': '请店员帮忙。'},
+            ],
+        },
+        'in cash': {
+            'phonetic': '', 'meaning': '用现金，付现款', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'in cash 表示"用现金"，与 by card(刷卡)相对',
+            'examples': [
+                {'en': 'Can I pay in cash?', 'zh': '我能用现金付款吗？'},
+                {'en': 'He paid for the goods in cash.', 'zh': '他用现金付了货款。'},
+            ],
+        },
+        'reception desk': {
+            'phonetic': '', 'meaning': 'n. 前台，接待处', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'reception(接待) + desk(柜台) → 前台',
+            'examples': [
+                {'en': 'Please go to the reception desk for a key.', 'zh': '请到前台取钥匙。'},
+                {'en': 'The reception desk is on the first floor.', 'zh': '前台在一楼。'},
+            ],
+        },
+        'all of a sudden': {
+            'phonetic': '', 'meaning': '突然，猛地', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'all of a sudden 表示"突然"，相当于 suddenly',
+            'examples': [
+                {'en': 'All of a sudden, it began to rain.', 'zh': '突然下起雨来。'},
+                {'en': 'He stood up all of a sudden.', 'zh': '他突然站了起来。'},
+            ],
+        },
+        'crime rate': {
+            'phonetic': '', 'meaning': 'n. 犯罪率', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'crime(犯罪) + rate(比率) → 犯罪率',
+            'examples': [
+                {'en': 'The crime rate in this city is falling.', 'zh': '这座城市的犯罪率正在下降。'},
+                {'en': 'Better education can lower the crime rate.', 'zh': '更好的教育能降低犯罪率。'},
+            ],
+        },
+        'fall in love with': {
+            'phonetic': '', 'meaning': 'v. 爱上，与……相爱', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'fall(坠入) + in love(爱) + with → 爱上',
+            'examples': [
+                {'en': 'He fell in love with the city at first sight.', 'zh': '他对这座城市一见钟情。'},
+                {'en': 'They fell in love with each other.', 'zh': '他们彼此相爱了。'},
+            ],
+        },
+        'come across': {
+            'phonetic': '', 'meaning': 'v. 偶遇，碰到；无意中发现', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'come(来) + across(横过) → 偶然遇到',
+            'examples': [
+                {'en': 'I came across an old friend in the street.', 'zh': '我在街上偶遇一位老朋友。'},
+                {'en': 'He came across a useful book in the library.', 'zh': '他在图书馆无意中发现了一本有用的书。'},
+            ],
+        },
+        'by accident': {
+            'phonetic': '', 'meaning': '偶然地，意外地', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'by accident 表示"偶然/意外"，相当于 by chance',
+            'examples': [
+                {'en': 'I found the key by accident.', 'zh': '我偶然找到了钥匙。'},
+                {'en': 'He broke the window by accident.', 'zh': '他意外打碎了窗户。'},
+            ],
+        },
+        'be composed of': {
+            'phonetic': '', 'meaning': 'v. 由……组成', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'compose(组成) 的被动式 → 由……组成，相当于 consist of',
+            'examples': [
+                {'en': 'Water is composed of hydrogen and oxygen.', 'zh': '水由氢和氧组成。'},
+                {'en': 'The team is composed of ten students.', 'zh': '这个团队由十名学生组成。'},
+            ],
+        },
+        'consist of': {
+            'phonetic': '', 'meaning': 'v. 由……组成，包括', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'consist(组成) + of → 由……组成，不用于被动语态',
+            'examples': [
+                {'en': 'The class consists of thirty students.', 'zh': '这个班由三十名学生组成。'},
+                {'en': 'A healthy diet consists of fresh food.', 'zh': '健康的饮食由新鲜食物组成。'},
+            ],
+        },
+        'soap opera': {
+            'phonetic': '', 'meaning': 'n. 肥皂剧', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'soap(肥皂) + opera(剧) → 肥皂剧（因早期由肥皂商赞助）',
+            'examples': [
+                {'en': 'She likes watching soap operas.', 'zh': '她喜欢看肥皂剧。'},
+                {'en': 'The soap opera is on at eight.', 'zh': '这部肥皂剧八点播出。'},
+            ],
+        },
+        'see to it that': {
+            'phonetic': '', 'meaning': '务必使……，确保', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'see to it that 表示"务必/确保"，相当于 make sure that',
+            'examples': [
+                {'en': 'See to it that you finish your homework on time.', 'zh': '务必按时完成作业。'},
+                {'en': 'See to it that the door is locked.', 'zh': '确保门已锁好。'},
+            ],
+        },
+        "take one's temperature": {
+            'phonetic': '', 'meaning': 'v. 量体温', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': "take(测) + one's + temperature(体温) → 量体温",
+            'examples': [
+                {'en': 'The nurse took his temperature.', 'zh': '护士给他量了体温。'},
+                {'en': 'Please take your temperature first.', 'zh': '请先量一下体温。'},
+            ],
+        },
+        'make preparations for': {
+            'phonetic': '', 'meaning': 'v. 为……做准备', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'make preparations(准备) for → 为……做准备',
+            'examples': [
+                {'en': 'We are making preparations for the exam.', 'zh': '我们正在为考试做准备。'},
+                {'en': 'They made preparations for the trip.', 'zh': '他们为旅行做了准备。'},
+            ],
+        },
+        'name list': {
+            'phonetic': '', 'meaning': 'n. 名单', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'name(名字) + list(名单) → 名单',
+            'examples': [
+                {'en': 'Please check your name on the name list.', 'zh': '请在名单上核对你的名字。'},
+                {'en': 'The name list is on the wall.', 'zh': '名单挂在墙上。'},
+            ],
+        },
+        'in no way': {
+            'phonetic': '', 'meaning': '决不，绝不', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'in no way 表示"决不"，相当于 not at all',
+            'examples': [
+                {'en': 'In no way will I give up.', 'zh': '我决不会放弃。'},
+                {'en': 'He is in no way to blame.', 'zh': '决不该怪他。'},
+            ],
+        },
+        'from time to time': {
+            'phonetic': '', 'meaning': '不时，偶尔', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'from time to time 表示"不时/偶尔"，相当于 sometimes',
+            'examples': [
+                {'en': 'He visits his grandparents from time to time.', 'zh': '他偶尔去看望祖父母。'},
+                {'en': 'From time to time, she writes to her friends.', 'zh': '她不时给朋友写信。'},
+            ],
+        },
+        'some time': {
+            'phonetic': '', 'meaning': '一段时间', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'some(一些) + time(时间) → 一段时间；注意与 sometime(某个时候)区分',
+            'examples': [
+                {'en': 'I need some time to think it over.', 'zh': '我需要一些时间来考虑。'},
+                {'en': 'He stayed there for some time.', 'zh': '他在那里待了一段时间。'},
+            ],
+        },
+        'by no means': {
+            'phonetic': '', 'meaning': '决不，绝不', 'type': '短语',
+            'split': [], 'morph': [],
+            'mnemonic': 'by no means 表示"决不"，与 in no way 同义',
+            'examples': [
+                {'en': 'This is by no means an easy task.', 'zh': '这绝不是一项容易的任务。'},
+                {'en': 'He is by no means a lazy student.', 'zh': '他绝不是个懒惰的学生。'},
+            ],
+        },
     }
 
     def __init__(self):
