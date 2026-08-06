@@ -1093,6 +1093,35 @@ function showLoading(text = '加载中...') {
 function hideLoading() {
   const mask = $('#loadingMask');
   if (mask) mask.style.display = 'none';
+  const prog = $('#importProgressMask');
+  if (prog) { prog.style.display = 'none'; }
+}
+
+// 导入进度条：显示已处理/总数、百分比、当前批信息
+function showImportProgress({ done, total, current }) {
+  let prog = $('#importProgressMask');
+  if (!prog) {
+    prog = document.createElement('div');
+    prog.id = 'importProgressMask';
+    prog.className = 'import-progress-mask';
+    prog.innerHTML = `
+      <div class="import-progress-box">
+        <div class="import-progress-title">正在导入单词</div>
+        <div class="import-progress-bar"><div class="import-progress-fill"></div></div>
+        <div class="import-progress-info">
+          <span class="import-progress-pct">0%</span>
+          <span class="import-progress-count">0/0</span>
+        </div>
+        <div class="import-progress-detail"></div>
+      </div>`;
+    document.body.appendChild(prog);
+  }
+  const pct = total > 0 ? Math.min(100, Math.round(done / total * 100)) : 0;
+  prog.querySelector('.import-progress-fill').style.width = pct + '%';
+  prog.querySelector('.import-progress-pct').textContent = pct + '%';
+  prog.querySelector('.import-progress-count').textContent = `${Math.min(done, total)}/${total}`;
+  prog.querySelector('.import-progress-detail').textContent = current || '';
+  prog.style.display = 'flex';
 }
 
 /**
@@ -2160,42 +2189,53 @@ async function handleDocImport() {
 
   let added = 0, skipped = 0, failed = 0;
   try {
-    showLoading(`正在导入单词 0/${total}...`);
-    for (let b = 0; b < batches.length; b++) {
-      const batch = batches[b];
-      showLoading(`正在导入单词 ${Math.min((b + 1) * BATCH_SIZE, total)}/${total}（第 ${b + 1}/${batches.length} 批）...`);
-      // 单批容错：失败自动重试最多3次（覆盖服务唤醒/临时抖动），仍失败计入失败并继续下一批，避免漏词
-      let res = null;
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          res = await api.importConfirm(batch, wordbookId);
-          if (res && res.success) break;
-        } catch (e) {
-          res = null;
+    showImportProgress({ done: 0, total, current: '正在启动导入...' });
+
+    // 并发池：同时提交 CONCURRENT 批，缩短总耗时；每批失败自动重试3次，仍失败计入失败并继续
+    const CONCURRENT = 2;
+    let nextIdx = 0;
+    let processedWords = 0; // 已处理批次的累计词数（用于进度条）
+    const stats = { added: 0, skipped: 0, failed: 0 };
+
+    async function worker() {
+      while (true) {
+        const idx = nextIdx++;
+        if (idx >= batches.length) break;
+        const batch = batches[idx];
+        let res = null;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            res = await api.importConfirm(batch, wordbookId);
+            if (res && res.success) break;
+          } catch (e) {
+            res = null;
+          }
+          if (attempt < 2) await new Promise(r => setTimeout(r, 1000));
         }
-        if (attempt < 2) {
-          showLoading(`正在导入单词 ${Math.min((b + 1) * BATCH_SIZE, total)}/${total}（第 ${b + 1} 批，重试 ${attempt + 2}/3）...`);
-          await new Promise(r => setTimeout(r, 1000));
+        if (!res || !res.success) {
+          stats.failed += batch.length;
+        } else {
+          stats.added += res.data.added_count || 0;
+          stats.skipped += res.data.skipped_count || 0;
+          stats.failed += res.data.failed_count || 0;
         }
-      }
-      if (!res || !res.success) {
-        // 批次级失败：该批全部计入失败
-        failed += batch.length;
-        continue;
-      }
-      const d = res.data;
-      added += d.added_count || 0;
-      skipped += d.skipped_count || 0;
-      failed += d.failed_count || 0;
-      // 批次间短暂停顿，避免连续高频请求触发后端限流/超时
-      if (b < batches.length - 1) {
-        await new Promise(r => setTimeout(r, 300));
+        processedWords += batch.length;
+        showImportProgress({
+          done: processedWords,
+          total,
+          current: `第 ${idx + 1}/${batches.length} 批：成功 ${stats.added}，跳过 ${stats.skipped}，失败 ${stats.failed}`
+        });
+        // 批次间短暂停顿，避免连续高频请求触发后端限流/超时
+        await new Promise(r => setTimeout(r, 200));
       }
     }
 
+    await Promise.all(Array.from({ length: CONCURRENT }, () => worker()));
+    added = stats.added; skipped = stats.skipped; failed = stats.failed;
+
     // 全部批次完成后，按文档原始顺序整体重排，确保词本顺序与用户文档完全一致
     // （即使中途有批失败/漏词，重排后也会归位到文档对应位置，不会排到末尾）
-    showLoading('正在按文档顺序整理词本...');
+    showImportProgress({ done: total, total, current: '正在按文档顺序整理词本...' });
     try {
       await api.reorderByNames(docPendingWords, wordbookId);
     } catch (reorderErr) {

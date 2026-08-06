@@ -1452,8 +1452,8 @@ def batch_add_words():
             except Exception as e:
                 return word_text, e
 
-        # 最多 5 个并发线程
-        with ThreadPoolExecutor(max_workers=5) as executor:
+        # 最多 8 个并发线程
+        with ThreadPoolExecutor(max_workers=8) as executor:
             results = list(executor.map(_analyze, ai_pending))
 
         # 把 AI 结果合并回 pending
@@ -2633,7 +2633,7 @@ def import_confirm():
             except Exception as e:
                 return word_text, e
 
-        with ThreadPoolExecutor(max_workers=5) as executor:
+        with ThreadPoolExecutor(max_workers=8) as executor:
             results = list(executor.map(_analyze, [w for w, _ in ai_pending]))
 
         ai_map = {}
