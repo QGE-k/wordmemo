@@ -381,6 +381,80 @@ def admin_delete_user(user_id):
     return jsonify({'success': True, 'message': f'已删除用户 {target_user.username}'})
 
 
+def _meaning_has_chinese(s):
+    """判断释义是否包含中文（不含中文说明是被英文在线释义污染了）"""
+    if not s:
+        return False
+    return any('\u4e00' <= c <= '\u9fff' for c in s)
+
+
+@app.route('/api/admin/refresh-word-meanings', methods=['POST'])
+def admin_refresh_word_meanings():
+    """
+    管理员：修复云端已有单词的释义污染。
+    对当前释义为纯英文（无中文，来自在线英文兜底）的词条，
+    重新用本地词典（ECDICT）查询，若返回中文释义则更新 meaning/phonetic/examples。
+    可选参数 refresh_examples=true 时，对更新过的词用 AI 重新生成简短专升本例句。
+    """
+    err = require_admin()
+    if err:
+        return err
+
+    data = request.get_json(silent=True) or {}
+    refresh_examples = bool(data.get('refresh_examples', False))
+
+    polluted = Word.query.filter(
+        Word.meaning.isnot(None),
+        Word.meaning != '',
+    ).all()
+    # 只处理释义不含中文（被英文释义污染）的词条
+    polluted = [w for w in polluted if not _meaning_has_chinese(w.meaning)]
+
+    updated = 0
+    skipped = 0
+    for w in polluted:
+        try:
+            result = dictionary_service.lookup(w.word)
+            if result and result.get('meaning') and _meaning_has_chinese(result['meaning']):
+                w.meaning = result['meaning']
+                if result.get('phonetic'):
+                    w.phonetic = result['phonetic']
+                if result.get('word_type'):
+                    w.word_type = result['word_type']
+                if result.get('examples'):
+                    w.examples = result['examples']
+                updated += 1
+            else:
+                skipped += 1
+        except Exception as e:
+            print(f'[admin] 修复释义失败({w.word}): {e}')
+            skipped += 1
+    db.session.commit()
+
+    # 可选：对修复过的词用 AI 重新生成简短专升本例句
+    refreshed_examples = 0
+    if refresh_examples and ai_service.is_available():
+        for w in polluted:
+            if not _meaning_has_chinese(w.meaning):
+                continue
+            try:
+                exs = ai_service.generate_examples(w.word, w.meaning)
+                if exs:
+                    w.examples = exs
+                    refreshed_examples += 1
+            except Exception as e:
+                print(f'[admin] 重新生成例句失败({w.word}): {e}')
+        db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'total_polluted': len(polluted),
+        'updated': updated,
+        'skipped': skipped,
+        'examples_refreshed': refreshed_examples,
+    })
+
+
 @app.route('/api/admin/reset_user_password', methods=['POST'])
 def admin_reset_user_password():
     """管理员：重置任意用户的密码

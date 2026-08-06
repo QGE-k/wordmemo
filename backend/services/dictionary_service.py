@@ -4943,15 +4943,22 @@ class DictionaryService:
                             if p.get('text'):
                                 phonetic = p['text']
                                 break
+                        # 英文兜底释义：只取最常用词性（第一个 meaning 组）的第一条定义。
+                        # dictionaryapi 把词性按常用程度排序，生僻/古语词义（如 knowledge 的
+                        # 古动词义 "To confess"）通常在最后，只取第一组即可自然排除，
+                        # 避免把不常用的英文定义存进词库误导考生。
                         mtexts = []
-                        for m in entry.get('meanings', [])[:3]:
-                            pos = m.get('partOfSpeech', '')
-                            for d in m.get('definitions', [])[:2]:
-                                dt = d.get('definition', '')
+                        meanings = entry.get('meanings', []) or []
+                        if meanings:
+                            first = meanings[0]
+                            pos = first.get('partOfSpeech', '')
+                            defs = first.get('definitions', []) or []
+                            if defs and defs[0].get('definition'):
+                                dt = defs[0]['definition'].strip()
                                 if dt:
                                     mtexts.append(f'{pos}. {dt}')
                         if mtexts:
-                            meaning = '; '.join(mtexts[:5])
+                            meaning = '; '.join(mtexts[:2])
                             result = {
                                 'phonetic': phonetic,
                                 'meaning': meaning,
