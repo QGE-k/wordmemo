@@ -5445,6 +5445,23 @@ class DictionaryService:
         if not ecdict_data or not ecdict_data.get('translation'):
             return False
         word_lower = word.lower().strip()
+        translation = ecdict_data.get('translation', '')
+        # 0. 翻译以 "abbr"/"缩写" 开头 → 是缩写词，不是可作词根的完整单词
+        #    例如 spr=心灵研究学会、summ=summarization、wint=winter、midn=骨架识别
+        if re.match(r'^\s*(abbr|abbrev)\.?\s', translation, re.I):
+            return False
+        # 0b. 翻译含人名/地名标记（如 "engle(Engle)人名"、"valle(巴列)人名"）→ 非可拆词根
+        if re.search(r'人名|地名|姓$|女名|男名', translation):
+            # 若翻译同时含较丰富的普通中文释义，则可能是真实词条（如 english 有"英语"）
+            cn = sum(1 for c in translation if '\u4e00' <= c <= '\u9fff')
+            if cn < 6:
+                return False
+        # 0c. 翻译几乎全英文（无中文 或 中文极少而夹带长英文），是英文释义词根，非可拆词根
+        #     例如 univers: University、socce: Special Operations Contingency
+        cn_count = sum(1 for c in translation if '\u4e00' <= c <= '\u9fff')
+        en_letters = sum(1 for c in translation if c.isalpha() and not ('\u4e00' <= c <= '\u9fff'))
+        if cn_count < 2 and en_letters >= 4:
+            return False
         # 1. 太短的词（少于3个字母）大概率不是独立单词，除非是常见短词
         common_short = {'an', 'as', 'at', 'be', 'by', 'do', 'go', 'he', 'if', 'in', 'is', 'it',
                         'me', 'my', 'no', 'of', 'on', 'or', 'so', 'to', 'up', 'us', 'we', 'am',
@@ -5452,10 +5469,8 @@ class DictionaryService:
         if len(word_lower) < 3 and word_lower not in common_short:
             return False
         # 2. 翻译以方括号开头（如 [计] [医] [化]），说明是专业缩写
-        translation = ecdict_data.get('translation', '')
         if translation.strip().startswith('['):
             # 但如果方括号后面有正常中文释义，可能是真实词条
-            import re
             bracket_removed = re.sub(r'^\[.*?\]', '', translation).strip()
             if not bracket_removed or not any('\u4e00' <= c <= '\u9fff' for c in bracket_removed[:10]):
                 return False
@@ -5685,8 +5700,9 @@ class DictionaryService:
             if not any('\u4e00' <= c <= '\u9fff' for c in t):
                 return False, word
             bnc = r['bnc']
-            if bnc is not None and bnc <= 5000:
+            if bnc is not None and 0 < bnc <= 5000:
                 return True, word
+            # bnc 为 0 或 None 表示无词频数据，不能认定为常用词
         # 尝试识别变形：复数/第三人称/过去式/现在分词 → 常用原词
         if allow_inflection and len(word) > 3:
             candidates = []
@@ -5765,6 +5781,20 @@ class DictionaryService:
             }
 
         return [_part_entry(part1, base1), _part_entry(part2, base2)]
+
+    # 强制基础词表：这些词即使表面上能拆出"真实词根"，但词根与本词语义无关，
+    # 拆解会造成误导（如 summer 拆成 sum+er，但暑期与"总数 sum"无关）。
+    # 列入后一律显示为基础词，不做任何前缀/后缀/复合拆解。
+    NO_DECOMPOSE = {
+        'summer',          # 不是 sum+er，暑期与 sum(总数)无关
+        'winter',          # 不是 wint+er
+        'spring',          # 不是 spr+ing
+        'middle',          # 不是 mid+dle
+        'midnight',        # 优先按 mid+night 复合词，若无法识别则为基础词
+        'episode',         # 不是 epi+sode
+        'library',         # 不是 libr+ary
+        'knowledge',       # 不是 know+ledge
+    }
 
     # 复合词精确拆解覆盖表（用户更看重"按单词拆解"）
     # ECDICT 把某些常见复合词标为某词的变形（如 sometimes 是 sometime 的复数），
@@ -5987,6 +6017,29 @@ class DictionaryService:
         如果都不能拆解，返回基础词信息
         """
         word_lower = word.lower().strip()
+        # 0. 强制基础词表：语义与词根无关的误拆词，直接作为基础词展示
+        if word_lower in self.NO_DECOMPOSE:
+            meaning = self.MEANING_OVERRIDES.get(word_lower) or \
+                self._clean_meaning(ecdict_data.get('translation', ''), ecdict_data.get('pos', ''))
+            return {
+                'phonetic': self._convert_phonetic(ecdict_data.get('phonetic', '')),
+                'meaning': meaning,
+                'type': '基础词',
+                'split': [{
+                    'part': word_lower,
+                    'meaning': (meaning.split('\n')[0] if meaning else word_lower)[:60],
+                    'original': word_lower,
+                    'original_meaning': (meaning.split('\n')[0] if meaning else word_lower)[:60],
+                    'transform': '原形不变',
+                    'explain': '基础单词',
+                }],
+                'morph': [{'type': 'root', 'word': word_lower,
+                           'meaning': (meaning.split('\n')[0] if meaning else word_lower)[:30]}],
+                'mnemonic': '',
+                'examples': self._get_zhuanshenben_examples(word_lower, meaning),
+                'tenses': self._get_inflections(word_lower, meaning),
+                'pos_label': self._pos_label(ecdict_data.get('pos', '')),
+            }
         # 0. 复合词精确覆盖表优先：按单词拆解（如 sometimes → some + times）
         if word_lower in self.COMPOUND_SPLITS:
             meaning = self.MEANING_OVERRIDES.get(word_lower) or \
@@ -6227,9 +6280,9 @@ class DictionaryService:
             for suffix in sorted(self.SUFFIXES.keys(), key=len, reverse=True):
                 if word_lower.endswith(suffix) and len(word_lower) > len(suffix) + 1:
                     candidate = word_lower[:-len(suffix)]
-                    # 检查去掉后缀后的词是否是已知单词
+                    # 检查去掉后缀后的词是否是真正的单词（排除缩写/生僻/无词频词根）
                     candidate_data = self._query_ecdict(candidate)
-                    if candidate_data and candidate_data.get('translation'):
+                    if self._is_real_word(candidate, candidate_data):
                         detected_suffix = suffix
                         detected_root = candidate
                         final_root = candidate
@@ -6238,7 +6291,7 @@ class DictionaryService:
                     if candidate and len(candidate) >= 2 and candidate[-1] == 'i':
                         y_candidate = candidate[:-1] + 'y'
                         y_data = self._query_ecdict(y_candidate)
-                        if y_data and y_data.get('translation'):
+                        if self._is_real_word(y_candidate, y_data):
                             detected_suffix = suffix
                             final_root = y_candidate
                             break
@@ -6246,7 +6299,7 @@ class DictionaryService:
                     if candidate and len(candidate) >= 2 and candidate[-1] == candidate[-2]:
                         short_candidate = candidate[:-1]
                         short_data = self._query_ecdict(short_candidate)
-                        if short_data and short_data.get('translation'):
+                        if self._is_real_word(short_candidate, short_data):
                             detected_suffix = suffix
                             final_root = short_candidate
                             break
@@ -6254,7 +6307,7 @@ class DictionaryService:
                     if candidate and not candidate.endswith('e'):
                         e_candidate = candidate + 'e'
                         e_data = self._query_ecdict(e_candidate)
-                        if e_data and e_data.get('translation'):
+                        if self._is_real_word(e_candidate, e_data):
                             detected_suffix = suffix
                             final_root = e_candidate
                             break
