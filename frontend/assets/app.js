@@ -1857,13 +1857,16 @@ async function renderHome() {
     if (navigator.serviceWorker && navigator.serviceWorker.controller) {
       navigator.serviceWorker.controller.postMessage({ type: 'CLEAR_API_CACHE' });
     }
-    // 并行请求统计与今日单词（按当前选中词书过滤）
-    const wbParam = learnWordbookId !== '' ? { wordbook_id: learnWordbookId } : {};
-    const [stats, words] = await Promise.all([
-      api.getStats(learnWordbookId),
-      api.getWords(wbParam)
-    ]);
+    // 并行请求统计；今日单词优先取"今天待学的新词"（按每日目标），学完则回退显示今天已学词
+    const stats = await api.getStats(learnWordbookId);
     homeStatsCache = stats;
+    const dailyGoal = stats.daily_goal || 20;
+    const [todayNewWords, todayLearnedWords] = await Promise.all([
+      api.getLearnToday(learnWordbookId, { new_only: true, limit: dailyGoal }),
+      api.getTodayLearnedWords(learnWordbookId)
+    ]);
+    // 有待学新词就显示它们（今天要背的）；否则显示今天已学过的词
+    const words = (todayNewWords && todayNewWords.length > 0) ? todayNewWords : todayLearnedWords;
 
     // 更新欢迎语
     updateGreeting();
@@ -1888,7 +1891,7 @@ async function renderHome() {
         item.addEventListener('click', () => openWordDetail(item.dataset.id));
       });
     } else {
-      list.innerHTML = '<div class="empty-state"><p>暂无单词，快去添加吧</p></div>';
+      list.innerHTML = '<div class="empty-state"><p>今日要学的单词已学完，去复习吧</p></div>';
     }
 
     // 保存到本地缓存，下次打开可秒显示
@@ -7500,7 +7503,7 @@ function renderHomeFromCache() {
       item.addEventListener('click', () => openWordDetail(item.dataset.id));
     });
   } else {
-    list.innerHTML = '<div class="empty-state"><p>暂无单词，快去添加吧</p></div>';
+    list.innerHTML = '<div class="empty-state"><p>今日要学的单词已学完，去复习吧</p></div>';
   }
 
   return true;
