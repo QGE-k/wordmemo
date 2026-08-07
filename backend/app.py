@@ -564,10 +564,11 @@ def admin_reanalyze_words():
                     w.split_data = result['split']
                     changed = True
                     splits_filled += 1
-            # 词素
-            if result.get('morph') and not w.morph_data:
-                w.morph_data = result['morph']
-                changed = True
+            # 词素：更新为词典最新词素（修复旧误导性词素，如 summer 的 summ+er）
+            if result.get('morph'):
+                if w.morph_data != result['morph']:
+                    w.morph_data = result['morph']
+                    changed = True
             # 例句：有例句才覆盖（保证每个词都有例句）
             if result.get('examples'):
                 if w.examples != result['examples']:
