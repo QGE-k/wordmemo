@@ -137,6 +137,31 @@ class Word(db.Model):
             'sort_order': self.sort_order if self.sort_order is not None else 0,
         }
 
+    def to_list_dict(self):
+        """轻量级列表序列化：仅返回词库/首页列表展示所需字段。
+
+        省略 split_data / morph_data / examples / tenses / mnemonic 等重型JSON字段，
+        大幅降低 /api/words 列表接口的序列化开销与网络传输量（数千词时提速明显）。
+        如需完整详情，前端调用 /api/words/<id> 获取 to_dict() 全量数据。
+        """
+        return {
+            'id': self.id,
+            'word': self.word,
+            'phonetic': self.phonetic or '',
+            'meaning': self.meaning or '',
+            'status': self.status,
+            'word_type': self.word_type or '基础词',
+            'added_at': self.added_at.isoformat() if self.added_at else None,
+            'last_review': self.last_review.isoformat() if self.last_review else None,
+            'first_learned': self.first_learned.isoformat() if self.first_learned else None,
+            'review_count': self.review_count,
+            'next_review': self.next_review.isoformat() if self.next_review else None,
+            'wordbook_id': self.wordbook_id,
+            'wrong_count': self.wrong_count or 0,
+            'is_starred': self.is_starred if self.is_starred is not None else False,
+            'sort_order': self.sort_order if self.sort_order is not None else 0,
+        }
+
     @staticmethod
     def _normalize_split_data(split_data):
         """

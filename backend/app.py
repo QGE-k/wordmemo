@@ -6,6 +6,8 @@ import os
 import re
 import threading
 import time
+import logging
+import traceback
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, date
 
@@ -21,6 +23,10 @@ from services.ocr_service import OCRService
 from services.ai_service import AIService
 from services.dictionary_service import DictionaryService
 from services.doc_import_service import parse_document, parse_document_preview
+
+# 应用日志：记录异常与关键操作，便于线上问题诊断
+logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+logger = logging.getLogger('wordmemo')
 
 # 创建Flask应用
 app = Flask(__name__)
@@ -1401,9 +1407,10 @@ def get_words():
     # 按添加时间正序排列（先添加的排前面）
     words = query.order_by(Word.added_at.asc()).all()
 
+    # 使用轻量级序列化（省略拆解/例句/词根等重型JSON字段），加快数千词列表加载
     return jsonify({
         'success': True,
-        'data': [w.to_dict() for w in words],
+        'data': [w.to_list_dict() for w in words],
         'total': len(words),
     })
 
@@ -1760,13 +1767,19 @@ def refresh_all_examples():
 @app.route('/api/words/<int:word_id>', methods=['GET'])
 def get_word(word_id):
     """获取单个单词详情"""
-    word = Word.query.get(word_id)
-    if not word:
-        return jsonify({'success': False, 'error': '单词不存在'}), 404
-    user_id = get_current_user_id()
-    if user_id and word.user_id and word.user_id != user_id:
-        return jsonify({'success': False, 'error': '无权访问'}), 403
-    return jsonify({'success': True, 'data': word.to_dict()})
+    try:
+        word = Word.query.get(word_id)
+        if not word:
+            return jsonify({'success': False, 'error': '单词不存在'}), 404
+        user_id = get_current_user_id()
+        if user_id and word.user_id and word.user_id != user_id:
+            return jsonify({'success': False, 'error': '无权访问'}), 403
+        return jsonify({'success': True, 'data': word.to_dict()})
+    except Exception as e:
+        # 防御性处理：记录真实异常，返回可读错误而非通用500
+        logger.error('获取单词详情失败 word_id=%s: %s\n%s', word_id, e, traceback.format_exc())
+        db.session.rollback()
+        return jsonify({'success': False, 'error': '获取单词详情失败，请稍后重试'}), 500
 
 
 @app.route('/api/words/lookup', methods=['GET'])
@@ -4284,6 +4297,9 @@ def not_found(error):
 @app.errorhandler(500)
 def internal_error(error):
     """500错误处理"""
+    # 记录真实异常堆栈，便于线上问题定位
+    logger.error('服务器内部错误 %s %s: %s\n%s',
+                 request.method, request.path, error, traceback.format_exc())
     db.session.rollback()
     return jsonify({'success': False, 'error': '服务器内部错误'}), 500
 
