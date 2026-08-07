@@ -438,6 +438,29 @@ class WordAPI {
     return this.request('/words/clear', { method: 'DELETE' });
   }
 
+  // 错题本：获取错过的单词（wrong_count>0）
+  async getWrongWords(params = {}) {
+    const qs = new URLSearchParams();
+    if (params.wordbook_id) qs.set('wordbook_id', params.wordbook_id);
+    if (params.limit) qs.set('limit', params.limit);
+    const res = await this.request('/words/wrong' + (qs.toString() ? '?' + qs.toString() : ''));
+    return res && res.data ? res.data : [];
+  }
+
+  // 将错误单词标记为已掌握（从错题本移除）
+  async healWrongWord(wordId) {
+    return this.request('/words/' + wordId + '/heal', { method: 'POST' });
+  }
+
+  // 保存本次学习时长（秒），落库到后端按天累加
+  async saveStudySession(seconds) {
+    if (!seconds || seconds <= 0) return null;
+    return this.request('/learn/session', {
+      method: 'POST',
+      body: JSON.stringify({ seconds: Math.round(seconds) }),
+    });
+  }
+
   // 文档导入预览（上传文件，返回提取的单词列表）
   async importPreview(file) {
     const formData = new FormData();
@@ -1427,7 +1450,7 @@ function stopStudyTimer() {
   const elapsed = Math.floor((Date.now() - studyStartTime) / 1000); // 秒
   studyStartTime = null;
   if (studyTimerInterval) { clearInterval(studyTimerInterval); studyTimerInterval = null; }
-  // 保存到当天的学习时长
+  // 保存到当天的学习时长（本地离线兜底）
   const today = new Date().toISOString().slice(0, 10);
   const key = `wordmemo_study_time_${today}`;
   const prev = parseInt(localStorage.getItem(key) || '0', 10);
@@ -1435,6 +1458,10 @@ function stopStudyTimer() {
   // 更新总时长
   const totalTime = parseInt(localStorage.getItem('wordmemo_total_study_time') || '0', 10);
   localStorage.setItem('wordmemo_total_study_time', totalTime + elapsed);
+  // 异步落库到后端（跨设备统计，失败静默不影响使用）
+  if (elapsed > 0) {
+    api.saveStudySession(elapsed).catch(() => {});
+  }
 }
 
 function updateStudyTimerDisplay() {
@@ -1509,49 +1536,7 @@ async function checkWordDuplicate(word, wordbookId) {
   }
 }
 
-/**
- * 单词发音
- * 优先使用 Android 原生 TTS（WebView 不支持 Web Speech API）
- * 回退到浏览器 Web Speech API
- * @param {string} word - 要发音的单词
- * @param {HTMLElement} [btn] - 触发按钮，用于播放动画
- */
-function speakWord(word, btn) {
-  if (!word) return;
 
-  // 优先使用 Android 原生 TTS 引擎
-  if (window.AndroidTTS && typeof window.AndroidTTS.isAvailable === 'function' && window.AndroidTTS.isAvailable()) {
-    window.AndroidTTS.speak(word);
-    if (btn) {
-      btn.classList.add('speaking');
-      setTimeout(() => btn.classList.remove('speaking'), 1500);
-    }
-    return;
-  }
-
-  // 回退到浏览器 Web Speech API
-  if (!('speechSynthesis' in window)) {
-    showToast('当前环境不支持语音播放', 'error');
-    return;
-  }
-  // 停止正在播放的语音
-  window.speechSynthesis.cancel();
-  const utter = new SpeechSynthesisUtterance(word);
-  utter.lang = 'en-US';
-  utter.rate = 0.9;     // 稍微放慢，便于学习
-  utter.pitch = 1;
-  // 尝试选择英语语音
-  const voices = window.speechSynthesis.getVoices();
-  const enVoice = voices.find(v => v.lang.startsWith('en'));
-  if (enVoice) utter.voice = enVoice;
-  // 播放动画
-  if (btn) {
-    btn.classList.add('speaking');
-    utter.onend = () => btn.classList.remove('speaking');
-    utter.onerror = () => btn.classList.remove('speaking');
-  }
-  window.speechSynthesis.speak(utter);
-}
 
 /**
  * 生成单词卡片 HTML
@@ -1697,6 +1682,175 @@ function onPageEnter(pageName) {
 
 let homeStatsCache = null; // 缓存统计数据
 
+/**
+ * 统一的首页统计数字渲染。
+ * 所有来源（renderHome / refreshHomeStats / renderHomeFromCache / refreshHomeDataSilently）
+ * 都通过本函数更新数字类 DOM，避免多份重复逻辑导致数据不一致。
+ * @param {object} stats 后端 /api/stats 返回的数据
+ * @param {boolean} full 是否使用完整文案（带"每天学X个"），默认 false 用精简文案
+ */
+function applyHomeStats(stats, full) {
+  if (!stats) return;
+  const setTxt = (id, val) => {
+    const el = $('#' + id);
+    if (el && el.textContent != val) el.textContent = val;
+  };
+  // 连续天数 & 签到
+  setTxt('streakNum', stats.streak_days || 0);
+  updateCheckinUI(stats.checked_in, stats.streak_days);
+  // 今日概览
+  setTxt('todayLearned', stats.today_learned || 0);
+  setTxt('todayReviewCount', stats.today_review || 0);
+  setTxt('todayNewCount', stats.pending_today !== undefined ? stats.pending_today : (stats.new || 0));
+  // 统计卡片
+  setTxt('statTotal', stats.total || 0);
+  setTxt('statNew', stats.new || 0);
+  setTxt('statReview', stats.review || 0);
+  setTxt('statMastered', stats.mastered || 0);
+  // 操作按钮描述
+  const dailyGoal = stats.daily_goal || 20;
+  const pendingToday = stats.pending_today !== undefined ? stats.pending_today : Math.max(0, dailyGoal - (stats.today_learned || 0));
+  const newWordsLeft = stats.new || 0;
+  const learnDesc = $('#learnDesc');
+  if (learnDesc) {
+    if (newWordsLeft > 0) {
+      learnDesc.textContent = full ? `每天学${dailyGoal}个，还有${pendingToday}个待学` : `${pendingToday}个待学`;
+    } else if (pendingToday > 0) {
+      learnDesc.textContent = full ? `每天学${dailyGoal}个，词本已学完` : `词本已学完`;
+    } else {
+      learnDesc.textContent = full ? `每天学${dailyGoal}个，今日已完成` : `今日已完成`;
+    }
+  }
+  const reviewDesc = $('#reviewDesc');
+  if (reviewDesc) reviewDesc.textContent = `${stats.today_review || 0}个单词待复习`;
+  // 学习曲线
+  const historyArr = (stats.history || []).map(h => h.count || 0);
+  drawLineChart($('#homeLineChart'), historyArr);
+}
+
+/* ==================== 错题本 ==================== */
+let wrongbookListCache = null; // 错题本缓存
+
+// 加载错题本：更新首页入口显示 + 渲染弹窗列表
+async function loadWrongbook() {
+  try {
+    const words = await api.getWrongWords();
+    wrongbookListCache = words;
+    const entry = $('#wrongbookEntry');
+    const desc = $('#wrongbookDesc');
+    if (entry) {
+      if (words.length > 0) {
+        entry.style.display = 'block';
+        if (desc) desc.textContent = `${words.length}个易错词`;
+      } else {
+        entry.style.display = 'none';
+      }
+    }
+  } catch (err) {
+    updateWrongbookCountFromCache();
+  }
+}
+
+// 无网络时用上一次缓存兜底显示
+function updateWrongbookCountFromCache() {
+  const words = wrongbookListCache || [];
+  const entry = $('#wrongbookEntry');
+  const desc = $('#wrongbookDesc');
+  if (entry) {
+    if (words.length > 0) {
+      entry.style.display = 'block';
+      if (desc) desc.textContent = `${words.length}个易错词`;
+    } else {
+      entry.style.display = 'none';
+    }
+  }
+}
+
+// 打开错题本弹窗
+async function openWrongbook() {
+  const modal = $('#wrongbookModal');
+  if (!modal) return;
+  modal.classList.add('active');
+  const list = $('#wrongbookList');
+  if (list) list.innerHTML = '<div class="empty-state"><p>加载中...</p></div>';
+  try {
+    if (!wrongbookListCache) wrongbookListCache = await api.getWrongWords();
+    renderWrongbookList(wrongbookListCache);
+  } catch (err) {
+    if (list) list.innerHTML = '<div class="empty-state"><p>加载失败，请检查网络</p></div>';
+  }
+}
+
+function renderWrongbookList(words) {
+  const list = $('#wrongbookList');
+  if (!list) return;
+  if (!words || words.length === 0) {
+    list.innerHTML = '<div class="empty-state"><p>暂无错词，继续保持！</p></div>';
+    return;
+  }
+  list.innerHTML = words.map(w => {
+    const meaning = (w.meaning || '').replace(/\n/g, ' ').slice(0, 40);
+    return `
+      <div class="wrongbook-item" data-id="${w.id}">
+        <div class="wb-word">
+          <div class="wb-word-title">${escapeHtml(w.word)}</div>
+          <div class="wb-word-meaning">${escapeHtml(meaning || '暂无释义')}</div>
+        </div>
+        <span class="wb-count">错${w.wrong_count || 0}次</span>
+        <button class="wb-heal" data-id="${w.id}">已掌握</button>
+      </div>`;
+  }).join('');
+  // 点击单词查看详情
+  list.querySelectorAll('.wrongbook-item .wb-word').forEach(el => {
+    el.addEventListener('click', () => openWordDetail(el.closest('.wrongbook-item').dataset.id));
+  });
+  // 标记掌握
+  list.querySelectorAll('.wb-heal').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.id;
+      try {
+        await api.healWrongWord(id);
+        wrongbookListCache = wrongbookListCache.filter(w => String(w.id) !== String(id));
+        renderWrongbookList(wrongbookListCache);
+        loadWrongbook(); // 同步首页入口
+        showToast('已从错题本移除');
+      } catch (err) {
+        showToast('操作失败，请重试');
+      }
+    });
+  });
+}
+
+// 关闭错题本弹窗
+function closeWrongbook() {
+  const modal = $('#wrongbookModal');
+  if (modal) modal.classList.remove('active');
+}
+
+// 去复习错词：进入复习页并加载这些错词
+function wrongbookReview() {
+  const words = wrongbookListCache || [];
+  if (words.length === 0) {
+    showToast('错题本是空的');
+    return;
+  }
+  closeWrongbook();
+  switchPage('review');
+  loadWrongbookReview();
+}
+
+// 加载错题本单词进行复习（走自主复习队列，但仅限错词）
+function loadWrongbookReview() {
+  const words = wrongbookListCache || [];
+  if (words.length === 0) return;
+  // 错题本缓存中已是完整单词对象，直接入队；切到自主复习模式
+  reviewAllMode = true;
+  reviewQueue = words;
+  reviewIndex = 0;
+  learnedIds = new Set();
+  renderReviewCard();
+}
+
 async function renderHome() {
   try {
     // 通知 Service Worker 清空 API 缓存，确保拿到最新数据
@@ -1714,45 +1868,16 @@ async function renderHome() {
     // 更新欢迎语
     updateGreeting();
 
-    // 连续天数（基于签到记录）
-    $('#streakNum').textContent = stats.streak_days || 0;
-    // 同步签到按钮状态
-    updateCheckinUI(stats.checked_in, stats.streak_days);
+    // 统一渲染统计数字（完整文案）
+    applyHomeStats(stats, true);
 
-    // 今日概览
-    $('#todayLearned').textContent = stats.today_learned || 0;
-    $('#todayReviewCount').textContent = stats.today_review || 0;
-    // 待学 = 每日目标 - 今日已学（最低0）
-    $('#todayNewCount').textContent = stats.pending_today !== undefined ? stats.pending_today : (stats.new || 0);
-
-    // 操作按钮描述：显示每天计划学多少 + 还有多少待学/待复习
-    const dailyGoal = stats.daily_goal || 20;
-    const pendingToday = stats.pending_today !== undefined ? stats.pending_today : Math.max(0, dailyGoal - (stats.today_learned || 0));
-    const newWordsLeft = stats.new || 0;
-    if (newWordsLeft > 0) {
-      $('#learnDesc').textContent = `每天学${dailyGoal}个，还有${pendingToday}个待学`;
-    } else if (pendingToday > 0) {
-      $('#learnDesc').textContent = `每天学${dailyGoal}个，词本已学完`;
-    } else {
-      $('#learnDesc').textContent = `每天学${dailyGoal}个，今日已完成`;
-    }
-    $('#reviewDesc').textContent = `${stats.today_review || 0}个单词待复习`;
-
-    // 统计卡片
-    $('#statTotal').textContent = stats.total || 0;
-    $('#statNew').textContent = stats.new || 0;
-    $('#statReview').textContent = stats.review || 0;
-    $('#statMastered').textContent = stats.mastered || 0;
+    // 错题本入口（异步，失败不影响主流程）
+    loadWrongbook();
 
     // 概览数字点击跳转
     bindOverviewClicks();
     // 统计卡片点击跳转
     bindStatCardClicks();
-
-    // 学习曲线折线图
-    // 后端 history 格式：[{date, count}, ...]，需转为数字数组
-    const historyArr = (stats.history || []).map(h => h.count || 0);
-    drawLineChart($('#homeLineChart'), historyArr);
 
     // 今日单词列表（显示全部，超出区域可滚动）
     const list = $('#todayWordList');
@@ -1786,27 +1911,10 @@ async function refreshHomeStats() {
   try {
     const stats = await api.getStats(learnWordbookId);
     homeStatsCache = stats;
-    $('#todayLearned').textContent = stats.today_learned || 0;
-    $('#todayReviewCount').textContent = stats.today_review || 0;
-    $('#todayNewCount').textContent = stats.pending_today !== undefined ? stats.pending_today : (stats.new || 0);
-    $('#statTotal').textContent = stats.total || 0;
-    $('#statNew').textContent = stats.new || 0;
-    $('#statReview').textContent = stats.review || 0;
-    $('#statMastered').textContent = stats.mastered || 0;
-    const dailyGoal = stats.daily_goal || 20;
-    const pendingToday = stats.pending_today !== undefined ? stats.pending_today : Math.max(0, dailyGoal - (stats.today_learned || 0));
-    const newWordsLeft = stats.new || 0;
-    if (newWordsLeft > 0) {
-      $('#learnDesc').textContent = `每天学${dailyGoal}个，还有${pendingToday}个待学`;
-    } else if (pendingToday > 0) {
-      $('#learnDesc').textContent = `每天学${dailyGoal}个，词本已学完`;
-    } else {
-      $('#learnDesc').textContent = `每天学${dailyGoal}个，今日已完成`;
-    }
-    $('#reviewDesc').textContent = `${stats.today_review || 0}个单词待复习`;
-    // 更新学习曲线
-    const historyArr = (stats.history || []).map(h => h.count || 0);
-    drawLineChart($('#homeLineChart'), historyArr);
+    // 统一渲染统计数字（完整文案），避免重复逻辑导致数据不一致
+    applyHomeStats(stats, true);
+    // 错题本入口（异步，失败不影响主流程）
+    loadWrongbook();
   } catch (e) {
     // 静默失败，不影响用户操作
     console.warn('刷新首页统计失败:', e);
@@ -6323,6 +6431,20 @@ function bindEvents() {
   }
   $('#goLibraryFromHome').addEventListener('click', () => switchPage('library'));
 
+  // 错题本
+  const btnOpenWrongbook = $('#btnOpenWrongbook');
+  if (btnOpenWrongbook) btnOpenWrongbook.addEventListener('click', openWrongbook);
+  const wrongbookCloseBtn = $('#wrongbookCloseBtn');
+  if (wrongbookCloseBtn) wrongbookCloseBtn.addEventListener('click', closeWrongbook);
+  const wrongbookReviewBtn = $('#wrongbookReviewBtn');
+  if (wrongbookReviewBtn) wrongbookReviewBtn.addEventListener('click', wrongbookReview);
+  const wrongbookModal = $('#wrongbookModal');
+  if (wrongbookModal) {
+    wrongbookModal.addEventListener('click', (e) => {
+      if (e.target === wrongbookModal) closeWrongbook();
+    });
+  }
+
   // 录入方式切换
   $$('.tab-switch-item').forEach(t => {
     t.addEventListener('click', () => switchInputTab(t.dataset.inputTab));
@@ -7397,39 +7519,11 @@ async function refreshHomeDataSilently() {
     const words = await api.getWords({ status: 'new' }).catch(() => []);
     saveHomeCache(stats, words);
 
-    // 静默更新首页数字（不触发动画/重绘）
-    const updateText = (id, val) => {
-      const el = $('#' + id);
-      if (el && el.textContent != val) el.textContent = val;
-    };
-    updateText('streakNum', stats.streak_days || 0);
-    updateText('todayLearned', stats.today_learned || 0);
-    updateText('todayReviewCount', stats.today_review || 0);
-    updateText('todayNewCount', stats.pending_today !== undefined ? stats.pending_today : (stats.new || 0));
-    updateText('statTotal', stats.total || 0);
-    updateText('statNew', stats.new || 0);
-    updateText('statReview', stats.review || 0);
-    updateText('statMastered', stats.mastered || 0);
+    // 静默更新首页数字（不触发动画/重绘），统一走 applyHomeStats（精简文案）
+    applyHomeStats(stats, false);
 
-    // 更新签到状态
-    updateCheckinUI(stats.checked_in, stats.streak_days);
-
-    // 更新操作按钮描述
-    const dailyGoal = stats.daily_goal || 20;
-    const sPendingToday = stats.pending_today !== undefined ? stats.pending_today : Math.max(0, dailyGoal - (stats.today_learned || 0));
-    const sNewWordsLeft = stats.new || 0;
-    const learnDesc = $('#learnDesc');
-    if (learnDesc) {
-      if (sNewWordsLeft > 0) {
-        learnDesc.textContent = `${sPendingToday}个待学`;
-      } else if (sPendingToday > 0) {
-        learnDesc.textContent = `词本已学完`;
-      } else {
-        learnDesc.textContent = `今日已完成`;
-      }
-    }
-    const reviewDesc = $('#reviewDesc');
-    if (reviewDesc) reviewDesc.textContent = `${stats.today_review || 0}个单词待复习`;
+    // 错题本入口（异步，失败不影响主流程）
+    updateWrongbookCountFromCache();
   } catch (e) {
     console.log('Silent refresh failed:', e);
   }

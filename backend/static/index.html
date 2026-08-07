@@ -90,6 +90,18 @@
             </button>
           </div>
 
+          <!-- 错题本快速入口 -->
+          <div class="wrongbook-entry" id="wrongbookEntry" style="display:none;">
+            <button class="wrongbook-btn" id="btnOpenWrongbook">
+              <span class="wrongbook-icon">✗</span>
+              <div class="wrongbook-text">
+                <span class="wrongbook-title">错题本</span>
+                <span class="wrongbook-desc" id="wrongbookDesc">0个易错词</span>
+              </div>
+              <span class="wrongbook-arrow">›</span>
+            </button>
+          </div>
+
           <!-- 统计卡片 -->
           <div class="stat-cards">
             <div class="stat-card">
@@ -870,6 +882,26 @@
 
   <!-- ============ Toast 提示容器 ============ -->
   <div class="toast-container" id="toastContainer"></div>
+
+  <!-- ============ 错题本弹窗 ============ -->
+  <div class="modal-overlay" id="wrongbookModal">
+    <div class="modal-sheet wrongbook-modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-header">
+        <h3 class="modal-word">错题本</h3>
+        <button class="modal-close" id="wrongbookCloseBtn">×</button>
+      </div>
+      <div class="modal-body">
+        <p class="wrongbook-tip">复习时答错的单词会进入这里，按错误次数排序，建议优先攻克。</p>
+        <div class="wrongbook-list" id="wrongbookList">
+          <div class="empty-state"><p>暂无错词，继续保持！</p></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-primary" id="wrongbookReviewBtn">去复习这些词</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ============ 下拉刷新指示器 ============ -->
   <div class="pull-refresh-indicator" id="pullRefreshIndicator" style="display:none">↓</div>

@@ -1186,6 +1186,19 @@ def update_review_accuracy(is_correct):
     db.session.commit()
 
 
+def rollback_learn_history_for_word(word):
+    """删除已学单词时回退今日学习统计
+
+    若该词首次学习时间落在"今天"的 UTC 区间内，则今日新学计数 -1，
+    避免删除今日刚学的单词导致"今日已学 / 待学"数字失真。
+    """
+    if not word or word.status == 'new' or not word.first_learned:
+        return
+    today_start_utc, today_end_utc = get_today_utc_range()
+    if today_start_utc <= word.first_learned < today_end_utc:
+        update_learn_history(-1)
+
+
 def get_checkin_status():
     """获取今日签到状态和连续签到天数（按用户隔离）
     签到状态基于 checked_in 字段（用户手动点击签到），而非学习记录
@@ -1849,6 +1862,8 @@ def delete_word(word_id):
     if user_id and word.user_id and word.user_id != user_id:
         return jsonify({'success': False, 'error': '无权访问'}), 403
 
+    # 删除今日首学的单词时回退今日新学统计
+    rollback_learn_history_for_word(word)
     db.session.delete(word)
     db.session.commit()
     return jsonify({'success': True, 'message': '单词已删除'})
@@ -2099,6 +2114,8 @@ def batch_delete_words():
     user_id = get_current_user_id()
     deleted = 0
     errors = 0
+    learn_history_delta = 0  # 回退今日新学计数
+    today_start_utc, today_end_utc = get_today_utc_range()
     for wid in word_ids:
         word = Word.query.get(wid)
         if not word:
@@ -2107,16 +2124,73 @@ def batch_delete_words():
         if user_id and word.user_id and word.user_id != user_id:
             errors += 1
             continue
+        # 删除今日首学的单词时回退今日新学统计
+        if word.status != 'new' and word.first_learned and today_start_utc <= word.first_learned < today_end_utc:
+            learn_history_delta -= 1
         db.session.delete(word)
         deleted += 1
 
-    db.session.commit()
+    db.session.commit()  # 先提交删除
+    if learn_history_delta != 0:
+        update_learn_history(learn_history_delta)  # 再单独提交统计回退
     return jsonify({
         'success': True,
         'deleted': deleted,
         'errors': errors,
         'message': f'成功删除 {deleted} 个单词'
     })
+
+
+@app.route('/api/words/wrong', methods=['GET'])
+def get_wrong_words():
+    """错题本：返回答错过（wrong_count>0）的单词，按错误次数降序、到期优先
+
+    可选参数:
+    - wordbook_id: 按词本过滤（不传=全部，0=未归类）
+    - limit: 限制数量（默认不限）
+    前端可据此展示"最易错单词"，并支持一键复习/标记掌握。
+    """
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({'success': True, 'data': [], 'total': 0})
+
+    wordbook_id = request.args.get('wordbook_id', '').strip()
+    limit = request.args.get('limit', 0, type=int)
+
+    query = Word.query.filter(Word.user_id == user_id, Word.wrong_count > 0)
+    if wordbook_id and wordbook_id != '0':
+        try:
+            query = query.filter_by(wordbook_id=int(wordbook_id))
+        except ValueError:
+            pass
+    elif wordbook_id == '0':
+        query = query.filter(Word.wordbook_id.is_(None))
+
+    # 错误次数多的优先，其次到期早的优先（next_review 非空且较早）
+    query = query.order_by(
+        Word.wrong_count.desc(),
+        Word.next_review.is_(None),  # 有到期时间的排前面
+        Word.next_review.asc(),
+        Word.last_review.desc(),
+    )
+    if limit > 0:
+        query = query.limit(limit)
+    words = query.all()
+    return jsonify({'success': True, 'data': [w.to_dict() for w in words], 'total': len(words)})
+
+
+@app.route('/api/words/<int:word_id>/heal', methods=['POST'])
+def heal_wrong_word(word_id):
+    """将错误单词标记为已掌握，清零错误次数（从错题本移除）"""
+    word = Word.query.get(word_id)
+    if not word:
+        return jsonify({'success': False, 'error': '单词不存在'}), 404
+    user_id = get_current_user_id()
+    if user_id and word.user_id and word.user_id != user_id:
+        return jsonify({'success': False, 'error': '无权访问'}), 403
+    word.wrong_count = 0
+    db.session.commit()
+    return jsonify({'success': True, 'data': word.to_dict(), 'message': '已从错题本移除'})
 
 
 @app.route('/api/words/distractors', methods=['GET'])
@@ -3387,39 +3461,35 @@ def get_enhanced_stats():
         })
 
     # ---------- 2. avg_daily_time: 平均每日学习时长（分钟）----------
-    # 优先使用前端 localStorage 传入的数据，否则回退到 learn_sessions 表
+    # 以 learn_sessions 表为准（已落库），若前端仍传 localStorage 数据则合并累加，避免切换期丢数据
     avg_daily_time = 0.0
     daily_time_detail = []
     daily_times_param = request.args.get('daily_times', '').strip()
-    frontend_times = None
+
+    # 构建最近 7 天的时长映射（先以数据库 learn_sessions 为准）
+    time_map = {}
+    sessions = LearnSession.query.filter(LearnSession.date >= seven_days_ago)
+    if user_id:
+        sessions = sessions.filter_by(user_id=user_id)
+    for s in sessions.all():
+        key = s.date.isoformat() if s.date else None
+        if key:
+            time_map[key] = time_map.get(key, 0) + (s.duration_minutes or 0)
+
+    # 若前端仍传 localStorage 数据，叠加合并（向后兼容旧版本）
     if daily_times_param:
         import json as _json
         try:
             frontend_times = _json.loads(daily_times_param)
+            if isinstance(frontend_times, list):
+                for item in frontend_times:
+                    if isinstance(item, dict) and item.get('date'):
+                        try:
+                            time_map[item['date']] = time_map.get(item['date'], 0) + float(item.get('minutes', 0) or 0)
+                        except (ValueError, TypeError):
+                            continue
         except (ValueError, TypeError):
-            frontend_times = None
-
-    # 构建最近 7 天的时长映射
-    time_map = {}
-    if frontend_times and isinstance(frontend_times, list):
-        for item in frontend_times:
-            if isinstance(item, dict) and item.get('date'):
-                try:
-                    time_map[item['date']] = float(item.get('minutes', 0) or 0)
-                except (ValueError, TypeError):
-                    continue
-    else:
-        # 回退：从 learn_sessions 表按日期汇总
-        sessions = LearnSession.query.filter(
-            LearnSession.date >= seven_days_ago
-        )
-        if user_id:
-            sessions = sessions.filter_by(user_id=user_id)
-        sessions = sessions.all()
-        for s in sessions:
-            key = s.date.isoformat() if s.date else None
-            if key:
-                time_map[key] = time_map.get(key, 0) + (s.duration_minutes or 0)
+            pass
 
     total_minutes = 0.0
     for i in range(7):
@@ -3765,7 +3835,24 @@ def submit_review(word_id):
 # ==================== 学习队列API ====================
 
 def get_setting():
-    """获取全局设置（单行表，id=1）"""
+    """获取当前用户设置（按用户隔离）
+
+    已登录用户读取/创建自己的设置行；未登录或旧数据沿用 id=1 的全局默认行，保证向后兼容。
+    """
+    user_id = get_current_user_id()
+    if user_id:
+        setting = Setting.query.filter_by(user_id=user_id).first()
+        if not setting:
+            setting = Setting(user_id=user_id, daily_goal=20)
+            db.session.add(setting)
+            try:
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+                setting = Setting.query.filter_by(user_id=user_id).first()
+        return setting
+
+    # 未登录：返回全局默认行（id=1，向后兼容）
     setting = Setting.query.get(1)
     if not setting:
         setting = Setting(id=1, daily_goal=20)
@@ -3883,6 +3970,44 @@ def get_today_learned_words():
         'data': [w.to_dict() for w in words],
         'total': len(words),
     })
+
+
+@app.route('/api/learn/session', methods=['POST'])
+def save_study_session():
+    """保存学习时长（按天累加，跨设备统计每日学习时间）
+
+    请求体: {"minutes": 30} 或 {"seconds": 1800}
+    前端学习/复习页计时器在退出时调用，将本次学习时长落库。
+    """
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({'success': False, 'error': '请先登录'}), 401
+
+    data = request.get_json() or {}
+    if 'minutes' in data:
+        try:
+            minutes = int(data['minutes'])
+        except (ValueError, TypeError):
+            return jsonify({'success': False, 'error': '分钟数必须是数字'}), 400
+    elif 'seconds' in data:
+        try:
+            minutes = max(1, int(data['seconds']) // 60)
+        except (ValueError, TypeError):
+            return jsonify({'success': False, 'error': '秒数必须是数字'}), 400
+    else:
+        return jsonify({'success': False, 'error': '缺少 minutes 或 seconds 参数'}), 400
+
+    if minutes <= 0:
+        return jsonify({'success': True, 'data': {'duration_minutes': 0}})
+
+    today = date.today()
+    sess = LearnSession.query.filter_by(date=today, user_id=user_id).first()
+    if not sess:
+        sess = LearnSession(date=today, duration_minutes=0, user_id=user_id)
+        db.session.add(sess)
+    sess.duration_minutes = (sess.duration_minutes or 0) + minutes
+    db.session.commit()
+    return jsonify({'success': True, 'data': {'duration_minutes': sess.duration_minutes}})
 
 
 @app.route('/api/stats/calendar', methods=['GET'])
@@ -4015,17 +4140,15 @@ def update_settings():
 
 @app.route('/api/words/clear', methods=['DELETE'])
 def clear_all_words():
-    """清空所有单词数据（含学习历史，不可恢复）"""
+    """清空当前用户的单词数据（含学习历史、词本、学习时长，不可恢复）"""
+    user_id = get_current_user_id()
+    if not user_id:
+        return jsonify({'success': False, 'error': '请先登录后再清空数据'}), 401
     try:
-        user_id = get_current_user_id()
-        if user_id:
-            # 已登录：仅删除当前用户的单词和学习历史
-            db.session.query(Word).filter_by(user_id=user_id).delete(synchronize_session=False)
-            db.session.query(LearnHistory).filter_by(user_id=user_id).delete(synchronize_session=False)
-        else:
-            # 未登录：清空所有（向后兼容）
-            db.session.query(Word).delete(synchronize_session=False)
-            db.session.query(LearnHistory).delete(synchronize_session=False)
+        db.session.query(Word).filter_by(user_id=user_id).delete(synchronize_session=False)
+        db.session.query(LearnHistory).filter_by(user_id=user_id).delete(synchronize_session=False)
+        db.session.query(LearnSession).filter_by(user_id=user_id).delete(synchronize_session=False)
+        db.session.query(Wordbook).filter_by(user_id=user_id).delete(synchronize_session=False)
         db.session.commit()
         return jsonify({'success': True, 'message': '已清空所有数据'})
     except Exception as e:
@@ -4206,7 +4329,7 @@ def ensure_wordbook_column():
 
 def ensure_settings_columns():
     """
-    数据库迁移：为 settings 表添加新列（复习计划/防遗忘相关）
+    数据库迁移：为 settings 表添加新列（复习计划/防遗忘相关 + 用户隔离 user_id）
     """
     from sqlalchemy import text, inspect
     inspector = inspect(db.engine)
@@ -4216,6 +4339,7 @@ def ensure_settings_columns():
         ('review_strategy', "VARCHAR(20) DEFAULT 'standard'"),
         ('anti_forget', 'BOOLEAN DEFAULT TRUE'),
         ('anti_forget_interval', 'INTEGER DEFAULT 30'),
+        ('user_id', 'INTEGER'),  # 用户隔离：per-user 设置
     ]
     for col_name, col_def in new_cols:
         if col_name not in columns:

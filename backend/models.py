@@ -237,10 +237,17 @@ class LearnSession(db.Model):
 
 
 class Setting(db.Model):
-    """用户设置模型（单行表，存储全局设置）"""
+    """用户设置模型
+
+    按用户隔离：每个用户一行（user_id），未登录/旧数据沿用 id=1 的全局默认行。
+    早期版本为单行全局表（所有用户共享同一套学习目标/复习策略），
+    现通过 user_id 实现 per-user 隔离，避免多人互相影响。
+    """
     __tablename__ = 'settings'
 
-    id = db.Column(db.Integer, primary_key=True, default=1)
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    # 所属用户 ID（可空=全局默认行，id=1 向后兼容）
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
     # 每日新词学习目标
     daily_goal = db.Column(db.Integer, default=20)
     # 每日复习单词上限（0=不限制）

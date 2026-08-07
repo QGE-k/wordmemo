@@ -66,12 +66,14 @@ class WordAPI {
    * @returns {Promise<any>} 返回 JSON 数据
    */
   async request(path, options = {}) {
+    // 支持单次请求自定义超时（如导入场景）与隐藏"服务唤醒"提示（导入有进度条，避免误导）
+    const { timeout: customTimeout, suppressWakeToast = false, ...fetchOptions } = options;
     const url = this.baseURL + path;
     // 默认请求头
-    const headers = { ...options.headers };
+    const headers = { ...fetchOptions.headers };
 
     // 若不是 FormData，则设置 JSON Content-Type
-    if (!(options.body instanceof FormData)) {
+    if (!(fetchOptions.body instanceof FormData)) {
       headers['Content-Type'] = 'application/json';
     }
 
@@ -80,15 +82,15 @@ class WordAPI {
     // 普通请求：首次 10 秒 → 超时重试 30 秒
     const isAIRequest = path.includes('/ai/') || path.includes('/ocr/');
     const isLongAIRequest = path.includes('/ocr/add-words') || path.includes('/words/batch') || path.includes('/import/confirm');
-    const firstTimeout = isLongAIRequest ? 120000 : (isAIRequest ? 120000 : 10000);
-    const retryTimeout = isLongAIRequest ? 180000 : (isAIRequest ? 180000 : 30000);
+    const firstTimeout = customTimeout || (isLongAIRequest ? 120000 : (isAIRequest ? 120000 : 10000));
+    const retryTimeout = customTimeout ? Math.round(customTimeout * 1.5) : (isLongAIRequest ? 180000 : (isAIRequest ? 180000 : 30000));
 
     // 带超时的单次请求
     const fetchWithTimeout = async (timeoutMs) => {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
       try {
-        const res = await fetch(url, { ...options, headers, credentials: 'include', signal: controller.signal });
+        const res = await fetch(url, { ...fetchOptions, headers, credentials: 'include', signal: controller.signal });
         clearTimeout(timeoutId);
 
         if (!res.ok) {
@@ -99,8 +101,9 @@ class WordAPI {
             errMsg = errData.error || errData.message || errMsg;
           } catch (e) { }
           const err = new Error(errMsg);
-          // 保留后端返回的额外字段（如 quota_exceeded）
+          // 保留后端返回的额外字段（如 quota_exceeded、状态码）
           if (errData && errData.quota_exceeded) err.quota_exceeded = true;
+          err.status = res.status;
           throw err;
         }
 
@@ -124,7 +127,8 @@ class WordAPI {
       if (!isRetryable) throw err;
 
       // 提示用户服务正在唤醒（非阻塞 toast，AI 请求不提示因为有 loading）
-      if (!isAIRequest && typeof showToast === 'function') {
+      // 导入场景已传 suppressWakeToast=true（有进度条），不再弹误导提示
+      if (!isAIRequest && !suppressWakeToast && typeof showToast === 'function') {
         showToast('服务唤醒中，请稍候...', 'info');
       }
 
@@ -162,24 +166,26 @@ class WordAPI {
 
   // 添加单个单词
   // 返回值：{success, data, source}
-  async addWord(word, phonetic = '', meaning = '', wordbookId = null) {
+  async addWord(word, phonetic = '', meaning = '', wordbookId = null, opts = {}) {
     const payload = { word, phonetic, meaning };
     if (wordbookId && wordbookId !== '0' && wordbookId !== 0) payload.wordbook_id = wordbookId;
     const res = await this.request('/words', {
       method: 'POST',
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      ...opts
     });
     return res;  // 返回完整响应（含 source 字段）
   }
 
   // 批量添加单词（可选 wordbook_id 指定单词本）
   // 返回值：{success, added, skipped, failed, added_count, ...}
-  async addWordsBatch(words, wordbookId) {
+  async addWordsBatch(words, wordbookId, opts = {}) {
     const payload = { words };
     if (wordbookId && wordbookId !== '0' && wordbookId !== 0) payload.wordbook_id = wordbookId;
     const res = await this.request('/words/batch', {
       method: 'POST',
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      ...opts
     });
     return res;  // 返回完整响应
   }
@@ -223,12 +229,13 @@ class WordAPI {
   }
 
   // 按文档顺序重排词本内单词，保证导入后顺序与用户原始文档一致
-  reorderByNames(names, wordbookId) {
+  reorderByNames(names, wordbookId, opts = {}) {
     const payload = { names };
     if (wordbookId) payload.wordbook_id = wordbookId;
     return this.request('/words/reorder-by-names', {
       method: 'POST',
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      ...opts
     });
   }
 
@@ -429,6 +436,29 @@ class WordAPI {
   // 清空所有单词
   async clearAllWords() {
     return this.request('/words/clear', { method: 'DELETE' });
+  }
+
+  // 错题本：获取错过的单词（wrong_count>0）
+  async getWrongWords(params = {}) {
+    const qs = new URLSearchParams();
+    if (params.wordbook_id) qs.set('wordbook_id', params.wordbook_id);
+    if (params.limit) qs.set('limit', params.limit);
+    const res = await this.request('/words/wrong' + (qs.toString() ? '?' + qs.toString() : ''));
+    return res && res.data ? res.data : [];
+  }
+
+  // 将错误单词标记为已掌握（从错题本移除）
+  async healWrongWord(wordId) {
+    return this.request('/words/' + wordId + '/heal', { method: 'POST' });
+  }
+
+  // 保存本次学习时长（秒），落库到后端按天累加
+  async saveStudySession(seconds) {
+    if (!seconds || seconds <= 0) return null;
+    return this.request('/learn/session', {
+      method: 'POST',
+      body: JSON.stringify({ seconds: Math.round(seconds) }),
+    });
   }
 
   // 文档导入预览（上传文件，返回提取的单词列表）
@@ -1420,7 +1450,7 @@ function stopStudyTimer() {
   const elapsed = Math.floor((Date.now() - studyStartTime) / 1000); // 秒
   studyStartTime = null;
   if (studyTimerInterval) { clearInterval(studyTimerInterval); studyTimerInterval = null; }
-  // 保存到当天的学习时长
+  // 保存到当天的学习时长（本地离线兜底）
   const today = new Date().toISOString().slice(0, 10);
   const key = `wordmemo_study_time_${today}`;
   const prev = parseInt(localStorage.getItem(key) || '0', 10);
@@ -1428,6 +1458,10 @@ function stopStudyTimer() {
   // 更新总时长
   const totalTime = parseInt(localStorage.getItem('wordmemo_total_study_time') || '0', 10);
   localStorage.setItem('wordmemo_total_study_time', totalTime + elapsed);
+  // 异步落库到后端（跨设备统计，失败静默不影响使用）
+  if (elapsed > 0) {
+    api.saveStudySession(elapsed).catch(() => {});
+  }
 }
 
 function updateStudyTimerDisplay() {
@@ -1502,49 +1536,7 @@ async function checkWordDuplicate(word, wordbookId) {
   }
 }
 
-/**
- * 单词发音
- * 优先使用 Android 原生 TTS（WebView 不支持 Web Speech API）
- * 回退到浏览器 Web Speech API
- * @param {string} word - 要发音的单词
- * @param {HTMLElement} [btn] - 触发按钮，用于播放动画
- */
-function speakWord(word, btn) {
-  if (!word) return;
 
-  // 优先使用 Android 原生 TTS 引擎
-  if (window.AndroidTTS && typeof window.AndroidTTS.isAvailable === 'function' && window.AndroidTTS.isAvailable()) {
-    window.AndroidTTS.speak(word);
-    if (btn) {
-      btn.classList.add('speaking');
-      setTimeout(() => btn.classList.remove('speaking'), 1500);
-    }
-    return;
-  }
-
-  // 回退到浏览器 Web Speech API
-  if (!('speechSynthesis' in window)) {
-    showToast('当前环境不支持语音播放', 'error');
-    return;
-  }
-  // 停止正在播放的语音
-  window.speechSynthesis.cancel();
-  const utter = new SpeechSynthesisUtterance(word);
-  utter.lang = 'en-US';
-  utter.rate = 0.9;     // 稍微放慢，便于学习
-  utter.pitch = 1;
-  // 尝试选择英语语音
-  const voices = window.speechSynthesis.getVoices();
-  const enVoice = voices.find(v => v.lang.startsWith('en'));
-  if (enVoice) utter.voice = enVoice;
-  // 播放动画
-  if (btn) {
-    btn.classList.add('speaking');
-    utter.onend = () => btn.classList.remove('speaking');
-    utter.onerror = () => btn.classList.remove('speaking');
-  }
-  window.speechSynthesis.speak(utter);
-}
 
 /**
  * 生成单词卡片 HTML
@@ -1690,6 +1682,175 @@ function onPageEnter(pageName) {
 
 let homeStatsCache = null; // 缓存统计数据
 
+/**
+ * 统一的首页统计数字渲染。
+ * 所有来源（renderHome / refreshHomeStats / renderHomeFromCache / refreshHomeDataSilently）
+ * 都通过本函数更新数字类 DOM，避免多份重复逻辑导致数据不一致。
+ * @param {object} stats 后端 /api/stats 返回的数据
+ * @param {boolean} full 是否使用完整文案（带"每天学X个"），默认 false 用精简文案
+ */
+function applyHomeStats(stats, full) {
+  if (!stats) return;
+  const setTxt = (id, val) => {
+    const el = $('#' + id);
+    if (el && el.textContent != val) el.textContent = val;
+  };
+  // 连续天数 & 签到
+  setTxt('streakNum', stats.streak_days || 0);
+  updateCheckinUI(stats.checked_in, stats.streak_days);
+  // 今日概览
+  setTxt('todayLearned', stats.today_learned || 0);
+  setTxt('todayReviewCount', stats.today_review || 0);
+  setTxt('todayNewCount', stats.pending_today !== undefined ? stats.pending_today : (stats.new || 0));
+  // 统计卡片
+  setTxt('statTotal', stats.total || 0);
+  setTxt('statNew', stats.new || 0);
+  setTxt('statReview', stats.review || 0);
+  setTxt('statMastered', stats.mastered || 0);
+  // 操作按钮描述
+  const dailyGoal = stats.daily_goal || 20;
+  const pendingToday = stats.pending_today !== undefined ? stats.pending_today : Math.max(0, dailyGoal - (stats.today_learned || 0));
+  const newWordsLeft = stats.new || 0;
+  const learnDesc = $('#learnDesc');
+  if (learnDesc) {
+    if (newWordsLeft > 0) {
+      learnDesc.textContent = full ? `每天学${dailyGoal}个，还有${pendingToday}个待学` : `${pendingToday}个待学`;
+    } else if (pendingToday > 0) {
+      learnDesc.textContent = full ? `每天学${dailyGoal}个，词本已学完` : `词本已学完`;
+    } else {
+      learnDesc.textContent = full ? `每天学${dailyGoal}个，今日已完成` : `今日已完成`;
+    }
+  }
+  const reviewDesc = $('#reviewDesc');
+  if (reviewDesc) reviewDesc.textContent = `${stats.today_review || 0}个单词待复习`;
+  // 学习曲线
+  const historyArr = (stats.history || []).map(h => h.count || 0);
+  drawLineChart($('#homeLineChart'), historyArr);
+}
+
+/* ==================== 错题本 ==================== */
+let wrongbookListCache = null; // 错题本缓存
+
+// 加载错题本：更新首页入口显示 + 渲染弹窗列表
+async function loadWrongbook() {
+  try {
+    const words = await api.getWrongWords();
+    wrongbookListCache = words;
+    const entry = $('#wrongbookEntry');
+    const desc = $('#wrongbookDesc');
+    if (entry) {
+      if (words.length > 0) {
+        entry.style.display = 'block';
+        if (desc) desc.textContent = `${words.length}个易错词`;
+      } else {
+        entry.style.display = 'none';
+      }
+    }
+  } catch (err) {
+    updateWrongbookCountFromCache();
+  }
+}
+
+// 无网络时用上一次缓存兜底显示
+function updateWrongbookCountFromCache() {
+  const words = wrongbookListCache || [];
+  const entry = $('#wrongbookEntry');
+  const desc = $('#wrongbookDesc');
+  if (entry) {
+    if (words.length > 0) {
+      entry.style.display = 'block';
+      if (desc) desc.textContent = `${words.length}个易错词`;
+    } else {
+      entry.style.display = 'none';
+    }
+  }
+}
+
+// 打开错题本弹窗
+async function openWrongbook() {
+  const modal = $('#wrongbookModal');
+  if (!modal) return;
+  modal.classList.add('active');
+  const list = $('#wrongbookList');
+  if (list) list.innerHTML = '<div class="empty-state"><p>加载中...</p></div>';
+  try {
+    if (!wrongbookListCache) wrongbookListCache = await api.getWrongWords();
+    renderWrongbookList(wrongbookListCache);
+  } catch (err) {
+    if (list) list.innerHTML = '<div class="empty-state"><p>加载失败，请检查网络</p></div>';
+  }
+}
+
+function renderWrongbookList(words) {
+  const list = $('#wrongbookList');
+  if (!list) return;
+  if (!words || words.length === 0) {
+    list.innerHTML = '<div class="empty-state"><p>暂无错词，继续保持！</p></div>';
+    return;
+  }
+  list.innerHTML = words.map(w => {
+    const meaning = (w.meaning || '').replace(/\n/g, ' ').slice(0, 40);
+    return `
+      <div class="wrongbook-item" data-id="${w.id}">
+        <div class="wb-word">
+          <div class="wb-word-title">${escapeHtml(w.word)}</div>
+          <div class="wb-word-meaning">${escapeHtml(meaning || '暂无释义')}</div>
+        </div>
+        <span class="wb-count">错${w.wrong_count || 0}次</span>
+        <button class="wb-heal" data-id="${w.id}">已掌握</button>
+      </div>`;
+  }).join('');
+  // 点击单词查看详情
+  list.querySelectorAll('.wrongbook-item .wb-word').forEach(el => {
+    el.addEventListener('click', () => openWordDetail(el.closest('.wrongbook-item').dataset.id));
+  });
+  // 标记掌握
+  list.querySelectorAll('.wb-heal').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = btn.dataset.id;
+      try {
+        await api.healWrongWord(id);
+        wrongbookListCache = wrongbookListCache.filter(w => String(w.id) !== String(id));
+        renderWrongbookList(wrongbookListCache);
+        loadWrongbook(); // 同步首页入口
+        showToast('已从错题本移除');
+      } catch (err) {
+        showToast('操作失败，请重试');
+      }
+    });
+  });
+}
+
+// 关闭错题本弹窗
+function closeWrongbook() {
+  const modal = $('#wrongbookModal');
+  if (modal) modal.classList.remove('active');
+}
+
+// 去复习错词：进入复习页并加载这些错词
+function wrongbookReview() {
+  const words = wrongbookListCache || [];
+  if (words.length === 0) {
+    showToast('错题本是空的');
+    return;
+  }
+  closeWrongbook();
+  switchPage('review');
+  loadWrongbookReview();
+}
+
+// 加载错题本单词进行复习（走自主复习队列，但仅限错词）
+function loadWrongbookReview() {
+  const words = wrongbookListCache || [];
+  if (words.length === 0) return;
+  // 错题本缓存中已是完整单词对象，直接入队；切到自主复习模式
+  reviewAllMode = true;
+  reviewQueue = words;
+  reviewIndex = 0;
+  learnedIds = new Set();
+  renderReviewCard();
+}
+
 async function renderHome() {
   try {
     // 通知 Service Worker 清空 API 缓存，确保拿到最新数据
@@ -1707,45 +1868,16 @@ async function renderHome() {
     // 更新欢迎语
     updateGreeting();
 
-    // 连续天数（基于签到记录）
-    $('#streakNum').textContent = stats.streak_days || 0;
-    // 同步签到按钮状态
-    updateCheckinUI(stats.checked_in, stats.streak_days);
+    // 统一渲染统计数字（完整文案）
+    applyHomeStats(stats, true);
 
-    // 今日概览
-    $('#todayLearned').textContent = stats.today_learned || 0;
-    $('#todayReviewCount').textContent = stats.today_review || 0;
-    // 待学 = 每日目标 - 今日已学（最低0）
-    $('#todayNewCount').textContent = stats.pending_today !== undefined ? stats.pending_today : (stats.new || 0);
-
-    // 操作按钮描述：显示每天计划学多少 + 还有多少待学/待复习
-    const dailyGoal = stats.daily_goal || 20;
-    const pendingToday = stats.pending_today !== undefined ? stats.pending_today : Math.max(0, dailyGoal - (stats.today_learned || 0));
-    const newWordsLeft = stats.new || 0;
-    if (newWordsLeft > 0) {
-      $('#learnDesc').textContent = `每天学${dailyGoal}个，还有${pendingToday}个待学`;
-    } else if (pendingToday > 0) {
-      $('#learnDesc').textContent = `每天学${dailyGoal}个，词本已学完`;
-    } else {
-      $('#learnDesc').textContent = `每天学${dailyGoal}个，今日已完成`;
-    }
-    $('#reviewDesc').textContent = `${stats.today_review || 0}个单词待复习`;
-
-    // 统计卡片
-    $('#statTotal').textContent = stats.total || 0;
-    $('#statNew').textContent = stats.new || 0;
-    $('#statReview').textContent = stats.review || 0;
-    $('#statMastered').textContent = stats.mastered || 0;
+    // 错题本入口（异步，失败不影响主流程）
+    loadWrongbook();
 
     // 概览数字点击跳转
     bindOverviewClicks();
     // 统计卡片点击跳转
     bindStatCardClicks();
-
-    // 学习曲线折线图
-    // 后端 history 格式：[{date, count}, ...]，需转为数字数组
-    const historyArr = (stats.history || []).map(h => h.count || 0);
-    drawLineChart($('#homeLineChart'), historyArr);
 
     // 今日单词列表（显示全部，超出区域可滚动）
     const list = $('#todayWordList');
@@ -1779,27 +1911,10 @@ async function refreshHomeStats() {
   try {
     const stats = await api.getStats(learnWordbookId);
     homeStatsCache = stats;
-    $('#todayLearned').textContent = stats.today_learned || 0;
-    $('#todayReviewCount').textContent = stats.today_review || 0;
-    $('#todayNewCount').textContent = stats.pending_today !== undefined ? stats.pending_today : (stats.new || 0);
-    $('#statTotal').textContent = stats.total || 0;
-    $('#statNew').textContent = stats.new || 0;
-    $('#statReview').textContent = stats.review || 0;
-    $('#statMastered').textContent = stats.mastered || 0;
-    const dailyGoal = stats.daily_goal || 20;
-    const pendingToday = stats.pending_today !== undefined ? stats.pending_today : Math.max(0, dailyGoal - (stats.today_learned || 0));
-    const newWordsLeft = stats.new || 0;
-    if (newWordsLeft > 0) {
-      $('#learnDesc').textContent = `每天学${dailyGoal}个，还有${pendingToday}个待学`;
-    } else if (pendingToday > 0) {
-      $('#learnDesc').textContent = `每天学${dailyGoal}个，词本已学完`;
-    } else {
-      $('#learnDesc').textContent = `每天学${dailyGoal}个，今日已完成`;
-    }
-    $('#reviewDesc').textContent = `${stats.today_review || 0}个单词待复习`;
-    // 更新学习曲线
-    const historyArr = (stats.history || []).map(h => h.count || 0);
-    drawLineChart($('#homeLineChart'), historyArr);
+    // 统一渲染统计数字（完整文案），避免重复逻辑导致数据不一致
+    applyHomeStats(stats, true);
+    // 错题本入口（异步，失败不影响主流程）
+    loadWrongbook();
   } catch (e) {
     // 静默失败，不影响用户操作
     console.warn('刷新首页统计失败:', e);
@@ -2004,6 +2119,74 @@ async function handleBatchPreview() {
   });
 }
 
+// 批量粘贴导入：带进度条 + 并发批处理 + 按粘贴顺序重排（与文档导入一致）
+// entries: [{word, meaning}]，按用户输入顺序传入
+async function importBatchWordsWithProgress(entries, wordbookId) {
+  const total = entries.length;
+  if (total === 0) return { added: 0, skipped: 0, failed: 0 };
+  const BATCH_SIZE = 40;
+  const batches = [];
+  for (let i = 0; i < total; i += BATCH_SIZE) {
+    batches.push(entries.slice(i, i + BATCH_SIZE));
+  }
+
+  showImportProgress({ done: 0, total, current: '正在启动导入...' });
+
+  const CONCURRENT = 2;
+  let nextIdx = 0;
+  let processedWords = 0;
+  const stats = { added: 0, skipped: 0, failed: 0 };
+  const failedDetails = []; // 收集失败词及原因，便于结束后展示
+
+  async function worker() {
+    while (true) {
+      const idx = nextIdx++;
+      if (idx >= batches.length) break;
+      const batch = batches[idx];
+
+      // 统一走批量接口：批量接口会正确处理重复词（计入"跳过"而非"失败"），
+      // 并返回真实失败词及原因；带释义的词以 {word, meaning} 形式传入，释义作为兜底。
+      if (batch.length > 0) {
+        try {
+          const dictBatch = batch.map(w => ({ word: w.word, meaning: w.meaning || '', starred: w.starred || false }));
+          // 导入期间不弹"服务唤醒中"提示（有进度条），并给批量添加更长超时
+          const res = await api.addWordsBatch(dictBatch, wordbookId, { suppressWakeToast: true, timeout: 60000 });
+          stats.added += (res && (res.added_count || (res.added || []).length)) || 0;
+          stats.skipped += (res && (res.skipped_count || (res.skipped || []).length)) || 0;
+          stats.failed += (res && (res.failed_count || (res.failed || []).length)) || 0;
+          if (res && Array.isArray(res.failed) && res.failed.length) {
+            failedDetails.push(...res.failed.map(f => ({ word: f.word, error: f.error })));
+          }
+        } catch (e) {
+          stats.failed += batch.length;
+          failedDetails.push(...batch.map(w => ({ word: w.word, error: (e && e.message) || '请求失败' })));
+        }
+      }
+
+      processedWords += batch.length;
+      showImportProgress({
+        done: processedWords,
+        total,
+        current: `第 ${idx + 1}/${batches.length} 批：成功 ${stats.added}，跳过 ${stats.skipped}，失败 ${stats.failed}`
+      });
+      await new Promise(r => setTimeout(r, 200));
+    }
+  }
+
+  await Promise.all(Array.from({ length: CONCURRENT }, () => worker()));
+
+  // 全部批次完成后，按粘贴原始顺序整体重排，确保词本顺序与用户输入一致
+  showImportProgress({ done: total, total, current: '正在按粘贴顺序整理词本...' });
+  try {
+    await api.reorderByNames(entries.map(w => w.word), wordbookId, { suppressWakeToast: true, timeout: 60000 });
+  } catch (reorderErr) {
+    console.error('[导入] 按粘贴顺序重排失败:', reorderErr);
+  }
+  hideLoading();
+  stats.failedDetails = failedDetails;
+  return stats;
+}
+
 // 批量确认导入
 async function handleBatchConfirm() {
   if (batchPreviewWords.length === 0) {
@@ -2011,29 +2194,19 @@ async function handleBatchConfirm() {
     return;
   }
   try {
-    showLoading('批量添加中...');
     const batchWordbookId = ($('#batchWordbookSelect') || {}).value || null;
-    const pureWords = batchPreviewWords.filter(w => !w.meaning).map(w => w.word);
-    const withMeaning = batchPreviewWords.filter(w => w.meaning);
-    let added = 0;
-    if (pureWords.length > 0) {
-      const res = await api.addWordsBatch(pureWords, batchWordbookId);
-      added += (res && res.added) || (res && res.count) || pureWords.length;
-    }
-    for (const w of withMeaning) {
-      try {
-        await api.addWord(w.word, '', w.meaning, batchWordbookId);
-        added++;
-      } catch (e) { /* 单个失败继续 */ }
-    }
-    hideLoading();
-    showToast(`成功添加 ${added} 个单词`, 'success');
+    const stats = await importBatchWordsWithProgress(batchPreviewWords, batchWordbookId);
+    showToast(`成功导入 ${stats.added} 个单词`, 'success');
+    showImportFailedWords(stats.failedDetails);
     $('#batchText').value = '';
     $('#batchPreview').style.display = 'none';
     batchPreviewWords = [];
+    // 导入后自动切换到"自定义顺序"，让用户看到按粘贴顺序排列的序号
+    switchLibrarySort('custom');
     // 实时刷新首页统计数据
     refreshHomeStats();
   } catch (err) {
+    hideLoading();
     handleError(err);
   }
 }
@@ -2056,34 +2229,50 @@ async function handleBatchAdd() {
   }
 
   try {
-    showLoading('批量添加中...');
-    // 后端 batch 接口接收纯单词数组；带释义的逐个添加
-    const pureWords = words.filter(w => !w.meaning).map(w => w.word);
-    const withMeaning = words.filter(w => w.meaning);
-
     // 获取选择的单词本
     const batchWordbookId = ($('#batchWordbookSelect') || {}).value || null;
-
-    let added = 0;
-    if (pureWords.length > 0) {
-      const res = await api.addWordsBatch(pureWords, batchWordbookId);
-      added += (res && res.added) || (res && res.count) || pureWords.length;
-    }
-    for (const w of withMeaning) {
-      try {
-        await api.addWord(w.word, '', w.meaning, batchWordbookId);
-        added++;
-      } catch (e) { /* 单个失败继续 */ }
-    }
-
-    hideLoading();
-    showToast(`成功添加 ${added} 个单词`, 'success');
+    // 按原始输入顺序解析出的 entries 直接传入，保证顺序一致
+    const entries = words;
+    const stats = await importBatchWordsWithProgress(entries, batchWordbookId);
+    showToast(`成功导入 ${stats.added} 个单词`, 'success');
+    showImportFailedWords(stats.failedDetails);
     $('#batchText').value = '';
+    // 导入后自动切换到"自定义顺序"，让用户看到按粘贴顺序排列的序号
+    switchLibrarySort('custom');
     // 实时刷新首页统计数据
     refreshHomeStats();
   } catch (err) {
+    hideLoading();
     handleError(err);
   }
+}
+
+/**
+ * 导入结束后展示失败单词及原因（若有）
+ * 说明：重复词已自动归入"跳过"；此处仅展示真正的失败词，方便用户定位/重试
+ */
+function showImportFailedWords(failedDetails) {
+  if (!failedDetails || failedDetails.length === 0) return;
+  const rows = failedDetails
+    .slice(0, 50)
+    .map(f => `<div class="failed-row"><b>${escapeHtml(f.word)}</b><span>${escapeHtml(f.error)}</span></div>`)
+    .join('');
+  const more = failedDetails.length > 50 ? `<div class="failed-more">… 共 ${failedDetails.length} 个失败</div>` : '';
+  const modal = document.createElement('div');
+  modal.id = 'importFailedModal';
+  modal.className = 'modal-overlay';
+  modal.style.alignItems = 'center';
+  modal.innerHTML = `
+    <div class="modal-content" style="max-width:360px;text-align:left;">
+      <h3 style="margin:0 0 12px;font-size:18px;">导入失败 ${failedDetails.length} 个单词</h3>
+      <div class="failed-list" style="max-height:300px;overflow-y:auto;background:#f5f5f7;border-radius:10px;padding:10px;margin-bottom:12px;">${rows}${more}</div>
+      <p class="failed-tip" style="color:#666;font-size:13px;margin:0 0 16px;">这些单词可能因格式或内容问题未能导入，可复制到文本框中单独重试。</p>
+      <button class="btn-primary" id="importFailedOk" style="width:100%;">知道了</button>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  modal.querySelector('#importFailedOk').addEventListener('click', () => modal.remove());
+  modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
 }
 
 // ===== 文档导入 =====
@@ -2237,7 +2426,7 @@ async function handleDocImport() {
     // （即使中途有批失败/漏词，重排后也会归位到文档对应位置，不会排到末尾）
     showImportProgress({ done: total, total, current: '正在按文档顺序整理词本...' });
     try {
-      await api.reorderByNames(docPendingWords, wordbookId);
+      await api.reorderByNames(docPendingWords, wordbookId, { suppressWakeToast: true, timeout: 60000 });
     } catch (reorderErr) {
       console.error('[导入] 按文档顺序重排失败:', reorderErr);
     }
@@ -2267,6 +2456,8 @@ async function handleDocImport() {
     showToast(`成功导入 ${added} 个单词`, 'success');
     // 清空待导入列表
     docPendingWords = [];
+    // 导入后自动切换到"自定义顺序"，让用户看到按文档顺序排列的序号
+    switchLibrarySort('custom');
     // 刷新单词本列表（更新计数）
     loadWordbooks();
     // 实时刷新首页统计数据
@@ -2660,7 +2851,7 @@ async function handleScanAddSelected() {
 
   try {
     showLoading(`正在添加 ${selected.length} 个单词...`);
-    const res = await api.addWordsBatch(wordsToAdd, scanWordbookId);
+    const res = await api.addWordsBatch(wordsToAdd, scanWordbookId, { suppressWakeToast: true, timeout: 60000 });
     hideLoading();
     const addedCount = res.added_count || (res.added || []).length;
     const skippedCount = res.skipped_count || (res.skipped || []).length;
@@ -2731,6 +2922,17 @@ let librarySearch = '';        // 当前搜索词
 let libraryData = [];          // 词库数据缓存
 let librarySort = 'added_desc'; // 当前排序方式
 let libraryWordbook = '';      // 当前选中的单词本（''=全部, '0'=未归类, 数字=具体单词本）
+
+/**
+ * 切换词库排序方式，并同步下拉框与列表渲染
+ * @param {string} sort - 排序方式：'added_desc'|'added_asc'|'word_asc'|'word_desc'|'custom'|...
+ */
+function switchLibrarySort(sort) {
+  librarySort = sort;
+  const sel = $('#sortSelect');
+  if (sel) sel.value = sort;
+  renderLibrary();
+}
 let wordbooks = [];            // 单词本列表缓存
 let editingWordbookId = null;  // 正在编辑的单词本 ID（null=新建）
 let currentWordbookColor = '#4a7fff'; // 新建单词本时选中的颜色
@@ -6229,6 +6431,20 @@ function bindEvents() {
   }
   $('#goLibraryFromHome').addEventListener('click', () => switchPage('library'));
 
+  // 错题本
+  const btnOpenWrongbook = $('#btnOpenWrongbook');
+  if (btnOpenWrongbook) btnOpenWrongbook.addEventListener('click', openWrongbook);
+  const wrongbookCloseBtn = $('#wrongbookCloseBtn');
+  if (wrongbookCloseBtn) wrongbookCloseBtn.addEventListener('click', closeWrongbook);
+  const wrongbookReviewBtn = $('#wrongbookReviewBtn');
+  if (wrongbookReviewBtn) wrongbookReviewBtn.addEventListener('click', wrongbookReview);
+  const wrongbookModal = $('#wrongbookModal');
+  if (wrongbookModal) {
+    wrongbookModal.addEventListener('click', (e) => {
+      if (e.target === wrongbookModal) closeWrongbook();
+    });
+  }
+
   // 录入方式切换
   $$('.tab-switch-item').forEach(t => {
     t.addEventListener('click', () => switchInputTab(t.dataset.inputTab));
@@ -7303,39 +7519,11 @@ async function refreshHomeDataSilently() {
     const words = await api.getWords({ status: 'new' }).catch(() => []);
     saveHomeCache(stats, words);
 
-    // 静默更新首页数字（不触发动画/重绘）
-    const updateText = (id, val) => {
-      const el = $('#' + id);
-      if (el && el.textContent != val) el.textContent = val;
-    };
-    updateText('streakNum', stats.streak_days || 0);
-    updateText('todayLearned', stats.today_learned || 0);
-    updateText('todayReviewCount', stats.today_review || 0);
-    updateText('todayNewCount', stats.pending_today !== undefined ? stats.pending_today : (stats.new || 0));
-    updateText('statTotal', stats.total || 0);
-    updateText('statNew', stats.new || 0);
-    updateText('statReview', stats.review || 0);
-    updateText('statMastered', stats.mastered || 0);
+    // 静默更新首页数字（不触发动画/重绘），统一走 applyHomeStats（精简文案）
+    applyHomeStats(stats, false);
 
-    // 更新签到状态
-    updateCheckinUI(stats.checked_in, stats.streak_days);
-
-    // 更新操作按钮描述
-    const dailyGoal = stats.daily_goal || 20;
-    const sPendingToday = stats.pending_today !== undefined ? stats.pending_today : Math.max(0, dailyGoal - (stats.today_learned || 0));
-    const sNewWordsLeft = stats.new || 0;
-    const learnDesc = $('#learnDesc');
-    if (learnDesc) {
-      if (sNewWordsLeft > 0) {
-        learnDesc.textContent = `${sPendingToday}个待学`;
-      } else if (sPendingToday > 0) {
-        learnDesc.textContent = `词本已学完`;
-      } else {
-        learnDesc.textContent = `今日已完成`;
-      }
-    }
-    const reviewDesc = $('#reviewDesc');
-    if (reviewDesc) reviewDesc.textContent = `${stats.today_review || 0}个单词待复习`;
+    // 错题本入口（异步，失败不影响主流程）
+    updateWrongbookCountFromCache();
   } catch (e) {
     console.log('Silent refresh failed:', e);
   }

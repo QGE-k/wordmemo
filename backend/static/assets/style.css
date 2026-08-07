@@ -457,6 +457,126 @@ input, textarea, select {
   transform: scale(0.97);
 }
 
+/* 错题本快速入口 */
+.wrongbook-entry {
+  margin-bottom: 20px;
+}
+.wrongbook-entry .wrongbook-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: #fff5f5;
+  border: 1px solid #ffb3b3;
+  color: #d32f2f;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: left;
+}
+.wrongbook-entry .wrongbook-btn:active {
+  transform: scale(0.98);
+}
+.wrongbook-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #d32f2f;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.wrongbook-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.wrongbook-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+.wrongbook-desc {
+  font-size: 12px;
+  color: #b71c1c;
+  opacity: 0.8;
+}
+.wrongbook-arrow {
+  font-size: 20px;
+  color: #d32f2f;
+  opacity: 0.6;
+}
+
+/* 错题本弹窗 */
+.wrongbook-modal-sheet .modal-body {
+  padding: 12px 16px 16px;
+}
+.wrongbook-tip {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin: 0 0 12px;
+  line-height: 1.5;
+}
+.wrongbook-list {
+  max-height: 52vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.wrongbook-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+}
+.wrongbook-item .wb-word {
+  flex: 1;
+  min-width: 0;
+}
+.wrongbook-item .wb-word .wb-word-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.wrongbook-item .wb-word .wb-word-meaning {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wrongbook-item .wb-count {
+  font-size: 12px;
+  color: #d32f2f;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.wrongbook-item .wb-heal {
+  padding: 5px 10px;
+  border-radius: var(--radius-sm);
+  background: #e8f5e9;
+  border: 1px solid #a5d6a7;
+  color: #2e7d32;
+  font-size: 12px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.2s;
+}
+.wrongbook-item .wb-heal:active {
+  transform: scale(0.95);
+}
+.wrongbook-item .wb-heal:hover {
+  background: #c8e6c9;
+}
+
 .action-btn {
   display: flex;
   align-items: center;

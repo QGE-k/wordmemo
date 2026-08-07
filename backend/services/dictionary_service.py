@@ -2901,6 +2901,7 @@ class DictionaryService:
         "sb spend time on sth": '某人花费时间 金钱在某物上',
         "sb pay money for sth": '某人支付钱财为某物 某人为某物买单',
         "sb1 charge sb2 money for sth": '某人1就某物向某人2要多少钱',
+        "charge sb money for sth": '就某物向某人收钱',
         "be made to do sth": '被迫做某事',
         "live in harmony with": '与……和谐共处',
         "prevent sb from doing sth": '阻止某人做某事',
@@ -7205,7 +7206,9 @@ class DictionaryService:
         # 释义必须含中文：在线词典若只返回英文定义（对背单词无帮助），丢弃交由 AI 翻译
         if result and not any('\u4e00' <= c <= '\u9fff' for c in (result.get('meaning') or '')):
             result = None
-        self._online_cache[word] = result
+        # 只缓存成功结果：失败(None)不缓存，避免同进程内永久无法重试
+        if result:
+            self._online_cache[word] = result
         return result
 
     def analyze_with_rules(self, word):
