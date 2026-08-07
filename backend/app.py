@@ -3857,7 +3857,16 @@ def get_setting():
     if user_id:
         setting = Setting.query.filter_by(user_id=user_id).first()
         if not setting:
-            setting = Setting(user_id=user_id, daily_goal=20)
+            # 新建用户设置行时，继承全局默认行（id=1）已配置的目标，避免丢用户之前设置的学习目标/复习策略
+            def_row = Setting.query.get(1)
+            setting = Setting(
+                user_id=user_id,
+                daily_goal=(def_row.daily_goal if def_row and def_row.daily_goal else 20),
+                daily_review_goal=(def_row.daily_review_goal if def_row and def_row.daily_review_goal else 50),
+                review_strategy=(def_row.review_strategy if def_row and def_row.review_strategy else 'standard'),
+                anti_forget=(def_row.anti_forget if def_row and def_row.anti_forget is not None else True),
+                anti_forget_interval=(def_row.anti_forget_interval if def_row and def_row.anti_forget_interval else 30),
+            )
             db.session.add(setting)
             try:
                 db.session.commit()
@@ -3865,7 +3874,7 @@ def get_setting():
                 logger.warning('创建用户设置失败 user_id=%s: %s', user_id, e)
                 db.session.rollback()
                 # 提交失败（如数据库连接瞬断）时重查；仍无则退回未持久化的内存对象，保证不返回 None
-                setting = Setting.query.filter_by(user_id=user_id).first() or Setting(user_id=user_id, daily_goal=20)
+                setting = Setting.query.filter_by(user_id=user_id).first() or setting
         return setting
 
     # 未登录：返回全局默认行（id=1，向后兼容）
@@ -4373,6 +4382,34 @@ def ensure_settings_columns():
             print(f"[迁移] {col_name} 列添加完成")
 
 
+def ensure_settings_id_sequence():
+    """
+    数据库迁移：确保 settings 表的 id 列有自增序列（仅 PostgreSQL）。
+
+    旧版建表时 settings.id 可能缺少序列/default，导致 INSERT 省略 id 时触发
+    NotNullViolation（"null value in column id"），进而让 get_setting() 创建
+    用户设置行反复失败。SQLite 的 INTEGER PRIMARY KEY 天然自增，无需处理。
+    """
+    if db.engine.dialect.name != 'postgresql':
+        return
+    from sqlalchemy import text
+    try:
+        with db.engine.connect() as conn:
+            # 创建序列（若表已由 SERIAL 创建，名称即为 settings_id_seq，此处为幂等 no-op）
+            conn.execute(text("CREATE SEQUENCE IF NOT EXISTS settings_id_seq"))
+            # 校准序列起点：max(id)+1，避免与已有行冲突
+            conn.execute(text(
+                "SELECT setval('settings_id_seq', "
+                "GREATEST(COALESCE((SELECT MAX(id) FROM settings), 0) + 1, 1), false)"
+            ))
+            # 让 id 列默认取序列值，INSERT 省略 id 时自动生成
+            conn.execute(text("ALTER TABLE settings ALTER COLUMN id SET DEFAULT nextval('settings_id_seq')"))
+            conn.commit()
+        print("[迁移] settings 表 id 自增序列已确保")
+    except Exception as e:
+        print(f"[迁移] 确保 settings 表 id 序列失败: {e}")
+
+
 def ensure_tenses_column():
     """
     数据库迁移：为 words 表添加 tenses 列（动词时态变形数据）
@@ -4723,6 +4760,8 @@ with app.app_context():
     ensure_wordbook_column()
     # 迁移：为 settings 表添加复习计划/防遗忘相关列
     ensure_settings_columns()
+    # 迁移：确保 settings 表 id 列为自增序列（修复 PostgreSQL 缺少序列导致创建设置失败）
+    ensure_settings_id_sequence()
     # 迁移：为 words 表添加 tenses 列（动词时态变形）
     ensure_tenses_column()
     # 迁移：为 words 和 wordbooks 表添加 user_id 列（用户数据隔离）
