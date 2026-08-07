@@ -3851,6 +3851,7 @@ def get_setting():
     """获取当前用户设置（按用户隔离）
 
     已登录用户读取/创建自己的设置行；未登录或旧数据沿用 id=1 的全局默认行，保证向后兼容。
+    任何情况下都不会返回 None，避免调用方访问 .daily_goal 等属性时崩溃（AttributeError）。
     """
     user_id = get_current_user_id()
     if user_id:
@@ -3860,9 +3861,11 @@ def get_setting():
             db.session.add(setting)
             try:
                 db.session.commit()
-            except Exception:
+            except Exception as e:
+                logger.warning('创建用户设置失败 user_id=%s: %s', user_id, e)
                 db.session.rollback()
-                setting = Setting.query.filter_by(user_id=user_id).first()
+                # 提交失败（如数据库连接瞬断）时重查；仍无则退回未持久化的内存对象，保证不返回 None
+                setting = Setting.query.filter_by(user_id=user_id).first() or Setting(user_id=user_id, daily_goal=20)
         return setting
 
     # 未登录：返回全局默认行（id=1，向后兼容）
@@ -3870,7 +3873,11 @@ def get_setting():
     if not setting:
         setting = Setting(id=1, daily_goal=20)
         db.session.add(setting)
-        db.session.commit()
+        try:
+            db.session.commit()
+        except Exception as e:
+            logger.warning('创建全局设置失败: %s', e)
+            db.session.rollback()
     return setting
 
 
