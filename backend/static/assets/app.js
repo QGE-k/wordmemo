@@ -7661,6 +7661,22 @@ async function init() {
     .then(() => console.log('[warmup] 服务已唤醒'))
     .catch(() => {});
 
+  // 后台预拉取词库数据并写入前端缓存：让首次进入词库页就能瞬时显示（stale-while-revalidate）
+  // 仅后台静默预热默认视图（全部词），切换筛选/搜索时仍按需拉取
+  // 仅在登录已确认且有数据时写入缓存，避免未登录时缓存空列表导致词库误显示为空
+  if (typeof libraryListCache === 'object' && typeof api.getWords === 'function') {
+    const warmParams = libraryCurrentParams();
+    api.getWords(warmParams).then(warmWords => {
+      if (Array.isArray(warmWords) && warmWords.length > 0) {
+        libraryListCache.set(libraryParamsKey(warmParams), {
+          data: warmWords,
+          ts: Date.now(),
+        });
+        console.log('[warmup] 词库数据已预热', warmWords.length);
+      }
+    }).catch(() => {});
+  }
+
   // 保活心跳：每 3 分钟静默请求一次 /api/stats
   setInterval(() => {
     fetch(api.baseURL + '/stats', { credentials: 'include' })
