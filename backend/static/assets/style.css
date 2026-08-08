@@ -915,6 +915,18 @@ input, textarea, select {
   opacity: 0.6;
   margin: 4px 0;
 }
+/* 词库列表懒加载：滚动到底部的"加载更多"哨兵 */
+.lib-load-more {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-tertiary, #94a3b8);
+  font-size: 13px;
+  animation: libLoadPulse 1.2s ease-in-out infinite;
+}
+@keyframes libLoadPulse {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
 body.dragging-active {
   -webkit-user-select: none;
   user-select: none;

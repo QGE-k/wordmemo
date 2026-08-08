@@ -3472,6 +3472,58 @@ async function renderLibrary() {
   }
 }
 
+// ===== 词库列表分批懒加载：避免一次性渲染数千个 DOM 导致卡顿 =====
+// 默认排序只先渲染前 100 条，滚动到底部自动加载更多，DOM 数量受控，移动端/Web 都不卡。
+// 自定义拖拽排序模式需要全部元素可见才能跨词条拖动，故该模式不启用分页（一次渲染全部）。
+let libraryRenderLimit = 0;   // 当前已渲染条数
+let libLoadObserver = null;   // 懒加载观察器
+const LIBRARY_PAGE = 100;     // 每批加载条数
+
+/**
+ * 在列表尾部放一个"加载更多"哨兵，滚动到附近时自动加载下一批
+ */
+function ensureLibraryLoadMore() {
+  const old = document.getElementById('libLoadMore');
+  if (old) old.remove();
+  if (libraryRenderLimit >= libraryData.length) return;
+  const list = $('#libraryList');
+  if (!list) return;
+  const sentinel = document.createElement('div');
+  sentinel.id = 'libLoadMore';
+  sentinel.className = 'lib-load-more';
+  sentinel.textContent = '▼ 加载更多';
+  list.appendChild(sentinel);
+  if (libLoadObserver) libLoadObserver.disconnect();
+  if (typeof IntersectionObserver !== 'undefined') {
+    libLoadObserver = new IntersectionObserver((entries) => {
+      if (entries.some(e => e.isIntersecting)) loadMoreLibraryItems();
+    }, { rootMargin: '300px 0px' });
+    libLoadObserver.observe(sentinel);
+  } else {
+    sentinel.style.cursor = 'pointer';
+    sentinel.onclick = loadMoreLibraryItems;
+  }
+}
+
+/**
+ * 增量渲染下一批词条并绑定事件（懒加载分页）
+ */
+function loadMoreLibraryItems() {
+  const list = $('#libraryList');
+  if (!list) return;
+  const next = Math.min(libraryRenderLimit + LIBRARY_PAGE, libraryData.length);
+  const frag = document.createDocumentFragment();
+  for (let i = libraryRenderLimit; i < next; i++) {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = wordItemHtml(libraryData[i], i + 1).trim();
+    frag.appendChild(tmp.firstChild);
+  }
+  list.appendChild(frag);
+  libraryRenderLimit = next;
+  bindLibraryItems(list);
+  ensureLibraryLoadMore();
+}
+
 /**
  * 渲染词库列表（空态 + 列表 + 事件绑定），读取全局 libraryData
  * @param {HTMLElement} list - 词库列表容器
@@ -3486,7 +3538,11 @@ function renderLibraryListCore(list) {
     return;
   }
 
-  list.innerHTML = libraryData.map((word, i) => wordItemHtml(word, i + 1)).join('');
+  // 自定义拖拽排序模式需要全部 DOM（跨词条拖动），不启用分页；
+  // 其余模式分批懒加载，DOM 数量受控，避免大词库一次性渲染数千节点卡顿
+  const isCustomSort = librarySort === 'custom' && libraryWordbook !== '' && libraryWordbook !== '0';
+  libraryRenderLimit = isCustomSort ? libraryData.length : Math.min(LIBRARY_PAGE, libraryData.length);
+  list.innerHTML = libraryData.slice(0, libraryRenderLimit).map((word, i) => wordItemHtml(word, i + 1)).join('');
   // 恢复多选选中状态（防止下拉刷新等重渲染后丢失）
   if (multiSelectIds.size > 0) {
     document.querySelectorAll('.word-item[data-id]').forEach(item => {
@@ -3494,11 +3550,19 @@ function renderLibraryListCore(list) {
       if (multiSelectIds.has(id)) item.classList.add('multi-selected');
     });
   }
-  // 绑定点击查看详情
-  let multiSelectMode = false;
-  let selectedIds = new Set();
+  bindLibraryItems(list);
+  ensureLibraryLoadMore();
+}
 
+/**
+ * 为词库列表中的词条绑定交互事件（点击/长按多选/拖拽排序等）
+ * 通过 dataset.libBound 标记去重，懒加载增量渲染时只绑定新增项
+ * @param {HTMLElement} list - 词库列表容器
+ */
+function bindLibraryItems(list) {
   list.querySelectorAll('.word-item').forEach(item => {
+      if (item.dataset.libBound) return;
+      item.dataset.libBound = '1';
       // 长按进入多选模式（改进版：同时支持 touch 和 mouse）
       let pressTimer = null;
       let isLongPress = false;
