@@ -108,6 +108,117 @@ def get_current_user_id():
     return session.get('user_id')
 
 
+# ==================== 词库列表接口缓存 ====================
+# 词库页每次进入/筛选/排序都会请求 /api/words，数千词时后端序列化较慢。
+# 用进程内短TTL缓存显著减少重复查询；任何单词写操作（增/删/改/批量）都会清空缓存。
+_words_list_cache = {}
+_WORDS_CACHE_TTL = 30  # 秒
+
+
+def _invalidate_words_cache():
+    """单词任何写操作后调用，清空词库列表缓存，保证下次请求拿到最新数据"""
+    _words_list_cache.clear()
+
+
+def _build_words_cache_key(status, search, wordbook_id, starred):
+    """构造缓存键：按用户与查询参数区分"""
+    return (
+        get_current_user_id(),
+        status or '',
+        search or '',
+        wordbook_id or '',
+        starred or '',
+    )
+
+
+def _get_words_cache(status, search, wordbook_id, starred):
+    """读取未过期的词库缓存，未命中返回 None"""
+    key = _build_words_cache_key(status, search, wordbook_id, starred)
+    entry = _words_list_cache.get(key)
+    if not entry:
+        return None
+    if time.time() - entry['ts'] >= _WORDS_CACHE_TTL:
+        _words_list_cache.pop(key, None)
+        return None
+    return entry['data']
+
+
+@app.before_request
+def _invalidate_words_cache_on_write():
+    """任何 /api/words 写操作（增/删/改/批量/标记/重排）前清空词库列表缓存，
+    保证写后立即看到最新数据。用集中式钩子避免在十几个接口里漏加失效逻辑。"""
+    if request.method in ('POST', 'PUT', 'DELETE') and request.path.startswith('/api/words'):
+        _invalidate_words_cache()
+
+
+# ==================== 全量数据迁移标记 ====================
+# 启动时对全部单词的全量修复迁移（拆解/释义/变形/例句）每次部署都全量扫描，
+# 词库越大越容易触发 Render 免费层 512MB 内存上限导致 OOM（status 137）。
+# 用 migration_flags 表记录"已完成"标记：首次完整跑完后直接跳过，避免重复全量扫描。
+# 新增单词在添加时已通过 analyze_word_with_fallback 完整分析，无需依赖这些迁移。
+from sqlalchemy import text as _sql_text
+
+
+def _ensure_migration_flags_table():
+    """确保 migration_flags 表存在（SQLite/PostgreSQL 通用）"""
+    try:
+        db.session.execute(_sql_text(
+            "CREATE TABLE IF NOT EXISTS migration_flags ("
+            "  key VARCHAR(120) PRIMARY KEY, "
+            "  ts TIMESTAMP"
+            ")"
+        ))
+        db.session.commit()
+    except Exception as e:
+        logger.warning('创建 migration_flags 表失败: %s', e)
+        db.session.rollback()
+
+
+def _is_migration_done(key):
+    """检查迁移标记是否已设置（已完整跑过则 True，跳过全量扫描）"""
+    try:
+        row = db.session.execute(
+            _sql_text('SELECT 1 FROM migration_flags WHERE key=:k'), {'k': key}
+        ).fetchone()
+        return row is not None
+    except Exception:
+        return False
+
+
+def _mark_migration_done(key):
+    """记录迁移已完成；失败不影响主流程（下次部署会重试）"""
+    try:
+        db.session.execute(_sql_text(
+            "INSERT INTO migration_flags(key, ts) VALUES(:k, :ts) "
+            "ON CONFLICT(key) DO NOTHING"
+        ), {'k': key, 'ts': datetime.utcnow()})
+        db.session.commit()
+    except Exception as e:
+        logger.warning('设置迁移标记失败 %s: %s', key, e)
+        db.session.rollback()
+
+
+def _run_full_migration_batched(process_fn, batch_size=400):
+    """内存安全地分批处理全部单词：每批只载入 batch_size 个对象，
+    处理完一批就 commit + expire 释放引用，避免大词库一次性全量载入导致 OOM。
+    process_fn(word) 在批内逐词处理；批内未提交的修改会随本批 commit 一起落库。
+    返回处理过的批次数。"""
+    last_id = 0
+    batches = 0
+    while True:
+        batch = (Word.query.filter(Word.id > last_id)
+                 .order_by(Word.id.asc()).limit(batch_size).all())
+        if not batch:
+            break
+        for w in batch:
+            process_fn(w)
+        last_id = batch[-1].id
+        db.session.commit()
+        db.session.expire_all()  # 释放本批对象引用，控制峰值内存
+        batches += 1
+    return batches
+
+
 def require_login():
     """要求登录，未登录返回错误响应"""
     if not session.get('user_id'):
@@ -855,12 +966,17 @@ def upgrade_split_data():
     - split_data 补全 original/original_meaning/transform 字段，派生词也填 split
     - 新增 mnemonic（记忆方法）字段
     对本地词典中已有的单词，用新词典数据覆盖更新。
+    已完整跑过则跳过（migration_flags 标记）+ 分批处理，避免大词库 OOM。
     """
+    if _is_migration_done('upgrade_split_data_v1'):
+        return
     upgraded = 0
-    for word in Word.query.all():
+
+    def process(word):
+        nonlocal upgraded
         dict_data = dictionary_service.lookup(word.word)
         if not dict_data:
-            continue
+            return
         # 检查是否需要升级
         need_upgrade = False
         if not word.split_data:
@@ -888,9 +1004,10 @@ def upgrade_split_data():
                 word.tenses = dict_data['tenses']
             upgraded += 1
 
+    _run_full_migration_batched(process)
     if upgraded > 0:
-        db.session.commit()
         print(f"[迁移] 已升级 {upgraded} 个单词的拆解数据和记忆方法")
+    _mark_migration_done('upgrade_split_data_v1')
 
 
 def fix_empty_meanings():
@@ -899,20 +1016,19 @@ def fix_empty_meanings():
     对这些单词重新分析，补充 meaning/phonetic/mnemonic/tenses 等空字段
     优先用 AI 分析，AI 不可用时降级到字典/规则分析（至少给出兜底释义）
     对"暂无释义"的单词，同时覆盖更新例句和记忆方法（之前的模板数据质量差）
+    已完整跑过则跳过（migration_flags 标记）+ 分批处理，避免大词库 OOM。
     """
+    if _is_migration_done('fix_empty_meanings_v1'):
+        return
     fixed = 0
-    # 查找 meaning 为空或包含"暂无释义"的单词
-    empty_words = Word.query.filter(
-        db.or_(
-            Word.meaning.is_(None),
-            Word.meaning == '',
-            Word.meaning.like('%暂无释义%'),
-        )
-    ).all()
 
-    for word in empty_words:
+    def process(word):
+        nonlocal fixed
+        # 只处理 meaning 为空或包含"暂无释义"的单词，其余快速跳过
+        meaning = word.meaning or ''
+        if meaning.strip() and '暂无释义' not in meaning:
+            return
         try:
-            was_no_meaning = word.meaning and '暂无释义' in word.meaning
             analysis, source = analyze_word_with_fallback(word.word)
             new_meaning = analysis.get('meaning', '')
             updated = False
@@ -924,7 +1040,7 @@ def fix_empty_meanings():
                 word.phonetic = analysis['phonetic']
                 updated = True
             # 对"暂无释义"单词：强制覆盖记忆方法（之前的模板数据差）
-            if was_no_meaning and analysis.get('mnemonic'):
+            if '暂无释义' in meaning and analysis.get('mnemonic'):
                 word.mnemonic = analysis['mnemonic']
                 updated = True
             elif not word.mnemonic and analysis.get('mnemonic'):
@@ -933,12 +1049,12 @@ def fix_empty_meanings():
             if (not word.tenses or (isinstance(word.tenses, dict) and not word.tenses.get('inflection_type'))) and analysis.get('tenses'):
                 word.tenses = analysis['tenses']
                 updated = True
-            if was_no_meaning or not word.split_data:
+            if '暂无释义' in meaning or not word.split_data:
                 if analysis.get('split'):
                     word.split_data = analysis['split']
                     updated = True
             # 对"暂无释义"单词：强制覆盖例句（之前的模板例句语法错误）
-            if was_no_meaning and analysis.get('examples'):
+            if '暂无释义' in meaning and analysis.get('examples'):
                 word.examples = analysis['examples']
                 updated = True
             elif not word.examples and analysis.get('examples'):
@@ -950,9 +1066,10 @@ def fix_empty_meanings():
         except Exception as e:
             print(f"[迁移] 修复 '{word.word}' 失败: {e}")
 
+    _run_full_migration_batched(process)
     if fixed > 0:
-        db.session.commit()
         print(f"[迁移] 已修复 {fixed} 个空释义/暂无释义单词")
+    _mark_migration_done('fix_empty_meanings_v1')
 
 
 def fix_broken_meanings():
@@ -962,12 +1079,15 @@ def fix_broken_meanings():
     2. 变形词（worse/better/best 等）缺少或错误的 tenses → 修复
     3. 释义为纯英文（无中文字符）→ 重新查词典
     4. tenses 类型与单词不符（如 worse 显示 plural 而非 degree）→ 修复
+    已完整跑过则跳过（migration_flags 标记），避免每次部署全量扫描 OOM。
     """
-    fixed = 0
-    for word in Word.query.all():
+    if _is_migration_done('fix_broken_meanings_v2'):
+        return
+    st = {'fixed': 0}
+
+    def process(word):
         need_fix = False
         meaning = word.meaning or ''
-
         # 1. 释义为空
         if not meaning.strip():
             need_fix = True
@@ -979,14 +1099,11 @@ def fix_broken_meanings():
             need_fix = True
 
         # 4. 检查 tenses 数据是否需要修复
-        # 变形词缺少 tenses，或 tenses 类型错误（如 worse 显示 plural 而非 degree）
         word_lower = word.word.lower().strip()
         reverse_adj = dictionary_service.REVERSE_ADJ_DEGREES.get(word_lower)
-        tenses_wrong = False
         if reverse_adj:
-            # 这是一个不规则形容词变形词，tenses 应该是 degree 类型
+            # 不规则形容词变形词，tenses 应为 degree 类型
             if not word.tenses or word.tenses.get('inflection_type') != 'degree':
-                tenses_wrong = True
                 need_fix = True
         elif not word.tenses and not need_fix:
             # 非变形词但缺少 tenses，尝试补充
@@ -999,11 +1116,11 @@ def fix_broken_meanings():
                     word.word_type = dict_result['type']
                 if dict_result.get('mnemonic') and not word.mnemonic:
                     word.mnemonic = dict_result['mnemonic']
-                fixed += 1
-            continue
+                st['fixed'] += 1
+            return
 
         if not need_fix:
-            continue
+            return
 
         try:
             analysis, source = analyze_word_with_fallback(word.word)
@@ -1022,13 +1139,14 @@ def fix_broken_meanings():
                 word.mnemonic = analysis['mnemonic']
             if analysis.get('examples'):
                 word.examples = analysis['examples']
-            fixed += 1
+            st['fixed'] += 1
         except Exception as e:
             print(f"[迁移] 修复异常释义 '{word.word}' 失败: {e}")
 
-    if fixed > 0:
-        db.session.commit()
-        print(f"[迁移] 已修复 {fixed} 个异常释义/变形单词")
+    _run_full_migration_batched(process)
+    if st['fixed'] > 0:
+        print(f"[迁移] 已修复 {st['fixed']} 个异常释义/变形单词")
+    _mark_migration_done('fix_broken_meanings_v2')
 
 
 def force_upgrade_all_tenses():
@@ -1038,9 +1156,13 @@ def force_upgrade_all_tenses():
     2. 用新的 _get_inflections 逻辑补全所有单词的 tenses（支持 a. 前缀的形容词等）
     3. 确保 tenses 包含 inflection_type 字段
     4. 修复碎片化/垃圾释义（如短语返回的 "冠\n姣姣者"）
+    已完整跑过则跳过（migration_flags 标记）+ 分批处理，避免大词库 OOM。
     """
-    upgraded = 0
-    for word in Word.query.all():
+    if _is_migration_done('force_upgrade_all_tenses_v3'):
+        return
+    st = {'upgraded': 0}
+
+    def process(word):
         need_upgrade = False
         dict_data = dictionary_service.lookup(word.word)
 
@@ -1049,7 +1171,6 @@ def force_upgrade_all_tenses():
         is_garbage = False
         if stored_meaning:
             import re as _re
-            # 去掉词性前缀后检查
             content = _re.sub(r'^[a-z]+\.\s*', '', stored_meaning).strip()
             chars = [c for c in content if '\u4e00' <= c <= '\u9fff']
             if len(chars) <= 3:
@@ -1059,7 +1180,7 @@ def force_upgrade_all_tenses():
                 if all(len(l) <= 3 for l in lines_c):
                     is_garbage = True
 
-        # 如果释义是垃圾且词典查不到（短语被质量检查过滤），用 AI 重新分析
+        # 释义是垃圾且词典查不到（短语被质量检查过滤），用 AI 重新分析
         if is_garbage and not dict_data:
             try:
                 analysis, source = analyze_word_with_fallback(word.word)
@@ -1086,11 +1207,11 @@ def force_upgrade_all_tenses():
             except Exception as e:
                 print(f"[迁移] AI重分析 '{word.word}' 失败: {e}")
             if need_upgrade:
-                upgraded += 1
-            continue
+                st['upgraded'] += 1
+            return
 
         if not dict_data:
-            continue
+            return
 
         # 1. 更新释义（应用新的精简逻辑）
         new_meaning = dict_data.get('meaning', '')
@@ -1108,7 +1229,6 @@ def force_upgrade_all_tenses():
                 need_upgrade = True
             elif word.tenses.get('inflection_type') != new_tenses.get('inflection_type'):
                 need_upgrade = True
-
             if need_upgrade:
                 word.tenses = new_tenses
 
@@ -1131,11 +1251,12 @@ def force_upgrade_all_tenses():
             need_upgrade = True
 
         if need_upgrade:
-            upgraded += 1
+            st['upgraded'] += 1
 
-    if upgraded > 0:
-        db.session.commit()
-        print(f"[迁移] 已升级 {upgraded} 个单词的释义精简和变形数据")
+    _run_full_migration_batched(process)
+    if st['upgraded'] > 0:
+        print(f"[迁移] 已升级 {st['upgraded']} 个单词的释义精简和变形数据")
+    _mark_migration_done('force_upgrade_all_tenses_v3')
 
 
 def get_today_utc_range():
@@ -1250,8 +1371,12 @@ def fill_missing_examples():
     数据迁移：为没有例句的单词补充专升本例句
     同时修复旧的低质量模板例句（如 "It is important to {word} in our daily life."）
     优先使用本地词典的专升本例句库
+    已完整跑过则跳过（migration_flags 标记）+ 分批处理，避免大词库 OOM。
     """
     import json
+
+    if _is_migration_done('fill_missing_examples_v1'):
+        return
 
     filled = 0
     fixed = 0
@@ -1307,10 +1432,8 @@ def fill_missing_examples():
             return True
         return False
 
-    # 查找所有需要修复的单词：例句为空 或 例句是旧模板生成的
-    all_words = Word.query.all()
-
-    for word in all_words:
+    def process(word):
+        nonlocal filled, fixed
         try:
             need_fix = False
             if not word.examples or word.examples == '[]':
@@ -1319,7 +1442,7 @@ def fill_missing_examples():
                 need_fix = True
 
             if not need_fix:
-                continue
+                return
 
             # 先查本地词典的专升本例句库
             dict_data = dictionary_service.lookup(word.word)
@@ -1331,7 +1454,7 @@ def fill_missing_examples():
                         filled += 1
                     else:
                         fixed += 1
-                    continue
+                    return
 
             # 词典没有好例句，用规则分析获取例句
             rule_data = dictionary_service.analyze_with_rules(word.word)
@@ -1342,7 +1465,7 @@ def fill_missing_examples():
                         filled += 1
                     else:
                         fixed += 1
-                    continue
+                    return
 
             # 最后用 _get_zhuanshenben_examples 直接获取
             zs_examples = dictionary_service._get_zhuanshenben_examples(
@@ -1355,9 +1478,10 @@ def fill_missing_examples():
         except Exception as e:
             print(f"[迁移] 补充例句 '{word.word}' 失败: {e}")
 
+    _run_full_migration_batched(process)
     if filled > 0 or fixed > 0:
-        db.session.commit()
         print(f"[迁移] 补充 {filled} 个空例句，修复 {fixed} 个低质量例句")
+    _mark_migration_done('fill_missing_examples_v1')
 
 
 # ==================== 单词管理API ====================
@@ -1404,14 +1528,24 @@ def get_words():
     if starred == '1':
         query = query.filter(Word.is_starred == True)
 
+    # 命中缓存则直接返回，避免重复查询+序列化（进入词库/切换筛选/排序时显著提速）
+    cached = _get_words_cache(status, search, wordbook_id, starred)
+    if cached is not None:
+        return jsonify({'success': True, 'data': cached, 'total': len(cached), 'cached': True})
+
     # 按添加时间正序排列（先添加的排前面）
     words = query.order_by(Word.added_at.asc()).all()
 
     # 使用轻量级序列化（省略拆解/例句/词根等重型JSON字段），加快数千词列表加载
+    data = [w.to_list_dict() for w in words]
+    _words_list_cache[_build_words_cache_key(status, search, wordbook_id, starred)] = {
+        'ts': time.time(),
+        'data': data,
+    }
     return jsonify({
         'success': True,
-        'data': [w.to_list_dict() for w in words],
-        'total': len(words),
+        'data': data,
+        'total': len(data),
     })
 
 
@@ -4792,6 +4926,8 @@ with app.app_context():
     ensure_wordbook_shared_columns()
     # 插入演示数据
     init_demo_data()
+    # 确保全量数据迁移标记表存在（避免每次部署重复全量扫描 OOM）
+    _ensure_migration_flags_table()
     # 升级已有单词的拆解数据和记忆方法到新结构
     upgrade_split_data()
     # 修复 meaning 为空的旧数据单词
