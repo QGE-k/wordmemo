@@ -1162,13 +1162,13 @@
     </div>
   </div>
 
-  <script src="assets/app.js?v=20260809c"></script>
+  <script src="assets/app.js?v=20260809d"></script>
   <!-- PWA service worker 注册：仅在 HTTPS/localhost 生效 -->
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function () {
         // 注册 SW，附带版本参数确保获取最新 sw.js
-        navigator.serviceWorker.register('/sw.js?v=60').then(function (reg) {
+        navigator.serviceWorker.register('/sw.js?v=63').then(function (reg) {
           // 强制检查更新
           reg.update();
           // 如果有新 SW 等待激活，立即接管
