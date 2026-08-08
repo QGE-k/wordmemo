@@ -108,6 +108,11 @@ class WordAPI {
         }
 
         const text = await res.text();
+        // 词库写操作成功后，清空词库前端缓存，确保下次进词库显示最新（镜像后端写后失效）
+        if (options.method && options.method.toUpperCase() !== 'GET' && path.indexOf('/words') === 0
+            && typeof invalidateLibraryListCache === 'function') {
+          invalidateLibraryListCache();
+        }
         return text ? JSON.parse(text) : null;
       } catch (err) {
         clearTimeout(timeoutId);
@@ -150,7 +155,7 @@ class WordAPI {
 
   // 获取所有单词，支持 status / search 过滤
   // 返回值：单词数组 [{id, word, phonetic, ...}, ...]
-  async getWords(params = {}) {
+  async getWords(params = {}, opts = {}) {
     const qs = new URLSearchParams();
     if (params.status) qs.set('status', params.status);
     if (params.search) qs.set('search', params.search);
@@ -159,7 +164,8 @@ class WordAPI {
     }
     if (params.starred) qs.set('starred', '1');
     const query = qs.toString();
-    const res = await this.request('/words' + (query ? '?' + query : ''));
+    // opts 可传 suppressWakeToast / timeout 等，透传给 request（后台静默刷新不弹"服务唤醒中"）
+    const res = await this.request('/words' + (query ? '?' + query : ''), opts);
     // 后端返回 {success, data, total}，提取 data 数组
     return res && res.data ? res.data : (Array.isArray(res) ? res : []);
   }
@@ -2926,6 +2932,25 @@ let libraryData = [];          // 词库数据缓存
 let librarySort = 'added_desc'; // 当前排序方式
 let libraryWordbook = '';      // 当前选中的单词本（''=全部, '0'=未归类, 数字=具体单词本）
 
+// 词库前端缓存：按查询参数缓存最近一次拉取的数据，配合"先显示缓存+后台刷新"，
+// 让切到词库时瞬时显示，避免每次都等后端响应（后端另有30s TTL缓存兜底）。
+let libraryListCache = new Map();   // key -> { data, ts }
+const LIBRARY_LIST_TTL = 60 * 1000; // 前端缓存有效期 60 秒
+
+/**
+ * 构造词库查询的缓存键（筛选/搜索/词本一致才命中缓存）
+ */
+function libraryParamsKey(params) {
+  return [params.status || '', params.starred || '', params.search || '', params.wordbook_id || ''].join('|');
+}
+
+/**
+ * 清空词库前端缓存（增/删/改/批量/导入后调用，确保下次显示最新）
+ */
+function invalidateLibraryListCache() {
+  libraryListCache.clear();
+}
+
 /**
  * 切换词库排序方式，并同步下拉框与列表渲染
  * @param {string} sort - 排序方式：'added_desc'|'added_asc'|'word_asc'|'word_desc'|'custom'|...
@@ -3415,37 +3440,65 @@ async function renderLibrary() {
         sortHintEl.style.display = 'none';
       }
     }
-    const params = {};
-    if (libraryFilter !== 'all' && libraryFilter !== 'starred') params.status = libraryFilter;
-    if (libraryFilter === 'starred') params.starred = 1;
-    if (librarySearch) params.search = librarySearch;
-    if (libraryWordbook !== '') params.wordbook_id = libraryWordbook;
+    const params = libraryCurrentParams();
+    const key = libraryParamsKey(params);
+    const cachedHit = libraryListCache.get(key);
+    // 命中前端缓存：先用缓存瞬时渲染，再后台静默刷新，避免每次进词库都等后端响应
+    const useCache = cachedHit && (Date.now() - cachedHit.ts < LIBRARY_LIST_TTL);
 
-    const words = await api.getWords(params);
+    let words;
+    if (useCache) {
+      words = cachedHit.data;
+    } else {
+      words = await api.getWords(params);
+      libraryListCache.set(key, { data: words || [], ts: Date.now() });
+    }
     libraryData = sortLibraryData(words || []);
+    renderLibraryListCore(list);
 
-    if (libraryData.length === 0) {
-      list.innerHTML = `
-        <div class="empty-state">
-          <p>${librarySearch || libraryFilter !== 'all' || libraryWordbook !== '' ? '没有符合条件的单词' : '词库空空如也'}</p>
-          <p class="empty-sub">点击右下角 + 添加单词</p>
-        </div>`;
-      return;
+    // 后台静默刷新（命中缓存时）：拿到最新数据后，仅当当前视图仍是该查询才更新
+    // suppressWakeToast=true：后台刷新不弹"服务唤醒中"，避免打扰（用户已看到缓存数据）
+    if (useCache) {
+      api.getWords(params, { suppressWakeToast: true }).then(fresh => {
+        libraryListCache.set(key, { data: fresh || [], ts: Date.now() });
+        if (libraryParamsKey(libraryCurrentParams()) === key) {
+          libraryData = sortLibraryData(fresh || []);
+          renderLibraryListCore(list);
+        }
+      }).catch(() => {});
     }
+  } catch (err) {
+    handleError(err);
+  }
+}
 
-    list.innerHTML = libraryData.map((word, i) => wordItemHtml(word, i + 1)).join('');
-    // 恢复多选选中状态（防止下拉刷新等重渲染后丢失）
-    if (multiSelectIds.size > 0) {
-      document.querySelectorAll('.word-item[data-id]').forEach(item => {
-        const id = parseInt(item.getAttribute('data-id'), 10);
-        if (multiSelectIds.has(id)) item.classList.add('multi-selected');
-      });
-    }
-    // 绑定点击查看详情
-    let multiSelectMode = false;
-    let selectedIds = new Set();
-    
-    list.querySelectorAll('.word-item').forEach(item => {
+/**
+ * 渲染词库列表（空态 + 列表 + 事件绑定），读取全局 libraryData
+ * @param {HTMLElement} list - 词库列表容器
+ */
+function renderLibraryListCore(list) {
+  if (libraryData.length === 0) {
+    list.innerHTML = `
+      <div class="empty-state">
+        <p>${librarySearch || libraryFilter !== 'all' || libraryWordbook !== '' ? '没有符合条件的单词' : '词库空空如也'}</p>
+        <p class="empty-sub">点击右下角 + 添加单词</p>
+      </div>`;
+    return;
+  }
+
+  list.innerHTML = libraryData.map((word, i) => wordItemHtml(word, i + 1)).join('');
+  // 恢复多选选中状态（防止下拉刷新等重渲染后丢失）
+  if (multiSelectIds.size > 0) {
+    document.querySelectorAll('.word-item[data-id]').forEach(item => {
+      const id = parseInt(item.getAttribute('data-id'), 10);
+      if (multiSelectIds.has(id)) item.classList.add('multi-selected');
+    });
+  }
+  // 绑定点击查看详情
+  let multiSelectMode = false;
+  let selectedIds = new Set();
+
+  list.querySelectorAll('.word-item').forEach(item => {
       // 长按进入多选模式（改进版：同时支持 touch 和 mouse）
       let pressTimer = null;
       let isLongPress = false;
@@ -3541,9 +3594,18 @@ async function renderLibrary() {
         }
       });
     });
-  } catch (err) {
-    handleError(err);
-  }
+}
+
+/**
+ * 返回当前词库查询参数（用于后台刷新后判断视图是否变化）
+ */
+function libraryCurrentParams() {
+  const params = {};
+  if (libraryFilter !== 'all' && libraryFilter !== 'starred') params.status = libraryFilter;
+  if (libraryFilter === 'starred') params.starred = 1;
+  if (librarySearch) params.search = librarySearch;
+  if (libraryWordbook !== '') params.wordbook_id = libraryWordbook;
+  return params;
 }
 
 /**
@@ -6121,8 +6183,9 @@ async function handleMoveWordbook() {
 function setupCanvas(canvas) {
   const dpr = window.devicePixelRatio || 1;
   const rect = canvas.getBoundingClientRect();
-  const w = rect.width || canvas.parentElement.clientWidth;
-  const h = rect.height || 160;
+  // 防御：画布未布局完成时 rect.width 可能为 0，导致后续 chartW/barW 为负、arcTo 抛异常
+  const w = Math.max(rect.width || canvas.parentElement.clientWidth || 0, 1);
+  const h = Math.max(rect.height || 160, 1);
   canvas.width = w * dpr;
   canvas.height = h * dpr;
   const ctx = canvas.getContext('2d');
@@ -6293,8 +6356,14 @@ function drawBarChart(canvas, data) {
  * 绘制圆角矩形辅助函数
  */
 function drawRoundRect(ctx, x, y, w, h, r) {
-  if (h < r * 2) r = h / 2;
-  if (w < r * 2) r = w / 2;
+  // 防御：宽度或高度为 0/负值时直接用普通矩形，避免 arcTo 出现负半径抛异常
+  // （画布未布局完成时 setupCanvas 可能算出 0 宽度，导致 barW 为负）
+  if (!(w > 0) || !(h > 0)) {
+    ctx.beginPath();
+    ctx.rect(x, y, Math.max(w, 0), Math.max(h, 0));
+    return;
+  }
+  r = Math.max(0, Math.min(r, w / 2, h / 2));
   ctx.beginPath();
   ctx.moveTo(x + r, y);
   ctx.arcTo(x + w, y, x + w, y + h, r);
@@ -6315,7 +6384,7 @@ function drawPieChart(canvas, data) {
   const total = data.new + data.review + data.mastered;
   const cx = width / 2;
   const cy = height / 2;
-  const radius = Math.min(width, height) / 2 - 12;
+  const radius = Math.max(Math.min(width, height) / 2 - 12, 1);
 
   // 空数据提示
   if (total === 0) {
@@ -7589,13 +7658,30 @@ async function init() {
   initBackButtonHandler();
 
   // 后台预热请求：唤醒 Render 服务（不阻塞 UI）
-  fetch(api.baseURL + '/api/stats', { credentials: 'include' })
+  // 注意：api.baseURL 已含 /api 前缀，这里直接用完整 stats 路径，避免拼成 /api/api/stats
+  fetch(api.baseURL + '/stats', { credentials: 'include' })
     .then(() => console.log('[warmup] 服务已唤醒'))
     .catch(() => {});
 
+  // 后台预拉取词库数据并写入前端缓存：让首次进入词库页就能瞬时显示（stale-while-revalidate）
+  // 仅后台静默预热默认视图（全部词），切换筛选/搜索时仍按需拉取
+  // 仅在登录已确认且有数据时写入缓存，避免未登录时缓存空列表导致词库误显示为空
+  if (typeof libraryListCache === 'object' && typeof api.getWords === 'function') {
+    const warmParams = libraryCurrentParams();
+    api.getWords(warmParams).then(warmWords => {
+      if (Array.isArray(warmWords) && warmWords.length > 0) {
+        libraryListCache.set(libraryParamsKey(warmParams), {
+          data: warmWords,
+          ts: Date.now(),
+        });
+        console.log('[warmup] 词库数据已预热', warmWords.length);
+      }
+    }).catch(() => {});
+  }
+
   // 保活心跳：每 3 分钟静默请求一次 /api/stats
   setInterval(() => {
-    fetch(api.baseURL + '/api/stats', { credentials: 'include' })
+    fetch(api.baseURL + '/stats', { credentials: 'include' })
       .then(() => console.log('[keepalive] 心跳'))
       .catch(() => {});
   }, 3 * 60 * 1000);

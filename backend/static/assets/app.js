@@ -155,7 +155,7 @@ class WordAPI {
 
   // 获取所有单词，支持 status / search 过滤
   // 返回值：单词数组 [{id, word, phonetic, ...}, ...]
-  async getWords(params = {}) {
+  async getWords(params = {}, opts = {}) {
     const qs = new URLSearchParams();
     if (params.status) qs.set('status', params.status);
     if (params.search) qs.set('search', params.search);
@@ -164,7 +164,8 @@ class WordAPI {
     }
     if (params.starred) qs.set('starred', '1');
     const query = qs.toString();
-    const res = await this.request('/words' + (query ? '?' + query : ''));
+    // opts 可传 suppressWakeToast / timeout 等，透传给 request（后台静默刷新不弹"服务唤醒中"）
+    const res = await this.request('/words' + (query ? '?' + query : ''), opts);
     // 后端返回 {success, data, total}，提取 data 数组
     return res && res.data ? res.data : (Array.isArray(res) ? res : []);
   }
@@ -3456,8 +3457,9 @@ async function renderLibrary() {
     renderLibraryListCore(list);
 
     // 后台静默刷新（命中缓存时）：拿到最新数据后，仅当当前视图仍是该查询才更新
+    // suppressWakeToast=true：后台刷新不弹"服务唤醒中"，避免打扰（用户已看到缓存数据）
     if (useCache) {
-      api.getWords(params).then(fresh => {
+      api.getWords(params, { suppressWakeToast: true }).then(fresh => {
         libraryListCache.set(key, { data: fresh || [], ts: Date.now() });
         if (libraryParamsKey(libraryCurrentParams()) === key) {
           libraryData = sortLibraryData(fresh || []);

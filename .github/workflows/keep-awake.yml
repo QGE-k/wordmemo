@@ -1,0 +1,26 @@
+# Render 免费版 24 小时保活
+# Render 免费实例闲置约 15 分钟后会休眠，休眠后首次请求冷启动要 30-50 秒，
+# 导致 App 切换页面卡顿并弹"服务唤醒中"。本工作流每 5 分钟 ping 一次健康检查接口，
+# 让服务一直保持唤醒（公开仓库的 GitHub Actions 完全免费、无时长限制）。
+# 若某次调度延迟，连续 5 分钟一次的请求仍能保证实例在 15 分钟休眠阈值内被唤醒。
+name: keep-render-awake
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'   # 每 5 分钟一次
+  workflow_dispatch:         # 支持手动触发
+
+jobs:
+  ping:
+    name: Ping Render
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping health endpoint
+        run: |
+          # 命中 /api/ping（轻量健康检查），冷启动时也走完整初始化唤醒服务
+          code=$(curl -s -o /dev/null -w "%{http_code}" \
+            --connect-timeout 90 --max-time 120 \
+            https://wordmemo-bbpn.onrender.com/api/ping || true)
+          echo "ping http_code=$code"
+          # 非 2xx 不视为失败，只是打个日志；真正唤醒由下一次请求完成
+          exit 0
