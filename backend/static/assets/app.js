@@ -972,21 +972,24 @@ async function renderAdminPage() {
         e.stopPropagation();
         const userId = parseInt(btn.dataset.userId);
         const username = btn.dataset.username;
-        const newPwd = prompt(`重置用户「${username}」的密码：\n请输入新密码（至少6位）：`);
-        if (!newPwd) return;
-        if (newPwd.length < 6) { showToast('新密码至少6位', 'warning'); return; }
-        try {
-          btn.disabled = true;
-          btn.textContent = '重置中...';
-          await api.adminResetPassword(userId, newPwd);
-          showToast(`已重置用户 ${username} 的密码`, 'success');
-          btn.disabled = false;
-          btn.textContent = '重置密码';
-        } catch (err) {
-          btn.disabled = false;
-          btn.textContent = '重置密码';
-          handleError(err);
-        }
+        showPrompt(`重置用户「${username}」的密码：\n请输入新密码（至少6位）：`, '', (newPwd) => {
+          if (!newPwd) return;
+          if (newPwd.length < 6) { showToast('新密码至少6位', 'warning'); return; }
+          (async () => {
+            try {
+              btn.disabled = true;
+              btn.textContent = '重置中...';
+              await api.adminResetPassword(userId, newPwd);
+              showToast(`已重置用户 ${username} 的密码`, 'success');
+              btn.disabled = false;
+              btn.textContent = '重置密码';
+            } catch (err) {
+              btn.disabled = false;
+              btn.textContent = '重置密码';
+              handleError(err);
+            }
+          })();
+        }, 'password');
       });
     });
     // 绑定启用/禁用按钮
@@ -1107,6 +1110,51 @@ function showToast(msg, type = '', duration = 2200) {
     toast.classList.add('hide');
     setTimeout(() => toast.remove(), 300);
   }, duration);
+}
+
+/**
+ * 自定义输入弹窗（替代 prompt()）
+ * 原因：Android WebView 未处理 onJsPrompt，原生 prompt() 在移动端会直接失败，
+ * 导致"+未学习"等按钮在移动端失灵。改用自定义 Modal 输入框，Web/移动端都能正常使用。
+ * @param {string} title - 标题
+ * @param {string} defaultValue - 默认值
+ * @param {Function} onConfirm - 确认回调（参数为输入值字符串；取消时不触发）
+ * @param {string} [inputType] - 输入框类型：number（默认）| text | password
+ */
+function showPrompt(title, defaultValue, onConfirm, inputType = 'number') {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.style.cssText = 'display:flex;align-items:center;';
+  overlay.innerHTML = `
+    <div class="modal-content" style="max-width:320px;text-align:center;">
+      <h3 style="margin:0 0 16px;font-size:17px;white-space:pre-line;">${escapeHtml(title)}</h3>
+      <input type="${inputType}" id="promptInput" min="1" value="${escapeHtml(defaultValue || '')}"
+        style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:15px;margin-bottom:16px;text-align:center;" />
+      <div style="display:flex;gap:10px;">
+        <button class="btn-secondary" id="promptCancel" style="flex:1;">取消</button>
+        <button class="btn-primary" id="promptOk" style="flex:1;">确定</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  const input = overlay.querySelector('#promptInput');
+  const close = () => overlay.remove();
+  overlay.querySelector('#promptCancel').addEventListener('click', close);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  overlay.querySelector('#promptOk').addEventListener('click', () => {
+    const val = input.value;
+    close();
+    if (onConfirm) onConfirm(val);
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const val = input.value;
+      close();
+      if (onConfirm) onConfirm(val);
+    }
+  });
+  input.focus();
+  input.select();
 }
 
 /**
@@ -7032,15 +7080,14 @@ function bindEvents() {
   const btnLearnAddNew = $('#btnLearnAddNew');
   if (btnLearnAddNew) {
     btnLearnAddNew.addEventListener('click', () => {
-      const countStr = prompt('要加入多少个未学习单词？', '10');
-      if (countStr !== null) {
-        const count = parseInt(countStr, 10);
+      showPrompt('要加入多少个未学习单词？', '10', (val) => {
+        const count = parseInt(val, 10);
         if (!isNaN(count) && count > 0) {
           loadLearnQueue(true, count);
-        } else if (countStr.trim() !== '') {
+        } else if (String(val).trim() !== '') {
           showToast('请输入有效的数字', 'error');
         }
-      }
+      });
     });
   }
   // 复习页：加入新词按钮
@@ -7050,15 +7097,14 @@ function bindEvents() {
       // 切到学习页并加入新词
       switchPage('learn');
       if (learnWordbookId !== '') {
-        const countStr = prompt('要加入多少个未学习单词？', '10');
-        if (countStr !== null) {
-          const count = parseInt(countStr, 10);
+        showPrompt('要加入多少个未学习单词？', '10', (val) => {
+          const count = parseInt(val, 10);
           if (!isNaN(count) && count > 0) {
             loadLearnQueue(true, count);
-          } else if (countStr.trim() !== '') {
+          } else if (String(val).trim() !== '') {
             showToast('请输入有效的数字', 'error');
           }
-        }
+        });
       } else {
         showToast('请先选择一本词书', 'info');
       }
@@ -7075,15 +7121,14 @@ function bindEvents() {
   const learnAddMoreBtn = $('#learnAddMoreBtn');
   if (learnAddMoreBtn) {
     learnAddMoreBtn.addEventListener('click', () => {
-      const countStr = prompt('要加入多少个未学习单词？', '10');
-      if (countStr !== null) {
-        const count = parseInt(countStr, 10);
+      showPrompt('要加入多少个未学习单词？', '10', (val) => {
+        const count = parseInt(val, 10);
         if (!isNaN(count) && count > 0) {
           loadLearnQueue(true, count);
-        } else if (countStr.trim() !== '') {
+        } else if (String(val).trim() !== '') {
           showToast('请输入有效的数字', 'error');
         }
-      }
+      });
     });
   }
   // 空状态：翻今天所有按钮
