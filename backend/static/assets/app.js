@@ -6121,8 +6121,9 @@ async function handleMoveWordbook() {
 function setupCanvas(canvas) {
   const dpr = window.devicePixelRatio || 1;
   const rect = canvas.getBoundingClientRect();
-  const w = rect.width || canvas.parentElement.clientWidth;
-  const h = rect.height || 160;
+  // 防御：画布未布局完成时 rect.width 可能为 0，导致后续 chartW/barW 为负、arcTo 抛异常
+  const w = Math.max(rect.width || canvas.parentElement.clientWidth || 0, 1);
+  const h = Math.max(rect.height || 160, 1);
   canvas.width = w * dpr;
   canvas.height = h * dpr;
   const ctx = canvas.getContext('2d');
@@ -6293,8 +6294,14 @@ function drawBarChart(canvas, data) {
  * 绘制圆角矩形辅助函数
  */
 function drawRoundRect(ctx, x, y, w, h, r) {
-  if (h < r * 2) r = h / 2;
-  if (w < r * 2) r = w / 2;
+  // 防御：宽度或高度为 0/负值时直接用普通矩形，避免 arcTo 出现负半径抛异常
+  // （画布未布局完成时 setupCanvas 可能算出 0 宽度，导致 barW 为负）
+  if (!(w > 0) || !(h > 0)) {
+    ctx.beginPath();
+    ctx.rect(x, y, Math.max(w, 0), Math.max(h, 0));
+    return;
+  }
+  r = Math.max(0, Math.min(r, w / 2, h / 2));
   ctx.beginPath();
   ctx.moveTo(x + r, y);
   ctx.arcTo(x + w, y, x + w, y + h, r);
@@ -6315,7 +6322,7 @@ function drawPieChart(canvas, data) {
   const total = data.new + data.review + data.mastered;
   const cx = width / 2;
   const cy = height / 2;
-  const radius = Math.min(width, height) / 2 - 12;
+  const radius = Math.max(Math.min(width, height) / 2 - 12, 1);
 
   // 空数据提示
   if (total === 0) {
@@ -7589,13 +7596,14 @@ async function init() {
   initBackButtonHandler();
 
   // 后台预热请求：唤醒 Render 服务（不阻塞 UI）
-  fetch(api.baseURL + '/api/stats', { credentials: 'include' })
+  // 注意：api.baseURL 已含 /api 前缀，这里直接用完整 stats 路径，避免拼成 /api/api/stats
+  fetch(api.baseURL + '/stats', { credentials: 'include' })
     .then(() => console.log('[warmup] 服务已唤醒'))
     .catch(() => {});
 
   // 保活心跳：每 3 分钟静默请求一次 /api/stats
   setInterval(() => {
-    fetch(api.baseURL + '/api/stats', { credentials: 'include' })
+    fetch(api.baseURL + '/stats', { credentials: 'include' })
       .then(() => console.log('[keepalive] 心跳'))
       .catch(() => {});
   }, 3 * 60 * 1000);
