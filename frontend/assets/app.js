@@ -5,6 +5,38 @@
    ==================================================== */
 
 /* ====================================================
+   localStorage 安全封装
+   防止移动端 WebView 存储满/隐私模式下 setItem/getItem 抛异常
+   导致学习计时、复习位置、设置等静默失败。所有调用统一走这里。
+   ==================================================== */
+(function () {
+  try {
+    const testKey = '__wm_storage_test__';
+    localStorage.setItem(testKey, '1');
+    localStorage.removeItem(testKey);
+  } catch (e) {
+    // 存储完全不可用（如禁用存储），提供一个内存兜底，避免后续 getItem/setItem 抛错
+    const mem = {};
+    const fake = {
+      getItem: (k) => (k in mem ? mem[k] : null),
+      setItem: (k, v) => { mem[k] = String(v); },
+      removeItem: (k) => { delete mem[k]; },
+      clear: () => { for (const k in mem) delete mem[k]; },
+    };
+    Object.defineProperty(window, 'localStorage', { value: fake, configurable: true, writable: true });
+    return;
+  }
+  // 存储可用：包裹原生方法，单次失败不中断主流程
+  ['getItem', 'setItem', 'removeItem'].forEach((m) => {
+    const orig = localStorage[m];
+    localStorage[m] = function (...args) {
+      try { return orig.apply(localStorage, args); }
+      catch (err) { console.warn('[storage]', m, 'failed:', err); return m === 'getItem' ? null : undefined; }
+    };
+  });
+})();
+
+/* ====================================================
    答题音效（Web Audio API，无需外部音频文件）
    ==================================================== */
 let _audioCtx = null;
