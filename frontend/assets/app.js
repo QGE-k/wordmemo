@@ -1542,7 +1542,49 @@ async function checkWordDuplicate(word, wordbookId) {
   }
 }
 
+/**
+ * 单词发音
+ * 优先使用 Android 原生 TTS（WebView 不支持 Web Speech API）
+ * 回退到浏览器 Web Speech API
+ * @param {string} word - 要发音的单词
+ * @param {HTMLElement} [btn] - 触发按钮，用于播放动画
+ */
+function speakWord(word, btn) {
+  if (!word) return;
 
+  // 优先使用 Android 原生 TTS 引擎
+  if (window.AndroidTTS && typeof window.AndroidTTS.isAvailable === 'function' && window.AndroidTTS.isAvailable()) {
+    window.AndroidTTS.speak(word);
+    if (btn) {
+      btn.classList.add('speaking');
+      setTimeout(() => btn.classList.remove('speaking'), 1500);
+    }
+    return;
+  }
+
+  // 回退到浏览器 Web Speech API
+  if (!('speechSynthesis' in window)) {
+    showToast('当前环境不支持语音播放', 'error');
+    return;
+  }
+  // 停止正在播放的语音
+  window.speechSynthesis.cancel();
+  const utter = new SpeechSynthesisUtterance(word);
+  utter.lang = 'en-US';
+  utter.rate = 0.9;     // 稍微放慢，便于学习
+  utter.pitch = 1;
+  // 尝试选择英语语音
+  const voices = window.speechSynthesis.getVoices();
+  const enVoice = voices.find(v => v.lang.startsWith('en'));
+  if (enVoice) utter.voice = enVoice;
+  // 播放动画
+  if (btn) {
+    btn.classList.add('speaking');
+    utter.onend = () => btn.classList.remove('speaking');
+    utter.onerror = () => btn.classList.remove('speaking');
+  }
+  window.speechSynthesis.speak(utter);
+}
 
 /**
  * 生成单词卡片 HTML
