@@ -9,7 +9,7 @@
   <!-- 预连接：提前建立TCP/TLS连接，减少首字节时间 -->
   <link rel="preconnect" href="/" crossorigin>
   <link rel="dns-prefetch" href="/">
-  <link rel="stylesheet" href="assets/style.css?v=20260809a">
+  <link rel="stylesheet" href="assets/style.css?v=20260810a">
   <!-- PWA 支持：允许"添加到桌面"当App用 -->
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" type="image/png" href="/icons/icon-192.png">
@@ -376,6 +376,10 @@
           <span class="progress-ring-text" id="progressRingText">0%</span>
         </div>
         <span class="card-progress" id="learnProgress">0 / 0</span>
+        <button class="answer-sheet-btn" id="btnLearnAnswerSheet" title="答题卡">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+          <span>答题卡</span>
+        </button>
         <span class="study-timer" id="studyTimerDisplay" style="display:none">
           <span class="study-timer-icon">⏱</span>
           <span id="studyTimer">00:00</span>
@@ -473,8 +477,16 @@
       <!-- 操作按钮 -->
       <div class="card-actions" id="learnActions" style="display:none">
         <button class="btn-secondary" id="btnLearnPrev">上一题</button>
+        <button class="btn-secondary" id="btnLearnNext">下一题</button>
         <button class="btn-secondary" id="btnLearnDetail">详情</button>
-        <button class="btn-primary" id="btnLearnKnown">已学会</button>
+        <button class="rating-btn rating-hard learn-rating-btn" id="btnLearnHard" title="有点印象但不熟，稍后再次出现加深记忆">
+          <span class="rating-label">模糊</span>
+          <span class="rating-desc">稍后再背</span>
+        </button>
+        <button class="rating-btn rating-good learn-rating-btn" id="btnLearnKnown" title="确实记住了，按记忆曲线安排复习">
+          <span class="rating-label">记得</span>
+          <span class="rating-desc">加深记忆</span>
+        </button>
       </div>
       <!-- 翻卡模式额外按钮：加入新词 / 翻今天所有 -->
       <div class="card-actions card-actions-extra" id="learnExtraActions" style="display:none">
@@ -494,6 +506,10 @@
     <section class="page page-review" id="page-review">
       <div class="card-header">
         <span class="card-progress" id="reviewProgress">0 / 0</span>
+        <button class="answer-sheet-btn" id="btnReviewAnswerSheet" title="答题卡">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+          <span>答题卡</span>
+        </button>
         <span class="card-close" id="reviewClose">退出</span>
       </div>
       <div class="review-estimate" id="reviewEstimate" style="display:none"></div>
@@ -903,6 +919,27 @@
     </div>
   </div>
 
+  <!-- ============ 答题卡弹窗（学习/复习通用） ============ -->
+  <div class="modal-overlay" id="answerSheetModal">
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-header">
+        <h3 class="modal-word" id="answerSheetTitle">答题卡</h3>
+        <button class="modal-close" id="answerSheetCloseBtn">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="answer-sheet-legend" id="answerSheetLegend">
+          <span class="as-legend-item"><i class="as-dot as-current"></i>当前</span>
+          <span class="as-legend-item as-legend-learn" id="asLegendLearned"><i class="as-dot as-learned"></i>已掌握</span>
+          <span class="as-legend-item as-legend-learn" id="asLegendDone"><i class="as-dot as-done"></i>已浏览</span>
+          <span class="as-legend-item"><i class="as-dot as-default"></i>未浏览</span>
+        </div>
+        <div class="answer-sheet-summary" id="answerSheetSummary"></div>
+        <div class="answer-sheet-grid" id="answerSheetGrid"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- ============ 下拉刷新指示器 ============ -->
   <div class="pull-refresh-indicator" id="pullRefreshIndicator" style="display:none">↓</div>
 
@@ -1162,13 +1199,13 @@
     </div>
   </div>
 
-  <script src="assets/app.js?v=20260809g"></script>
+  <script src="assets/app.js?v=20260810b"></script>
   <!-- PWA service worker 注册：仅在 HTTPS/localhost 生效 -->
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function () {
         // 注册 SW，附带版本参数确保获取最新 sw.js
-        navigator.serviceWorker.register('/sw.js?v=66').then(function (reg) {
+        navigator.serviceWorker.register('/sw.js?v=68').then(function (reg) {
           // 强制检查更新
           reg.update();
           // 如果有新 SW 等待激活，立即接管

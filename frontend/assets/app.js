@@ -2062,7 +2062,7 @@ function bindOverviewClicks() {
     // 今日已学 → 跳转学习页
     overviewItems[0].style.cursor = 'pointer';
     overviewItems[0].onclick = () => {
-      learnQueue = [];
+      resetLearnSession();
       switchPage('learn');
     };
     // 待复习 → 跳转复习页
@@ -2074,7 +2074,7 @@ function bindOverviewClicks() {
     // 待学 → 跳转学习页
     overviewItems[2].style.cursor = 'pointer';
     overviewItems[2].onclick = () => {
-      learnQueue = [];
+      resetLearnSession();
       switchPage('learn');
     };
   }
@@ -4333,6 +4333,72 @@ let learnSessionMode = 'new'; // 学习会话模式：new=未学习学习 / revi
 let learnShuffleMode = false; // 学习页翻卡顺序：false=顺序，true=随机（仅打乱当前队列）
 let learnOriginalQueue = []; // 保存原始顺序队列，用于切回顺序模式
 let learnCompleteNotified = false; // 今日学习全部完成是否已提示（避免重复弹提示）
+let learnSheetWords = [];   // 答题卡稳定词表（学习会话开始时快照，不随"模糊"重排增长）
+let learnViewedIds = new Set(); // 本次模式中已展示过的单词ID（用于答题卡"已浏览"标记）
+
+// 今日"待学"词表快照缓存：四个模式共享同一份今日待学词表。
+// 关键点：某模式学了单词会把后端状态改为已学，若每次都重新请求待学池，
+// 会导致"翻卡学了good→看词选义里就没有good"的同步问题。
+// 通过缓存当日快照，所有模式都从同一份完整词表播种，学习互不影响。
+let learnPoolCache = null;           // { key, date, words }
+
+function learnPoolKey() {
+  return `${learnStarredOnly ? 'starred' : 'all'}|${learnWordbookId || ''}`;
+}
+function todayLocalDateStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+}
+
+/* ====================================================
+   学习模式独立状态
+   四个模式（翻卡/看词选义/看义选词/拼写默写）各自拥有独立的
+   队列与进度。切换模式时保存当前模式、恢复目标模式，互不影响。
+   ==================================================== */
+const LEARN_MODES = ['flip', 'choice', 'reverse', 'spell'];
+const learnModeStates = {};
+
+function freshLearnModeState() {
+  return {
+    queue: [], index: 0, learned: new Set(), loaded: new Set(), allLearned: new Set(),
+    original: [], sheetWords: [], viewed: new Set(),
+    choiceCorrect: 0, choiceTotal: 0, completeNotified: false, flipped: false, seeded: false,
+  };
+}
+
+// 保存当前模式的状态到 learnModeStates
+function saveCurrentLearnMode() {
+  learnModeStates[learnMode] = {
+    queue: learnQueue, index: learnIndex, learned: learnedIds, loaded: loadedWordIds,
+    allLearned: allLearnedIds, original: learnOriginalQueue, sheetWords: learnSheetWords,
+    viewed: learnViewedIds, choiceCorrect: learnChoiceCorrect, choiceTotal: learnChoiceTotal,
+    completeNotified: learnCompleteNotified, flipped: learnFlipped, seeded: true,
+  };
+}
+
+// 恢复指定模式的状态到全局变量，返回该模式状态对象
+function restoreLearnMode(mode) {
+  const s = learnModeStates[mode] || freshLearnModeState();
+  learnQueue = s.queue;
+  learnIndex = s.index;
+  learnedIds = s.learned;
+  loadedWordIds = s.loaded;
+  allLearnedIds = s.allLearned;
+  learnOriginalQueue = s.original;
+  learnSheetWords = s.sheetWords;
+  learnViewedIds = s.viewed;
+  learnChoiceCorrect = s.choiceCorrect;
+  learnChoiceTotal = s.choiceTotal;
+  learnCompleteNotified = s.completeNotified;
+  learnFlipped = s.flipped;
+  return s;
+}
+
+// 重置整个学习会话（所有模式清空）
+function resetLearnSession() {
+  for (const m of LEARN_MODES) learnModeStates[m] = freshLearnModeState();
+  restoreLearnMode(learnMode);
+}
 
 // 看词选义正确率统计（仅看词选义模式）
 let learnChoiceCorrect = 0;   // 学习模式答对数
@@ -4345,8 +4411,9 @@ let reviewChoiceTotal = 0;    // 复习模式总答题数
 let reverseOptionsCache = [];
 
 // 加载学习队列：返回词书内所有单词（未学习优先），按添加顺序分批
-// append=true 时为"加入未学习"模式，只加载没学过的词(new状态)，追加到队列末尾
-async function loadLearnQueue(append = false, addCount = null) {
+// append=true 时为"加入未学习"模式，只加载没学过的词(new状态)，替换当前模式队列
+// seedAll=true 时首次加载，为所有模式播种同一份词表（各模式独立进度）
+async function loadLearnQueue(append = false, addCount = null, seedAll = true) {
   // 必须选择词书才能学习（重点学习/未选词书时例外：重点学习可复习全部词书的重点词）
   if (!learnWordbookId && learnWordbookId !== '0' && !learnStarredOnly) {
     showToast('请先选择一本词书再开始学习', 'error');
@@ -4370,27 +4437,68 @@ async function loadLearnQueue(append = false, addCount = null) {
     const res = await api.getLearnToday(learnWordbookId, options);
     const newWords = Array.isArray(res) ? res : (res.words || res.data || []);
     if (append) {
-      // 加入未学习：只翻新加的词，替换队列（不拼接旧词）
-      learnQueue = newWords;
+      // 加入未学习：只翻新加的词，替换当前模式队列（不拼接旧词）
+      const st = freshLearnModeState();
+      st.queue = [...newWords];
+      st.index = 0;
+      st.learned = new Set();
+      st.loaded = new Set(newWords.map(w => w.id));
+      st.original = [...newWords];
+      st.sheetWords = [...newWords];
+      st.seeded = true;
+      learnModeStates[learnMode] = st;
+      // 同步当前模式全局变量
+      learnQueue = st.queue;
       learnIndex = 0;
-    } else {
-      // 首次加载：替换队列
-      learnQueue = newWords;
-      learnIndex = 0;
-      learnedIds = new Set();
-      learnCompleteNotified = false; // 重置今日完成提示
-      // 重置看词选义正确率
+      learnedIds = st.learned;
+      loadedWordIds = st.loaded;
+      allLearnedIds = st.allLearned;
+      learnOriginalQueue = st.original;
+      learnSheetWords = st.sheetWords;
+      learnViewedIds = st.viewed;
       learnChoiceCorrect = 0;
       learnChoiceTotal = 0;
+      learnCompleteNotified = false;
+    } else {
+      // 非"加入未学习"：为模式播种"今日待学"词表。
+      // 使用当日快照缓存，避免某模式已学词导致后端待学池缩水、重取时其他模式丢词。
+      const key = learnPoolKey();
+      const today = todayLocalDateStr();
+      let seedWords;
+      if (learnPoolCache && learnPoolCache.key === key && learnPoolCache.date === today) {
+        seedWords = learnPoolCache.words;
+      } else {
+        seedWords = newWords;
+        learnPoolCache = { key, date: today, words: newWords };
+      }
+      const seed = seedAll ? LEARN_MODES : [learnMode];
+      for (const m of seed) {
+        const st = freshLearnModeState();
+        st.queue = [...seedWords];
+        st.index = 0;
+        st.learned = new Set();
+        st.loaded = new Set(seedWords.map(w => w.id));
+        st.original = [...seedWords];
+        st.sheetWords = [...seedWords];
+        st.completeNotified = false;
+        st.seeded = true;
+        learnModeStates[m] = st;
+      }
+      // 当前模式的全局变量指向它自己的状态
+      const cur = learnModeStates[learnMode];
+      learnQueue = cur.queue;
+      learnIndex = 0;
+      learnedIds = cur.learned;
+      loadedWordIds = cur.loaded;
+      allLearnedIds = cur.allLearned;
+      learnOriginalQueue = cur.original;
+      learnSheetWords = cur.sheetWords;
+      learnViewedIds = cur.viewed;
+      learnChoiceCorrect = 0;
+      learnChoiceTotal = 0;
+      learnCompleteNotified = false;
     }
-    // 记录已加载的单词ID
-    if (!append) {
-      loadedWordIds = new Set();
-    }
-    newWords.forEach(w => loadedWordIds.add(w.id));
-    // 保存原始顺序，用于随机/顺序切换
-    learnOriginalQueue = [...learnQueue];
-    // 如果当前是随机模式，打乱队列
+    // 如果当前是随机模式，打乱当前队列
     if (learnShuffleMode && learnQueue.length > 1) {
       learnQueue = shuffleArray([...learnQueue]);
       learnIndex = 0;
@@ -4430,11 +4538,24 @@ async function loadTodayAllWords() {
     learnSessionMode = 'review_today';
     const res = await api.getTodayLearnedWords(learnWordbookId);
     const words = Array.isArray(res) ? res : (res.data || []);
-    learnQueue = words;
+    // 只更新当前模式独立队列
+    const st = freshLearnModeState();
+    st.queue = [...words];
+    st.index = 0;
+    st.learned = new Set();
+    st.loaded = new Set(words.map(w => w.id));
+    st.original = [...words];
+    st.sheetWords = [...words];
+    st.seeded = true;
+    learnModeStates[learnMode] = st;
+    learnQueue = st.queue;
     learnIndex = 0;
-    learnedIds = new Set();
-    // 保存原始顺序
-    learnOriginalQueue = [...learnQueue];
+    learnedIds = st.learned;
+    loadedWordIds = st.loaded;
+    allLearnedIds = st.allLearned;
+    learnOriginalQueue = st.original;
+    learnSheetWords = st.sheetWords;
+    learnViewedIds = st.viewed;
     // 如果当前是随机模式，打乱队列
     if (learnShuffleMode && learnQueue.length > 1) {
       learnQueue = shuffleArray([...learnQueue]);
@@ -4479,6 +4600,8 @@ function renderLearnCard() {
   }
 
   const word = learnQueue[learnIndex];
+  // 记录当前词为"已浏览"，供答题卡标记使用
+  if (word) learnViewedIds.add(word.id);
   // 当前词是否为重点单词：显示/隐藏重点角标
   const learnBadge = $('#learnStarBadge');
   if (learnBadge) learnBadge.style.display = word.is_starred ? 'inline-block' : 'none';
@@ -4931,17 +5054,29 @@ function handleSpellSubmit() {
 
 /**
  * 切换学习模式
+ * 四个模式各自独立：保存当前模式进度，恢复目标模式进度
  */
 function switchLearnMode(mode) {
+  if (mode === learnMode) return;
+  saveCurrentLearnMode();
   learnMode = mode;
   // 更新 tab 样式
   $$('.mode-tab').forEach(tab => {
     tab.classList.toggle('active', tab.dataset.mode === mode);
   });
-  // 重新渲染当前词
-  if (learnQueue.length > 0 && learnIndex < learnQueue.length) {
+  const s = restoreLearnMode(mode);
+  // 目标模式已有队列：直接渲染
+  if (s.seeded && s.queue.length > 0) {
     renderLearnCard();
+    return;
   }
+  // 目标模式从未加载且已选词书：为其独立加载队列
+  if (!s.seeded && (learnWordbookId !== '' || learnStarredOnly)) {
+    renderLearnCard(); // 先渲染占位
+    loadLearnQueue(false, null, false); // 仅播种当前模式
+    return;
+  }
+  renderLearnCard();
 }
 
 /**
@@ -4993,6 +5128,110 @@ function handleLearnPrev() {
   }
   learnIndex--;
   renderLearnCard();
+}
+
+/* ====================================================
+   答题卡（学习/复习通用）
+   像驾考宝典一样：网格编号，点击任意一格即可跳到对应单词
+   ==================================================== */
+let answerSheetCtx = null; // { title, queue, currentIndex, getCellState, getWordText, onSelect }
+
+function openAnswerSheet(opts) {
+  answerSheetCtx = opts;
+  $('#answerSheetTitle').textContent = opts.title || '答题卡';
+  const grid = $('#answerSheetGrid');
+  grid.innerHTML = '';
+  const total = opts.queue.length;
+  // 学习模式显示"已掌握/已浏览"图例，复习队列动态仅标当前，隐藏这两项
+  const isLearn = !!opts.getCellState;
+  $('#asLegendLearned').style.display = isLearn ? '' : 'none';
+  $('#asLegendDone').style.display = isLearn ? '' : 'none';
+  // 汇总：总数 + 当前题号
+  const cur = (opts.currentIndex >= 0 && opts.currentIndex < total) ? opts.currentIndex + 1 : 0;
+  $('#answerSheetSummary').textContent = `共 ${total} 个单词 · 当前第 ${cur} 题`;
+  for (let i = 0; i < total; i++) {
+    const cell = document.createElement('button');
+    cell.type = 'button';
+    cell.className = 'answer-sheet-cell';
+    cell.textContent = i + 1;
+    const state = opts.getCellState ? opts.getCellState(i) : (i === opts.currentIndex ? 'current' : 'default');
+    if (state === 'current') cell.classList.add('as-current');
+    else if (state === 'learned') cell.classList.add('as-learned');
+    else if (state === 'done') cell.classList.add('as-done');
+    if (opts.getWordText) {
+      const wt = opts.getWordText(i);
+      if (wt) cell.title = `第${i + 1}题：${wt}`;
+    }
+    cell.addEventListener('click', () => {
+      opts.onSelect(i);
+      closeAnswerSheet();
+      // 跳转后滚动到卡片顶部，方便查看
+      const stage = document.querySelector('.flip-card-stage');
+      if (stage) stage.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    grid.appendChild(cell);
+  }
+  $('#answerSheetModal').classList.add('active');
+}
+
+function closeAnswerSheet() {
+  $('#answerSheetModal').classList.remove('active');
+  answerSheetCtx = null;
+}
+
+// 学习答题卡：单元格状态（当前 / 已掌握 / 已浏览 / 未浏览）
+// 基于稳定词表 learnSheetWords，不随"模糊"重排增长
+function learnSheetCellState(i) {
+  const w = learnSheetWords[i];
+  if (!w) return 'default';
+  const curWord = learnQueue[learnIndex];
+  if (curWord && curWord.id === w.id) return 'current';
+  if (learnedIds.has(w.id)) return 'learned';
+  if (learnViewedIds.has(w.id)) return 'done';
+  return 'default';
+}
+
+// 打开学习答题卡：点击格子跳转到对应单词
+function openLearnAnswerSheet() {
+  if (!learnSheetWords.length) return;
+  // 当前词在稳定词表中的位置（用于"当前第几题"）
+  const curWord = learnQueue[learnIndex];
+  const curSheetIdx = curWord ? learnSheetWords.findIndex(w => w.id === curWord.id) : 0;
+  openAnswerSheet({
+    title: '学习答题卡',
+    queue: learnSheetWords,
+    currentIndex: curSheetIdx,
+    getCellState: learnSheetCellState,
+    getWordText: (i) => learnSheetWords[i] ? learnSheetWords[i].word : '',
+    onSelect: (i) => {
+      if (autoNextTimer) { clearTimeout(autoNextTimer); autoNextTimer = null; }
+      // 跳到该词在当前工作队列中的位置（优先找当前及之后，否则找第一个出现）
+      const id = learnSheetWords[i].id;
+      let idx = learnQueue.findIndex((w, k) => w.id === id && k >= learnIndex);
+      if (idx === -1) idx = learnQueue.findIndex(w => w.id === id);
+      learnIndex = idx === -1 ? 0 : idx;
+      renderLearnCard();
+    },
+  });
+}
+
+// 打开复习答题卡：点击格子跳转到对应单词
+function openReviewAnswerSheet() {
+  if (!reviewQueue.length) return;
+  openAnswerSheet({
+    title: '复习答题卡',
+    queue: reviewQueue,
+    currentIndex: reviewIndex,
+    getWordText: (i) => reviewQueue[i] ? reviewQueue[i].word : '',
+    onSelect: (i) => {
+      if (typeof reviewAutoNextTimer !== 'undefined' && reviewAutoNextTimer) {
+        clearTimeout(reviewAutoNextTimer);
+        reviewAutoNextTimer = null;
+      }
+      reviewIndex = i;
+      renderReviewCard();
+    },
+  });
 }
 
 /**
@@ -5091,6 +5330,23 @@ async function handleLearnKnown() {
 function handleLearnDetail() {
   const word = learnQueue[learnIndex];
   if (word) openWordDetail(word.id);
+}
+
+// 学习翻卡：模糊 → 不标记学会，把当前词插到稍后位置，稍后再见加深记忆
+async function handleLearnHard() {
+  const word = learnQueue[learnIndex];
+  if (!word) return;
+  // 插入到 5 个位置后，稍后再见（不改变答题卡的稳定词表数量）
+  const insertPos = Math.min(learnIndex + 6, learnQueue.length);
+  learnQueue.splice(insertPos, 0, word);
+  // 提交 hard 评分，安排明天复习（失败不影响本轮翻卡）
+  try {
+    await api.submitReview(word.id, 'hard');
+  } catch (e) {
+    console.error(e);
+  }
+  learnIndex++;
+  renderLearnCard();
 }
 
 /* ====================================================
@@ -6646,7 +6902,7 @@ function bindEvents() {
 
   // 首页操作按钮
   $('#btnStartLearn').addEventListener('click', () => {
-    learnQueue = []; // 重置队列以重新加载
+    resetLearnSession(); // 重置所有学习模式队列以重新加载
     learnStarredOnly = false; // 普通学习
     switchPage('learn');
     updateLearnModeUI(); // 同步学习范围提示（普通学习隐藏）
@@ -6666,7 +6922,7 @@ function bindEvents() {
   const btnLearnStarred = $('#btnLearnStarred');
   if (btnLearnStarred) {
     btnLearnStarred.addEventListener('click', () => {
-      learnQueue = [];
+      resetLearnSession();
       learnStarredOnly = true; // 仅重点单词
       // 保留当前所选词本，只学习该词本内的重点单词（重点单词是该词本的子词本）
       switchPage('learn');
@@ -6700,6 +6956,16 @@ function bindEvents() {
   if (wrongbookModal) {
     wrongbookModal.addEventListener('click', (e) => {
       if (e.target === wrongbookModal) closeWrongbook();
+    });
+  }
+
+  // 答题卡弹窗
+  const answerSheetCloseBtn = $('#answerSheetCloseBtn');
+  if (answerSheetCloseBtn) answerSheetCloseBtn.addEventListener('click', closeAnswerSheet);
+  const answerSheetModal = $('#answerSheetModal');
+  if (answerSheetModal) {
+    answerSheetModal.addEventListener('click', (e) => {
+      if (e.target === answerSheetModal) closeAnswerSheet();
     });
   }
 
@@ -7071,14 +7337,14 @@ function bindEvents() {
   // 学习翻卡
   $('#learnCard').addEventListener('click', flipLearnCard);
   $('#btnLearnKnown').addEventListener('click', handleLearnKnown);
+  $('#btnLearnHard').addEventListener('click', handleLearnHard);
   $('#btnLearnDetail').addEventListener('click', handleLearnDetail);
   $('#btnLearnPrev').addEventListener('click', handleLearnPrev);
+  $('#btnLearnNext').addEventListener('click', handleQuizNext);
+  $('#btnLearnAnswerSheet').addEventListener('click', openLearnAnswerSheet);
   $('#learnClose').addEventListener('click', () => {
     // 退出学习时重置会话
-    allLearnedIds = new Set();
-    loadedWordIds = new Set();
-    learnQueue = [];
-    learnIndex = 0;
+    resetLearnSession();
     switchPage('home');
   });
   // 学习页词书选择（必须选择词书才能学习）
@@ -7092,11 +7358,8 @@ function bindEvents() {
       localStorage.setItem('wordmemo_review_wordbook', reviewWordbookId);
       const reviewWbSel = $('#reviewWordbookSelect');
       if (reviewWbSel) reviewWbSel.value = learnWordbookId;
-      // 重置队列
-      allLearnedIds = new Set();
-      loadedWordIds = new Set();
-      learnQueue = [];
-      learnIndex = 0;
+      // 重置所有模式队列
+      resetLearnSession();
       if (learnWordbookId !== '') {
         loadLearnQueue();
       } else {
@@ -7242,6 +7505,7 @@ function bindEvents() {
         showToast('已切换为顺序翻卡', 'success');
       }
       renderLearnCard();
+      saveCurrentLearnMode(); // 保存当前模式的打乱/顺序状态
     });
   }
   // 看词选义发音
@@ -7300,6 +7564,7 @@ function bindEvents() {
     reviewIndex++;
     renderReviewCard();
   });
+  $('#btnReviewAnswerSheet').addEventListener('click', openReviewAnswerSheet);
   $('#reviewClose').addEventListener('click', () => {
     reviewQueue = [];
     reviewIndex = 0;

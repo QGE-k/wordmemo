@@ -2922,6 +2922,100 @@ body.dragging-active {
   -webkit-overflow-scrolling: touch;
 }
 
+/* ============ 答题卡（学习/复习通用） ============ */
+.answer-sheet-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--primary);
+  background: var(--primary-bg);
+  border: 1px solid var(--primary);
+  border-radius: 16px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, transform 0.1s;
+}
+.answer-sheet-btn:active {
+  transform: scale(0.96);
+  background: var(--primary);
+  color: #fff;
+}
+
+.answer-sheet-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.as-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.as-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  display: inline-block;
+  flex-shrink: 0;
+}
+.as-dot.as-current { background: var(--primary); border-color: var(--primary); }
+.as-dot.as-learned { background: #34c759; border-color: #34c759; }
+.as-dot.as-done { background: #e9eef7; border-color: #d3dcef; }
+
+.answer-sheet-summary {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+
+.answer-sheet-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(46px, 1fr));
+  gap: 8px;
+}
+.answer-sheet-cell {
+  position: relative;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: var(--bg-card);
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+  overflow: hidden;
+}
+.answer-sheet-cell:active { transform: scale(0.94); }
+.answer-sheet-cell.as-current {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+  font-weight: 700;
+}
+.answer-sheet-cell.as-learned {
+  background: #34c759;
+  border-color: #34c759;
+  color: #fff;
+}
+.answer-sheet-cell.as-done {
+  background: #e9eef7;
+  border-color: #d3dcef;
+  color: var(--text-secondary);
+}
+/* 单词已在答题卡单元格上以悬浮提示显示，无需额外文字 */
+
 .modal-section {
   margin-bottom: 14px;
 }
