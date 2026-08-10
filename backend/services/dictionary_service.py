@@ -1432,6 +1432,62 @@ class DictionaryService:
         'meeting': 'n. 聚会，集会',
         'sports': 'n. 运动',
         'sport': 'n. 运动',
+        # 高频基础词：确保常用常考义优先（避免 ECDICT 把生僻义排前面）
+        'light': 'n. 光，灯光\nadj. 轻的，明亮的\nv. 点燃',
+        'record': 'n. 记录，唱片\nv. 记录，录制',
+        'earth': 'n. 地球；泥土，大地',
+        'star': 'n. 星星，恒星；明星',
+        'moon': 'n. 月亮，月球',
+        'sun': 'n. 太阳',
+        'sky': 'n. 天空',
+        'sea': 'n. 海，海洋',
+        'book': 'n. 书，书籍\nv. 预订',
+        'desk': 'n. 书桌，办公桌',
+        'chair': 'n. 椅子',
+        'table': 'n. 桌子；表格',
+        'door': 'n. 门',
+        'window': 'n. 窗户，窗口',
+        'room': 'n. 房间；空间',
+        'home': 'n. 家\nadv. 在家，回家',
+        'school': 'n. 学校',
+        'class': 'n. 班级；课堂；等级',
+        'student': 'n. 学生',
+        'friend': 'n. 朋友，友人',
+        'family': 'n. 家庭，家人',
+        'child': 'n. 孩子，儿童',
+        'people': 'n. 人们，人民',
+        'money': 'n. 钱，货币',
+        'time': 'n. 时间；次数，倍',
+        'day': 'n. 天，白天',
+        'year': 'n. 年，年度',
+        'hand': 'n. 手\nv. 递交，交给',
+        'head': 'n. 头；领导\nv. 朝...方向前进',
+        'eye': 'n. 眼睛',
+        'foot': 'n. 脚；英尺',
+        'food': 'n. 食物，食品',
+        'cup': 'n. 杯子',
+        'glass': 'n. 玻璃；玻璃杯',
+        'milk': 'n. 牛奶',
+        'tea': 'n. 茶',
+        'work': 'v. 工作\nn. 工作',
+        'study': 'v. 学习，研究\nn. 学习，研究',
+        'learn': 'v. 学习，学会',
+        'read': 'v. 阅读，朗读',
+        'speak': 'v. 说话，讲',
+        'listen': 'v. 听，倾听',
+        'walk': 'v. 走路，散步\nn. 散步',
+        'play': 'v. 玩，演奏\nn. 游戏，戏剧',
+        'music': 'n. 音乐',
+        'movie': 'n. 电影',
+        'phone': 'n. 电话，手机',
+        'car': 'n. 汽车，轿车',
+        'bus': 'n. 公共汽车',
+        'train': 'n. 火车\nv. 训练',
+        'plane': 'n. 飞机；平面',
+        'airport': 'n. 机场',
+        'city': 'n. 城市',
+        'country': 'n. 国家；农村',
+        'town': 'n. 城镇，市镇',
     }
 
     # 专升本例句模板（兜底方案）
@@ -5619,9 +5675,10 @@ class DictionaryService:
         meanings = []
         for code in ordered_codes[:2]:
             g = pos_groups[code]
-            # 同一词性内，优先多字释义（更贴近考试释义），再按出现顺序
-            # 严格精简：每组最多保留 2 个最常考释义，避免"一堆意思"堆砌
-            parts = g['meanings'][:2]
+            # 同一词性内，优先多字释义（更贴近考试释义），再按出现顺序。
+            # 数量适中：每组最多保留 3 个最常考释义（ECDICT 按频率排序，取前 3 即常用义）。
+            # 不刻意压到 2 条，避免砍掉有用的常考义；生僻/专业义已在上方过滤。
+            parts = g['meanings'][:3]
             joined = '，'.join(parts)
             if g['prefix']:
                 meanings.append(f"{g['prefix']} {joined}")
