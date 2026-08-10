@@ -676,11 +676,11 @@ def admin_reanalyze_words():
         query = query.filter_by(user_id=int(user_id))
     if wordbook_id:
         query = query.filter_by(wordbook_id=int(wordbook_id))
-    all_words = query.order_by(Word.id).all()
-    total = len(all_words)
-    # 分页处理（用于超大词本分批执行，避免单请求超时）
-    if limit:
-        all_words = all_words[int(offset or 0):int(offset) + int(limit)]
+    total = query.count()
+    # 数据库层分页：只加载当前批次，避免一次性加载全部词导致
+    # Render 免费版（512MB）OOM 崩溃或 gunicorn 超时。默认每批 500。
+    batch_size = int(limit) if limit else 500
+    all_words = query.order_by(Word.id).offset(int(offset or 0)).limit(batch_size).all()
 
     updated = 0
     skipped = 0
