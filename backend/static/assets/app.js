@@ -376,6 +376,8 @@ class WordAPI {
     if (wordbookId !== '' && wordbookId !== undefined) params.push(`wordbook_id=${wordbookId}`);
     if (options.random) params.push('random=1');
     if (options.starred) params.push('starred=1');
+    if (options.rangeStart) params.push(`range_start=${options.rangeStart}`);
+    if (options.rangeEnd) params.push(`range_end=${options.rangeEnd}`);
     const qs = params.length > 0 ? '?' + params.join('&') : '';
     const res = await this.request('/review/all' + qs);
     return res && res.data ? res.data : (Array.isArray(res) ? res : []);
@@ -5332,12 +5334,20 @@ function handleLearnDetail() {
   if (word) openWordDetail(word.id);
 }
 
+// 计算"模糊"词重插位置：按剩余队列长度比例缩放（建议点赞部长），
+// 间隔 = 剩余队列的25%，最小8个、最大30个，队列越长间隔越大，避免固定5词循环太短
+function calcLearnReinsertPos(curIndex, queue) {
+  const remaining = Math.max(1, queue.length - curIndex - 1);
+  const step = Math.max(8, Math.min(30, Math.floor(remaining * 0.25)));
+  return Math.min(curIndex + step + 1, queue.length);
+}
+
 // 学习翻卡：模糊 → 不标记学会，把当前词插到稍后位置，稍后再见加深记忆
 async function handleLearnHard() {
   const word = learnQueue[learnIndex];
   if (!word) return;
-  // 插入到 5 个位置后，稍后再见（不改变答题卡的稳定词表数量）
-  const insertPos = Math.min(learnIndex + 6, learnQueue.length);
+  // 按比例插到稍后位置，稍后再见（不改变答题卡的稳定词表数量）
+  const insertPos = calcLearnReinsertPos(learnIndex, learnQueue);
   learnQueue.splice(insertPos, 0, word);
   // 提交 hard 评分，安排明天复习（失败不影响本轮翻卡）
   try {
@@ -5361,6 +5371,8 @@ let reviewQuizAnswered = false; // 复习测验题是否已作答
 let reviewAutoNextTimer = null;  // 复习自动下一题定时器
 let reviewAllMode = false;       // 自主复习模式：true=复习所有已学过的词（不受到期限制），false=仅到期
 let reviewAllActive = false;     // 当前会话是否处于自主复习（用于中断恢复时区分）
+let reviewRangeStart = 0;        // 区间复习起始位置（1-based，0=不限）
+let reviewRangeEnd = 0;          // 区间复习结束位置（1-based，0=不限）
 
 // 保存复习位置到 localStorage（用于中断恢复）
 function saveReviewPosition() {
@@ -5404,6 +5416,8 @@ async function loadReviewQueue() {
     reviewAllActive = reviewAllMode;
     const reviewOpts = { random: reviewRandomMode };
     if (reviewStarredOnly) reviewOpts.starred = true;
+    if (reviewRangeStart > 0) reviewOpts.rangeStart = reviewRangeStart;
+    if (reviewRangeEnd > 0) reviewOpts.rangeEnd = reviewRangeEnd;
     const res = reviewAllMode
       ? await api.getReviewAll(reviewWordbookId, reviewOpts)
       : await api.getReviewToday(reviewWordbookId, reviewOpts);
@@ -5857,9 +5871,9 @@ async function handleReviewRating(rating) {
     if (rating === 'again') {
       reviewQueue.push(word);
     }
-    // 评级为 hard 时，将单词插入到5个位置后（稍后重看）
+    // 评级为 hard 时，将单词按比例插到稍后位置（稍后重看）
     if (rating === 'hard') {
-      const insertPos = Math.min(reviewIndex + 6, reviewQueue.length);
+      const insertPos = calcLearnReinsertPos(reviewIndex, reviewQueue);
       reviewQueue.splice(insertPos, 0, word);
     }
     // 记录正确率到localStorage
@@ -6914,6 +6928,7 @@ function bindEvents() {
     switchPage('review');
     // 进入时同步复习范围 UI（默认今日到期）
     updateReviewModeUI();
+    updateReviewRangeUI();
   });
 
   // 重点单词学习/复习
@@ -6938,9 +6953,13 @@ function bindEvents() {
       // 保留当前所选词本，只复习该词本内的重点单词（重点单词是该词本的子词本）
       // 重点复习使用自主复习：所有重点词都可复习，不受到期限制（避免"没有到期重点词"）
       reviewAllMode = true;
+      // 重点复习与区间复习互斥：进入重点复习时清除区间，避免区间分支覆盖重点过滤
+      reviewRangeStart = 0;
+      reviewRangeEnd = 0;
       switchPage('review');
       // 同步复习范围 UI
       updateReviewModeUI();
+      updateReviewRangeUI();
     });
   }
   $('#goLibraryFromHome').addEventListener('click', () => switchPage('library'));
@@ -7444,6 +7463,10 @@ function bindEvents() {
       localStorage.setItem('wordmemo_learn_wordbook', learnWordbookId);
       const learnWbSel = $('#learnWordbookSelect');
       if (learnWbSel) learnWbSel.value = reviewWordbookId;
+      // 切换词书后，原区间位置相对新词书无意义，清除区间并同步 UI
+      reviewRangeStart = 0;
+      reviewRangeEnd = 0;
+      updateReviewRangeUI();
       reviewQueue = [];
       reviewIndex = 0;
       loadReviewQueue();
@@ -7632,6 +7655,62 @@ function bindEvents() {
       // 手动切换自主复习时，重置为重点词过滤，回到"所有已学过的词"的全局复习
       reviewStarredOnly = false;
       updateReviewModeUI();
+      updateReviewRangeUI();
+      reviewQueue = [];
+      loadReviewQueue();
+    });
+  }
+
+  // 区间复习：显示/隐藏区间输入行，并回填当前区间值
+  function updateReviewRangeUI() {
+    const row = $('#reviewRangeRow');
+    if (!row) return;
+    if (reviewAllMode) {
+      row.style.display = 'flex';
+      $('#reviewRangeStart').value = reviewRangeStart > 0 ? reviewRangeStart : '';
+      $('#reviewRangeEnd').value = reviewRangeEnd > 0 ? reviewRangeEnd : '';
+      updateReviewRangeTip();
+    } else {
+      row.style.display = 'none';
+    }
+  }
+  // 区间提示：显示当前生效区间
+  function updateReviewRangeTip() {
+    const tip = $('#reviewRangeTip');
+    if (!tip) return;
+    tip.textContent = (reviewRangeStart > 0 || reviewRangeEnd > 0)
+      ? `当前复习第 ${reviewRangeStart || 1} - ${reviewRangeEnd || '末尾'} 个词（按词书顺序）`
+      : '默认复习全部已学词';
+  }
+  // 区间"确定"：校验并重新加载
+  const btnApplyRange = $('#btnReviewRangeApply');
+  if (btnApplyRange) {
+    btnApplyRange.addEventListener('click', () => {
+      const s = parseInt($('#reviewRangeStart').value, 10);
+      const e = parseInt($('#reviewRangeEnd').value, 10);
+      if ((s && isNaN(s)) || (e && isNaN(e))) {
+        alert('请输入有效的数字区间');
+        return;
+      }
+      reviewRangeStart = (s && s > 0) ? s : 0;
+      reviewRangeEnd = (e && e > 0) ? e : 0;
+      if (reviewRangeStart > 0 && reviewRangeEnd > 0 && reviewRangeStart > reviewRangeEnd) {
+        alert('起始位置不能大于结束位置');
+        return;
+      }
+      reviewQueue = [];
+      loadReviewQueue();
+    });
+  }
+  // 区间"清除"：恢复全部已学词
+  const btnClearRange = $('#btnReviewRangeClear');
+  if (btnClearRange) {
+    btnClearRange.addEventListener('click', () => {
+      reviewRangeStart = 0;
+      reviewRangeEnd = 0;
+      $('#reviewRangeStart').value = '';
+      $('#reviewRangeEnd').value = '';
+      updateReviewRangeTip();
       reviewQueue = [];
       loadReviewQueue();
     });

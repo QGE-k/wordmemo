@@ -6,7 +6,7 @@
    - 写操作 API（POST/PUT/DELETE）：纯网络，不缓存
    - 用户切换时清空 API 缓存（防止新用户看到旧用户数据）
    ==================================================== */
-const CACHE_NAME = 'wordmemo-v68';
+const CACHE_NAME = 'wordmemo-v69';
 const API_CACHE_NAME = 'wordmemo-api-v64';
 const CORE_ASSETS = [
   '/',

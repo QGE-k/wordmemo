@@ -3801,6 +3801,37 @@ def get_all_review():
     elif wordbook_id == '0':
         query = query.filter_by(wordbook_id=None)
 
+    # 范围复习：按词书顺序取第 start~end 个词（1-based），含所有状态，
+    # 用于"自主复习指定区间"（如 2000 词里复习 20-60）
+    range_start = request.args.get('range_start', None, type=int)
+    range_end = request.args.get('range_end', None, type=int)
+    if range_start is not None or range_end is not None:
+        q = Word.query
+        if user_id:
+            q = q.filter_by(user_id=user_id)
+        if wordbook_id and wordbook_id != '0':
+            try:
+                q = q.filter_by(wordbook_id=int(wordbook_id))
+            except ValueError:
+                pass
+        elif wordbook_id == '0':
+            q = q.filter_by(wordbook_id=None)
+        total = q.count()
+        ordered = q.order_by(Word.sort_order.asc(), Word.added_at.asc()).all()
+        start = max(1, range_start or 1)
+        end = min(total, range_end or total)
+        if start > total or start > end:
+            words = []
+        else:
+            words = ordered[start - 1:end]
+        return jsonify({
+            'success': True,
+            'data': [w.to_dict() for w in words],
+            'total': total,
+            'range_start': start,
+            'range_end': end,
+        })
+
     # starred 模式：仅返回重点单词
     starred_only = request.args.get('starred', '').strip() == '1'
     if starred_only:

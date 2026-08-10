@@ -521,6 +521,16 @@
         </select>
         <button class="btn-secondary" id="btnReviewAll" title="拉到最下方可切换复习范围" style="white-space:nowrap;font-size:13px;padding:6px 10px;">自主复习</button>
       </div>
+      <!-- 区间复习：自主复习时可按词书顺序自定义复习从哪到哪 -->
+      <div class="review-range-row" id="reviewRangeRow" style="display:none;align-items:center;gap:8px;padding:8px 16px;background:var(--bg-card);border-radius:var(--radius-md);margin-bottom:12px;flex-wrap:wrap;">
+        <label style="font-size:13px;color:var(--text-secondary);white-space:nowrap;">区间：</label>
+        <input type="number" id="reviewRangeStart" min="1" placeholder="起始" style="width:70px;padding:6px 8px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;">
+        <span style="color:var(--text-secondary);">-</span>
+        <input type="number" id="reviewRangeEnd" min="1" placeholder="结束" style="width:70px;padding:6px 8px;border:1px solid var(--border);border-radius:8px;font-size:14px;background:#fff;">
+        <button class="btn-secondary" id="btnReviewRangeApply" style="white-space:nowrap;font-size:13px;padding:6px 10px;">确定</button>
+        <button class="btn-secondary" id="btnReviewRangeClear" style="white-space:nowrap;font-size:13px;padding:6px 10px;">清除</button>
+        <span class="review-range-tip" id="reviewRangeTip" style="font-size:12px;color:var(--text-secondary);"></span>
+      </div>
       <!-- 复习范围说明：今日到期 / 自主复习 -->
       <div class="review-mode-tip" id="reviewModeTip" style="display:none"></div>
       <!-- 复习模式切换 -->
