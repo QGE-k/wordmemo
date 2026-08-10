@@ -2092,6 +2092,10 @@ def toggle_word_mastered(word_id):
         # 标记为已学会：停止安排复习，并置为已掌握状态
         word.status = 'mastered'
         word.next_review = None
+    else:
+        # 取消已学会：恢复为复习中状态，立即可再次复习（重新进入间隔复习队列）
+        word.status = 'review'
+        word.next_review = datetime.utcnow()
     db.session.commit()
     return jsonify({'success': True, 'is_mastered': word.is_mastered})
 
@@ -2102,7 +2106,7 @@ def batch_update_status():
     请求体: {"word_ids": [1,2,3], "status": "new"}
     支持状态: new, review, mastered, mastered_forever, unmastered_forever
     - mastered_forever: 标记为"已学会"（is_mastered=True，永久排除复习，状态置为 mastered）
-    - unmastered_forever: 取消"已学会"（is_mastered=False，仅清除该标记，不改动状态）
+    - unmastered_forever: 取消"已学会"（is_mastered=False，恢复为复习中状态，立即可再次复习）
     """
     data = request.get_json()
     if not data or 'word_ids' not in data or 'status' not in data:
@@ -2150,6 +2154,9 @@ def batch_update_status():
             continue
         if new_status == 'unmastered_forever':
             word.is_mastered = False
+            # 取消已学会：恢复为复习中状态，立即可再次复习（重新进入间隔复习队列）
+            word.status = 'review'
+            word.next_review = now
             updated += 1
             continue
 

@@ -5620,7 +5620,8 @@ class DictionaryService:
         for code in ordered_codes[:2]:
             g = pos_groups[code]
             # 同一词性内，优先多字释义（更贴近考试释义），再按出现顺序
-            parts = g['meanings'][:3]
+            # 严格精简：每组最多保留 2 个最常考释义，避免"一堆意思"堆砌
+            parts = g['meanings'][:2]
             joined = '，'.join(parts)
             if g['prefix']:
                 meanings.append(f"{g['prefix']} {joined}")
