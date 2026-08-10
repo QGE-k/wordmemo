@@ -235,6 +235,42 @@ def require_admin():
     return None
 
 
+# ==================== 集中式 API 鉴权 ====================
+# 应用前端强制登录（启动即调 /api/auth/me），但此前多数后端接口未校验登录，
+# 导致未登录调用时 get_current_user_id() 返回 None，`if user_id:` 过滤被跳过：
+#  - GET /api/words 等读接口会泄露所有用户的单词/统计数据
+#  - POST/PUT/DELETE 等写接口可越权新增/修改/删除任意数据
+# 用统一的 before_request 钩子修复：除下方白名单外，所有 /api/* 请求必须先登录。
+PUBLIC_API_PATHS = {
+    # 健康检查：UptimeRobot 与 GitHub Actions 保活依赖，必须公开
+    '/api/ping',
+    # 登录/注册/找回密码：登录前必须可访问
+    '/api/auth/login',
+    '/api/auth/register',
+    '/api/auth/reset_password',
+    # 退出登录：仅清空会话，无数据风险；会话已过期时也应能正常退出
+    '/api/auth/logout',
+    # 当前登录态探测：未登录时由该接口自身返回 401「未登录」，前端据此弹登录框
+    '/api/auth/me',
+}
+
+
+@app.before_request
+def _require_login_for_all_api():
+    """除公开白名单外，所有 /api/* 请求都必须登录。
+
+    集中式钩子避免逐接口漏加 require_login()；未登录返回 401「未登录」，
+    语义与前端 checkAuthStatus 的判定（401 或「未登录」）一致。
+    """
+    if not request.path.startswith('/api/'):
+        return None  # 静态资源/页面，不鉴权
+    if request.path in PUBLIC_API_PATHS:
+        return None
+    if not session.get('user_id'):
+        return jsonify({'success': False, 'error': '未登录'}), 401
+    return None
+
+
 # ==================== 健康检查/Ping API ====================
 
 @app.route('/api/ping', methods=['GET'])

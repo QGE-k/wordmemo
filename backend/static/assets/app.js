@@ -136,6 +136,12 @@ class WordAPI {
           // 保留后端返回的额外字段（如 quota_exceeded、状态码）
           if (errData && errData.quota_exceeded) err.quota_exceeded = true;
           err.status = res.status;
+          // 会话失效(401)：非认证接口统一触发登录框，避免用户毫不知情地继续操作
+          // （认证接口如 login/register 由各自逻辑处理，不在此拦截）
+          if (res.status === 401 && !path.startsWith('/auth/')
+              && typeof handleUnauthorized === 'function') {
+            handleUnauthorized();
+          }
           throw err;
         }
 
@@ -1258,6 +1264,19 @@ function handleError(err) {
   console.error(err);
   const msg = err.message || '操作失败';
   showToast(msg, 'error', 4000);
+}
+
+/** 全局 401 处理：会话失效时统一弹登录框并清理过期缓存（幂等）
+ *  由 api.request 捕获 401 后调用，避免多个并发请求重复触发。 */
+let _unauthorizedHandling = false;
+function handleUnauthorized() {
+  if (_unauthorizedHandling) return;
+  _unauthorizedHandling = true;
+  currentUser = null;
+  if (typeof clearAllUserDataCache === 'function') clearAllUserDataCache();
+  if (typeof showLoginModal === 'function') showLoginModal();
+  // 短暂去重窗口，防并发请求重复弹窗/清缓存
+  setTimeout(() => { _unauthorizedHandling = false; }, 1200);
 }
 
 function handleErrorWithRetry(err, retryFn) {
