@@ -9,7 +9,7 @@
   <!-- 预连接：提前建立TCP/TLS连接，减少首字节时间 -->
   <link rel="preconnect" href="/" crossorigin>
   <link rel="dns-prefetch" href="/">
-  <link rel="stylesheet" href="assets/style.css?v=20260811a">
+  <link rel="stylesheet" href="assets/style.css?v=20260811e">
   <!-- PWA 支持：允许"添加到桌面"当App用 -->
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" type="image/png" href="/icons/icon-192.png">
@@ -1233,7 +1233,7 @@
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function () {
         // 注册 SW，附带版本参数确保获取最新 sw.js
-        navigator.serviceWorker.register('/sw.js?v=68').then(function (reg) {
+        navigator.serviceWorker.register('/sw.js?v=69').then(function (reg) {
           // 强制检查更新
           reg.update();
           // 如果有新 SW 等待激活，立即接管

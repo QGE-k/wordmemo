@@ -11,6 +11,22 @@ import threading
 import requests
 
 
+# 专升本/四级考试几乎不考的生僻、古旧、法律、生物学义项。
+# 当这些生僻义与常用义混杂时予以剔除，保证释义聚焦"考试常考常用"。
+# 注意：仅当该义项出现在某词的义项列表中才剔除，不会影响其他正常含义。
+_RARE_MEANINGS = frozenset([
+    '判决', '警戒', '繁殖', '分解', '继承', '盘问', '侦查', '审讯', '传讯',
+    '古', '古体', '古语', '古义', '旧式', '旧时', '旧题', '古法',
+    '中古', '处方', '药方', '外科', '解剖', '染色体', '细胞核',
+    '伙食', '膳食', '伙食费', '俸禄', '薪饷', '兵饷', '军饷',
+    '方言', '俚语', '行话', '暗语', '黑话', '切口',
+    '审判', '起诉', '公诉', '辩护', '债权', '债务', '抵押', '典当',
+    '蒸馏', '冶炼', '熔炼', '锻压', '淬火', '电解', '电解液',
+    '航海', '航海术', '罗盘', '桅杆', '缆绳', '锚链',
+    '语法', '句法', '词法', '音标', '托福', '雅思', 'GMAT', 'GRE',
+])
+
+
 class DictionaryService:
     """本地词典服务，提供离线单词查询和规则分析"""
 
@@ -1488,6 +1504,87 @@ class DictionaryService:
         'city': 'n. 城市',
         'country': 'n. 国家；农村',
         'town': 'n. 城镇，市镇',
+        # 高频基础词补充：修正 ECDICT 把生僻/俚语义排前的问题（如 cat 被排成"恶妇"）
+        'cat': 'n. 猫',
+        'dog': 'n. 狗',
+        'fish': 'n. 鱼；鱼肉\nv. 钓鱼',
+        'horse': 'n. 马',
+        'sheep': 'n. 羊，绵羊',
+        'cow': 'n. 母牛，奶牛',
+        'pig': 'n. 猪',
+        'chicken': 'n. 鸡；鸡肉',
+        'duck': 'n. 鸭子',
+        'rabbit': 'n. 兔子',
+        'tiger': 'n. 老虎',
+        'lion': 'n. 狮子',
+        'monkey': 'n. 猴子',
+        'elephant': 'n. 大象',
+        'bear': 'n. 熊\nv. 忍受；承担',
+        'snake': 'n. 蛇',
+        'make': 'v. 制作，制造；使得',
+        'get': 'v. 得到，获得；变得',
+        'take': 'v. 拿，取；花费；乘坐',
+        'look': 'v. 看，瞧\nn. 看；外表',
+        'see': 'v. 看见，看到',
+        'know': 'v. 知道，了解',
+        'think': 'v. 想，认为',
+        'want': 'v. 想要，需要',
+        'need': 'v. 需要\nn. 需要',
+        'help': 'v. 帮助\nn. 帮助',
+        'man': 'n. 男人；人类',
+        'woman': 'n. 女人，妇女',
+        'boy': 'n. 男孩',
+        'girl': 'n. 女孩',
+        'name': 'n. 名字\nv. 命名',
+        'house': 'n. 房子，住宅',
+        'doctor': 'n. 医生；博士',
+        'nurse': 'n. 护士',
+        'person': 'n. 人',
+        'morning': 'n. 早晨，上午',
+        'evening': 'n. 晚上，傍晚',
+        'night': 'n. 夜晚',
+        'today': 'adv. 今天\nn. 今天',
+        'tomorrow': 'adv. 明天\nn. 明天',
+        'yesterday': 'adv. 昨天\nn. 昨天',
+        'week': 'n. 星期，周',
+        'month': 'n. 月，月份',
+        'color': 'n. 颜色\nv. 给...着色',
+        'red': 'n. 红色\nadj. 红色的',
+        'face': 'n. 脸，面部\nv. 面对',
+        'body': 'n. 身体，躯体',
+        'health': 'n. 健康',
+        'happy': 'adj. 高兴的，快乐的',
+        'sad': 'adj. 悲伤的，难过的',
+        'angry': 'adj. 生气的，愤怒的',
+        'tired': 'adj. 疲劳的，累的',
+        'hungry': 'adj. 饥饿的',
+        'thirsty': 'adj. 口渴的',
+        'clean': 'adj. 干净的\nv. 打扫，清洁',
+        'dirty': 'adj. 脏的，污秽的',
+        'early': 'adv. 早\nadj. 早的',
+        'late': 'adv. 迟，晚\nadj. 迟的，晚的',
+        'right': 'adj. 正确的；右边的\nn. 权利',
+        'left': 'adj. 左边的\nadv. 向左',
+        'open': 'v. 打开\nadj. 开着的',
+        'close': 'v. 关闭\nadj. 亲密的；近的',
+        'buy': 'v. 买，购买',
+        'sell': 'v. 卖，出售',
+        'eat': 'v. 吃',
+        'drink': 'v. 喝，饮\nn. 饮料',
+        'sleep': 'v. 睡觉\nn. 睡眠',
+        'dream': 'n. 梦；梦想\nv. 做梦',
+        'sing': 'v. 唱，唱歌',
+        'dance': 'v. 跳舞\nn. 舞蹈',
+        'swim': 'v. 游泳\nn. 游泳',
+        'jump': 'v. 跳，跳跃\nn. 跳',
+        'climb': 'v. 爬，攀登',
+        'cook': 'v. 烹饪，做饭\nn. 厨师',
+        'wash': 'v. 洗，洗涤',
+        'laugh': 'v. 笑\nn. 笑声',
+        'cry': 'v. 哭；喊\nn. 哭声',
+        'smile': 'v. 微笑\nn. 微笑',
+        'beautiful': 'adj. 美丽的，漂亮的',
+        'handsome': 'adj. 英俊的，帅气的',
     }
 
     # 专升本例句模板（兜底方案）
@@ -5214,6 +5311,38 @@ class DictionaryService:
         if word_lower.endswith('ed') and word_lower[:-2] in self.ZHUANSHENBEN_EXAMPLES:
             return self.ZHUANSHENBEN_EXAMPLES[word_lower[:-2]]
 
+        # 2.5 完整句型/疑问句/谚语/特殊句式保护：
+        # 这类输入（如 "How are you?"、"no sooner...than..."、"practice makes perfect."）
+        # 本身已是完整句子或固定句式，绝不能套用单词模板生成例句，
+        # 否则会产生 "Many students want to how are you? every day" 这样的荒谬句子。
+        # 检测特征：含疑问号、省略号、大小写混合（歧义）、或以谓语动词开头的完整短句。
+        import re as _re2
+        _w = word_lower
+        _is_full_sentence = False
+        if '?' in _w or '...' in _w:
+            _is_full_sentence = True
+        # 缩写/合成词（含撇号或连字符，如 don't、can't、well-known、baby-proofing）：
+        # 这类词含义已是整体，套用单词模板会产生 "The well-known plays an important role" 这类错误，
+        # 因此也不套用模板，返回空例句（用户可 AI 生成）。
+        elif "'" in _w or '’' in _w or '-' in _w:
+            _is_full_sentence = True
+        elif _w.count(' ') >= 2 and _w[0].isalpha():
+            # 多词输入：若以 can/could/should/would/may/must/do/does/did/be 等
+            # 助动词/系动词开头的完整短句，或含 be going to 等固定句式，视为完整句子
+            first_w = _w.split(' ')[0]
+            if first_w in ('can', 'could', 'should', 'would', 'may', 'might', 'must',
+                           'do', 'does', 'did', 'am', 'is', 'are', 'was', 'were',
+                           'be', 'being', 'been', 'have', 'has', 'had', 'there',
+                           'it', 'this', 'that', 'these', 'those', 'how', 'what',
+                           'why', 'when', 'where', 'which', 'who', 'whose', 'not',
+                           'no', 'never', 'always', 'please', 'let', 'thank', 'thanks',
+                           'practice', 'knowledge', 'where', 'whenever', 'whatever'):
+                _is_full_sentence = True
+        if _is_full_sentence:
+            # 完整句型/缩写合成词返回空例句，避免生成语法错误的无意义句子。
+            # 前端会显示"暂无例句"，用户可点击"AI生成更好的例句"补充。
+            return []
+
         # 3. 没有专门例句，根据词性用模板生成
         import re
         meaning_str = (meaning or '').strip()
@@ -5398,14 +5527,17 @@ class DictionaryService:
         conn = self._ecdict
         if not conn:
             return None
+        # 加锁串行化查询：单连接(check_same_thread=False)被多线程(批量导入8线程)共享，
+        # 不加锁并发读可能触发 'SQLite objects created in a thread' 或 'database is locked' 异常。
         try:
-            cur = conn.execute(
-                'SELECT word, phonetic, definition, translation, pos, exchange, tag, collins, oxford FROM stardict WHERE word = ? COLLATE NOCASE',
-                (word,)
-            )
-            row = cur.fetchone()
-            if row:
-                return dict(row)
+            with self._ecdict_lock:
+                cur = conn.execute(
+                    'SELECT word, phonetic, definition, translation, pos, exchange, tag, collins, oxford FROM stardict WHERE word = ? COLLATE NOCASE',
+                    (word,)
+                )
+                row = cur.fetchone()
+                if row:
+                    return dict(row)
         except Exception as e:
             print(f'[ecdict] query error({word}): {e}')
         return None
@@ -5553,10 +5685,10 @@ class DictionaryService:
 
     def _clean_meaning(self, translation, pos_field=''):
         """
-        精简 ECDICT 释义：只保留专升本最常考的1-2条释义，常用词性优先
+        精简 ECDICT 释义：只保留专升本最常考的释义，常用词性优先，过滤生僻义项。
         ECDICT translation 格式：用换行分隔不同词性的释义
         ECDICT pos 字段格式如 "v:5/n:95" 表示动词5%名词95%，用于确定主词性
-        过滤纯英文行、专业术语
+        过滤纯英文行、专业术语、以及考试几乎不考的生僻义
         """
         if not translation:
             return ''
@@ -5622,10 +5754,17 @@ class DictionaryService:
         #       合并 "vt. 结束\nvt. 作结论" → "vt. 作结论，结束"（按频率排序）。
         # 最多保留 2 个词性组，每组最多 3 个释义，避免重复和碎片化。
         pos_groups = {}  # pos_code -> {'prefix': std_prefix, 'meanings': [...]}
+        # 判断是否存在带词性标记的标准行（如 "n. 环境"）。若存在，
+        # 则跳过没有词性标记的散行（如 ECDICT 数据残留的裸释义 "环境"），
+        # 避免把数据碎片混进正释义造成重复/杂乱。
+        has_pos_marker = any(_re.match(r'^[a-z]+\.\s', l.lower()) for l in clean_lines)
         for line in clean_lines:
             pos_match = _re.match(r'^([a-z]+\.)\s*', line.lower())
             pos_prefix = pos_match.group(1) if pos_match else ''
             code = _pos_code(line)
+            # 有标准词性行时，跳过无词性标记的散行（数据残留）
+            if has_pos_marker and not pos_prefix:
+                continue
             # 词性前缀标准化：ECDICT 用 a./r. 等缩写，统一转为 adj./adv. 等标准形式
             pos_std = pos_prefix
             if pos_prefix == 'a.':
@@ -5649,6 +5788,10 @@ class DictionaryService:
                         break
                 # 单字标记（化/生/医/网/药）只在释义恰好等于该字时过滤
                 if part in ('化', '生', '医', '网', '药', '体', '法', '计'):
+                    skip = True
+                # 过滤专升本/四级考试几乎不考的生僻、古旧、法律、生物学义项，
+                # 这类义项混杂在常用义中会干扰"常考常用"的考试导向释义。
+                if part in _RARE_MEANINGS:
                     skip = True
                 if skip:
                     continue

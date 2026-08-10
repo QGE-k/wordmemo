@@ -1644,7 +1644,8 @@ function initBackButtonHandler() {
 // 单词去重检查
 async function checkWordDuplicate(word, wordbookId) {
   try {
-    const res = await api.request(`/api/words/check_duplicate?word=${encodeURIComponent(word)}&wordbook_id=${wordbookId || ''}`);
+    // 注意：api.request 内部已拼接 baseURL(/api)，这里必须用相对路径，避免拼成 /api/api/words/check_duplicate
+    const res = await api.request(`/words/check_duplicate?word=${encodeURIComponent(word)}&wordbook_id=${wordbookId || ''}`);
     return res && res.exists;
   } catch (e) {
     return false;

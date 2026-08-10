@@ -68,6 +68,12 @@ input, textarea, select {
   --radius-lg: 20px;
   --tabbar-h: 64px;              /* 底部TabBar高度 */
   --statusbar-h: 0px;            /* 顶部状态栏已移除 */
+  /* 按钮尺寸 token：统一高度，保证移动端触控体验一致 */
+  --btn-h: 48px;          /* 主/次操作按钮高度 */
+  --btn-h-sm: 40px;       /* 小型按钮/标签高度（满足触控下限） */
+  --btn-h-xs: 36px;       /* 极紧凑芯片高度 */
+  --btn-radius: 12px;     /* 按钮统一圆角 */
+  --bg-soft: #f4f6fb;     /* 补全缺失的 --bg-soft 变量（浅柔背景） */
 }
 
 /* ===== 顶部状态栏 ===== */
@@ -155,7 +161,7 @@ input, textarea, select {
   max-width: 480px;
   margin: 0 auto;
   min-height: 100vh;
-  padding: calc(var(--statusbar-h) + 12px) 16px calc(var(--tabbar-h) + 24px);
+  padding: calc(var(--statusbar-h) + 12px) 16px calc(var(--tabbar-h) + 24px + env(safe-area-inset-bottom));
   background: var(--bg-page);
 }
 
@@ -208,6 +214,7 @@ input, textarea, select {
   display: flex;
   align-items: center;
   gap: 5px;
+  min-height: 40px;
   padding: 8px 14px;
   background: var(--bg-card);
   color: var(--text-primary);
@@ -440,19 +447,6 @@ input, textarea, select {
   margin-bottom: 20px;
 }
 
-.starred-btn {
-  flex: 1;
-  padding: 10px 14px;
-  border-radius: var(--radius-md);
-  background: linear-gradient(135deg, #fff8e1, #fff3c4);
-  border: 1px solid #ffd54f;
-  color: #f57f17;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
 .starred-btn:active {
   transform: scale(0.97);
 }
@@ -560,6 +554,7 @@ input, textarea, select {
   flex-shrink: 0;
 }
 .wrongbook-item .wb-heal {
+  min-height: 36px;
   padding: 5px 10px;
   border-radius: var(--radius-sm);
   background: #e8f5e9;
@@ -637,6 +632,14 @@ input, textarea, select {
   grid-template-columns: repeat(4, 1fr);
   gap: 8px;
   margin-bottom: 20px;
+}
+/* 首页统计卡：底部为全局悬浮的"+"按钮(FAB)留出空间，避免遮挡最右侧"已掌握"数据 */
+.home-col-left .stat-cards {
+  margin-bottom: 64px;
+}
+/* 首页整体：底部为 FAB 留出安全区，避免遮挡"近7天学习曲线"最右侧数据点 */
+.page-home {
+  padding-bottom: 72px;
 }
 
 .stat-card {
@@ -878,8 +881,8 @@ input, textarea, select {
 }
 .reorder-handle {
   flex-shrink: 0;
-  width: 34px;
-  height: 34px;
+  width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -961,6 +964,7 @@ body.dragging-active {
 
 .tab-switch-item {
   flex: 1;
+  min-height: 40px;
   padding: 8px;
   font-size: 13px;
   color: var(--text-secondary);
@@ -1026,13 +1030,17 @@ body.dragging-active {
 /* 通用按钮 */
 .btn-primary {
   width: 100%;
-  padding: 14px;
+  min-height: var(--btn-h);
+  padding: 12px 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: linear-gradient(135deg, var(--primary), var(--primary-light));
   color: #fff;
-  border-radius: var(--radius-md);
+  border-radius: var(--btn-radius);
   font-size: 16px;
   font-weight: 600;
-  box-shadow: 0 4px 12px rgba(74,127,255,0.3);
+  box-shadow: 0 4px 12px rgba(79,70,229,0.3);
   transition: transform 0.15s;
 }
 
@@ -1042,10 +1050,14 @@ body.dragging-active {
 
 .btn-secondary {
   flex: 1;
-  padding: 14px;
+  min-height: var(--btn-h);
+  padding: 12px 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: var(--bg-input);
   color: var(--text-primary);
-  border-radius: var(--radius-md);
+  border-radius: var(--btn-radius);
   font-size: 16px;
   font-weight: 600;
   transition: transform 0.15s;
@@ -1053,6 +1065,37 @@ body.dragging-active {
 
 .btn-secondary:active {
   transform: scale(0.98);
+}
+
+/* 全局按钮基础规范：保证所有按钮（含未带样式的原生 button）触控高度一致，
+   并去掉移动端点击时的灰色高亮，提升触感与一致性 */
+button {
+  min-height: var(--btn-h-sm);
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* 重点学习/复习按钮：统一使用品牌主色，提升对比度与视觉一致性
+   （原为黄色底+橙色字，对比度低、与整体靛蓝主题割裂） */
+.starred-btn {
+  flex: 1;
+  min-height: var(--btn-h-sm);
+  padding: 10px 16px;
+  border-radius: var(--radius-md);
+  background: var(--primary-bg);
+  border: 1px solid var(--primary);
+  color: var(--primary);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.starred-btn:hover {
+  background: #e6ebfb;
 }
 
 /* 扫描区域 */
@@ -1066,6 +1109,7 @@ body.dragging-active {
 
 .scan-mode-item {
   flex: 1;
+  min-height: 40px;
   padding: 8px;
   font-size: 13px;
   color: var(--text-secondary);
@@ -1277,6 +1321,7 @@ body.dragging-active {
 .wordbook-bar::-webkit-scrollbar { display: none; }
 .wordbook-chip {
   flex-shrink: 0;
+  min-height: var(--btn-h-sm);
   padding: 6px 14px;
   background: var(--bg-card);
   color: var(--text-secondary);
@@ -1286,6 +1331,8 @@ body.dragging-active {
   cursor: pointer;
   transition: all 0.15s;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
 }
 .wordbook-chip:hover {
   border-color: var(--primary);
@@ -1328,9 +1375,13 @@ body.dragging-active {
   flex: 1;
 }
 .btn-sm {
-  padding: 8px 12px;
+  min-height: var(--btn-h-sm);
+  padding: 8px 14px;
   font-size: 13px;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .form-select {
   width: 100%;
@@ -1499,7 +1550,8 @@ body.dragging-active {
 }
 
 .scan-check-all {
-  padding: 5px 10px;
+  min-height: 40px;
+  padding: 5px 12px;
   font-size: 12px;
   color: var(--primary);
   background: transparent;
@@ -1690,6 +1742,7 @@ body.dragging-active {
 
 .filter-tab {
   flex-shrink: 0;
+  min-height: var(--btn-h-sm);
   padding: 6px 14px;
   background: var(--bg-card);
   color: var(--text-secondary);
@@ -1697,6 +1750,8 @@ body.dragging-active {
   font-size: 13px;
   box-shadow: var(--shadow-sm);
   transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
 }
 
 .filter-tab.active {
@@ -1708,6 +1763,7 @@ body.dragging-active {
 .sort-select {
   flex-shrink: 0;
   margin-left: auto;
+  min-height: var(--btn-h-sm);
   padding: 6px 10px;
   background: var(--bg-card);
   color: var(--text-secondary);
@@ -1733,6 +1789,11 @@ body.dragging-active {
   padding-bottom: 20px;
 }
 
+/* 词库页：底部为全局悬浮的"+"按钮(FAB)留出安全区，避免滚动到底时遮挡最后一个单词卡片 */
+.page-library {
+  padding-bottom: 96px;
+}
+
 /* ===== 翻卡学习/复习 ===== */
 .card-header {
   display: flex;
@@ -1750,7 +1811,8 @@ body.dragging-active {
 .card-close {
   font-size: 14px;
   color: var(--primary);
-  padding: 4px 10px;
+  min-height: 40px;
+  padding: 4px 12px;
   border-radius: 14px;
   background: var(--primary-bg);
 }
@@ -1952,8 +2014,8 @@ body.dragging-active {
   background: var(--bg-input);
   border: none;
   border-radius: 50%;
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   font-size: 16px;
   cursor: pointer;
   display: inline-flex;
@@ -1987,8 +2049,8 @@ body.dragging-active {
   gap: 8px;
 }
 .modal-speak-btn {
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   font-size: 14px;
   margin: 0;
 }
@@ -2101,15 +2163,22 @@ body.dragging-active {
 /* 卡片操作按钮 */
 .card-actions {
   display: flex;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 /* 统一 card-actions 内所有按钮大小 */
 .card-actions .btn-primary,
 .card-actions .btn-secondary {
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 88px;
   width: auto;
   padding: 12px 8px;
   font-size: 15px;
+}
+/* 答题/评分按钮与相邻操作按钮保持同尺寸 */
+.card-actions .rating-btn {
+  flex: 1 1 auto;
+  min-width: 88px;
 }
 /* 翻卡模式额外按钮（加入新词 / 翻今天所有），较小尺寸 */
 .card-actions-extra {
@@ -2119,6 +2188,7 @@ body.dragging-active {
 .card-actions-extra .btn-secondary {
   flex: 1;
   width: auto;
+  min-height: 40px;
   padding: 10px 8px;
   font-size: 13px;
 }
@@ -2130,16 +2200,30 @@ body.dragging-active {
 }
 
 .rating-btn {
-  flex: 1;
-  min-width: 60px;
-  padding: 14px 6px;
+  flex: 1 1 0;
+  min-width: 64px;
+  min-height: var(--btn-h);
+  padding: 6px 8px;
   border-radius: var(--radius-md);
   color: #fff;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 2px;
   transition: transform 0.15s;
+}
+
+.rating-btn .rating-label {
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.rating-btn .rating-desc {
+  font-size: 11px;
+  opacity: 0.85;
+  line-height: 1.2;
 }
 
 .rating-btn:active {
@@ -2184,6 +2268,7 @@ body.dragging-active {
 }
 
 .checkin-btn {
+  min-height: 40px;
   padding: 6px 16px;
   border-radius: 20px;
   background: linear-gradient(135deg, #ff9f0a, #ffb340);
@@ -2351,6 +2436,7 @@ body.dragging-active {
   color: var(--text-secondary);
 }
 .setting-btn {
+  min-height: 40px;
   padding: 6px 12px;
   background: var(--bg-input);
   color: var(--text-primary);
@@ -2448,6 +2534,7 @@ body.dragging-active {
 }
 .mode-tab {
   flex: 1;
+  min-height: 40px;
   padding: 8px 4px;
   background: var(--bg-card);
   color: var(--text-secondary);
@@ -2456,6 +2543,9 @@ body.dragging-active {
   font-size: 13px;
   cursor: pointer;
   transition: all 0.15s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .mode-tab.active {
   background: var(--primary);
@@ -2467,6 +2557,7 @@ body.dragging-active {
 }
 .order-toggle-btn {
   flex: 0 0 auto;
+  min-height: 40px;
   padding: 8px 14px;
   background: var(--bg-card);
   color: var(--text-secondary);
@@ -2476,6 +2567,9 @@ body.dragging-active {
   cursor: pointer;
   transition: all 0.15s;
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .order-toggle-btn.active {
   background: var(--primary);
@@ -2693,7 +2787,7 @@ body.dragging-active {
   right: 0;
   max-width: 480px;
   margin: 0 auto;
-  height: var(--tabbar-h);
+  height: calc(var(--tabbar-h) + env(safe-area-inset-bottom));
   background: var(--bg-card);
   border-top: 1px solid var(--border);
   display: flex;
@@ -2702,7 +2796,7 @@ body.dragging-active {
   z-index: 100;
   padding-bottom: env(safe-area-inset-bottom);
 }
-
+/* 刘海屏机型：TabBar 内容区自动上移，避免被 Home 指示条遮挡 */
 .tab-item {
   flex: 1;
   display: flex;
@@ -2712,6 +2806,7 @@ body.dragging-active {
   gap: 2px;
   color: var(--text-tertiary);
   transition: color 0.2s;
+  min-height: 44px;
 }
 
 .tab-item.active {
@@ -2909,9 +3004,14 @@ body.dragging-active {
 }
 
 .modal-close {
-  font-size: 26px;
+  font-size: 22px;
   color: var(--text-tertiary);
   line-height: 1;
+  min-width: var(--btn-h-sm); /* 40px：满足移动端触控下限 */
+  min-height: var(--btn-h-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 0 4px;
 }
 
@@ -2927,6 +3027,7 @@ body.dragging-active {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  min-height: 40px;
   padding: 5px 12px;
   font-size: 13px;
   font-weight: 600;
@@ -3099,6 +3200,7 @@ body.dragging-active {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  min-height: var(--btn-h-sm); /* 40px：满足移动端触控下限 */
   padding: 5px 12px;
   background: #f0f0f2;
   border: 1px solid #e0e0e4;
@@ -3296,15 +3398,21 @@ body.dragging-active {
 
 .modal-footer {
   display: flex;
-  gap: 12px;
-  padding: 12px 20px;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 12px 16px;
   border-top: 1px solid var(--border);
   flex-shrink: 0;
 }
 
 .modal-footer .btn-primary,
 .modal-footer .btn-secondary {
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 88px;
+  width: auto; /* 覆盖 .btn-primary 的 width:100%，使取消/保存可同排显示 */
+  min-height: var(--btn-h-sm);
+  padding: 10px 8px;
+  font-size: 14px;
 }
 
 /* 编辑弹窗特例 */
@@ -4469,10 +4577,12 @@ body.dragging-active {
 .batch-preview-meaning { color: var(--text-secondary); flex: 1; }
 .batch-preview-dup { color: var(--warning); font-size: 12px; }
 .batch-preview-remove {
-  width: 24px; height: 24px;
+  width: var(--btn-h-sm); height: var(--btn-h-sm); /* 40px：扩大触控命中区 */
   border: none; background: none;
   color: var(--danger); cursor: pointer;
   font-size: 18px; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 8px;
 }
 
 /* ================================================================

@@ -64,7 +64,8 @@ class Word(db.Model):
     """单词模型"""
     __tablename__ = 'words'
     __table_args__ = (
-        db.UniqueConstraint('word', 'user_id', name='uq_word_user'),
+        # 词本隔离：同一用户可在不同词本中添加相同单词，但在同一词本内唯一
+        db.UniqueConstraint('word', 'user_id', 'wordbook_id', name='uq_word_user_wordbook'),
     )
 
     # 主键ID

@@ -16,6 +16,7 @@ from flask_cors import CORS
 from werkzeug.utils import secure_filename
 
 from sqlalchemy import case
+from sqlalchemy.exc import SQLAlchemyError
 
 from config import Config
 from models import db, Word, LearnHistory, Setting, Wordbook, User, LearnSession
@@ -37,8 +38,22 @@ app.secret_key = os.environ.get('SECRET_KEY', 'wordmemo-dev-secret-key-2024')
 # session 过期时间：登录后 7 天内有效（需在登录时设置 session.permanent = True 生效）
 app.permanent_session_lifetime = timedelta(days=7)
 
+# session 安全属性：HttpOnly 防脚本读取，SameSite=Lax 阻止跨站请求携带 Cookie（防 CSRF/跨源数据泄露）
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+
 # 启用CORS，允许前端跨域访问（支持 credentials）
-CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
+# 安全收紧：前端与后端同源（Flask 直接托管前端），默认无需跨域；
+# 仅对明确的白名单来源放开，避免 origins="*"+credentials 导致的跨源会话风险。
+CORS(app,
+     resources={r"/api/*": {
+         "origins": [
+             'http://localhost:5000',
+             'http://127.0.0.1:5000',
+             'https://wordmemo-bbpn.onrender.com',
+         ]
+     }},
+     supports_credentials=True)
 
 
 @app.after_request
@@ -386,17 +401,16 @@ def auth_reset_password():
 
     # 安全问题答案校验
     stored_answer = (user.security_answer or '').strip()
-    if stored_answer:
-        # 已设置安全问题：答案需匹配（不区分大小写）
-        if stored_answer.lower() != security_answer.lower():
-            return jsonify({'success': False, 'error': '安全问题答案不正确'}), 403
-    else:
-        # 旧用户未设置安全问题答案：要求提供非空答案作为兜底
-        if not security_answer:
-            return jsonify({
-                'success': False,
-                'error': '该账号未设置安全问题，请联系管理员重置密码',
-            }), 400
+    if not stored_answer:
+        # 未设置安全问题答案：任何字符串都无法通过校验，必须拒绝，
+        # 避免攻击者用任意字符串接管未设置安全问题的账号。
+        return jsonify({
+            'success': False,
+            'error': '该账号未设置安全问题或安全问题答案为空，无法通过此方式重置密码，请通过管理员重置。',
+        }), 403
+    # 已设置安全问题：答案需匹配（不区分大小写）
+    if stored_answer.lower() != security_answer.lower():
+        return jsonify({'success': False, 'error': '安全问题答案不正确'}), 403
 
     user.set_password(new_password)
     db.session.commit()
@@ -470,13 +484,11 @@ def admin_list_users():
         return err
 
     users = User.query.order_by(User.created_at.desc()).all()
-    # 管理员可查看完整信息：含安全问题、密码哈希、OCR用量等
+    # 管理员可查看学习统计与安全问题，但绝不返回密码哈希/盐（高敏数据，避免泄露后加速弱哈希爆破）
     result = []
     for u in users:
         info = u.to_dict(include_stats=True)
         info['security_answer'] = u.security_answer or ''
-        info['password_hash'] = u.password_hash
-        info['salt'] = u.salt
         info['is_active'] = u.is_active if u.is_active is not None else True
         result.append(info)
     return jsonify({
@@ -960,9 +972,15 @@ def analyze_word_with_fallback(word):
         dict: 分析结果，包含 phonetic, meaning, type, split, morph, examples
     """
     # 1. 先查本地词典（ECDICT + 内置词典，毫秒级，覆盖 77 万词条）
-    result = dictionary_service.lookup(word)
-    if result:
-        return result, 'dictionary'
+    #    加 try/except 兜底：即使词典数据库缺失/损坏/查询异常，也绝不让添加单词 500，
+    #    降级到 AI，最后再降级到规则分析，保证用户永远能成功添加单词。
+    try:
+        result = dictionary_service.lookup(word)
+        if result:
+            return result, 'dictionary'
+    except Exception as e:
+        logger.error('词典查询异常，降级到 AI/规则分析 %s: %s\n%s',
+                     word, e, traceback.format_exc())
 
     # 2. 词典没有的词，尝试 AI 服务（慢，但能处理生僻词和新词）
     if ai_service.is_available():
@@ -970,11 +988,28 @@ def analyze_word_with_fallback(word):
             result = ai_service.analyze_word(word)
             return result, 'ai'
         except Exception as e:
-            print(f"[警告] AI分析失败，降级到规则分析: {e}")
+            logger.warning('AI分析失败，降级到规则分析 %s: %s', word, e)
 
-    # 3. 最后使用规则分析
-    result = dictionary_service.analyze_with_rules(word)
-    return result, 'rules'
+    # 3. 最后使用规则分析（纯本地算法，永不失败，保证添加单词不报 500）
+    try:
+        result = dictionary_service.analyze_with_rules(word)
+        if result:
+            return result, 'rules'
+    except Exception as e:
+        logger.error('规则分析异常 %s: %s\n%s', word, e, traceback.format_exc())
+
+    # 4. 终极兜底：连规则分析都失败时，仍返回一个最小可用的分析结果，
+    #    确保添加单词这个核心操作在任何环境下都不会失败。
+    return {
+        'phonetic': '',
+        'meaning': '',
+        'type': '基础词',
+        'split': [],
+        'morph': [],
+        'mnemonic': '',
+        'examples': [],
+        'tenses': None,
+    }, 'rules'
 
 def init_demo_data():
     """初始化演示数据：在数据库为空时插入预置单词"""
@@ -1622,9 +1657,12 @@ def add_word():
     # 检查单词是否已存在（按词本去重）
     user_id = get_current_user_id()
     wordbook_id = data.get('wordbook_id')
-    # 统一处理 wordbook_id：字符串 '0'、整数 0、空字符串 都视为"未归类"
+    # 统一处理 wordbook_id：字符串 '0'、整数 0、空字符串 都视为"未归类"；非数字返回 400 而非 500
     if wordbook_id is not None and wordbook_id != '' and str(wordbook_id) != '0':
-        wordbook_id = int(wordbook_id)
+        try:
+            wordbook_id = int(wordbook_id)
+        except (TypeError, ValueError):
+            return jsonify({'success': False, 'error': '无效的单词本ID'}), 400
         book = Wordbook.query.get(wordbook_id)
         if not book:
             return jsonify({'success': False, 'error': '指定的单词本不存在'}), 400
@@ -1641,26 +1679,38 @@ def add_word():
         return jsonify({'success': False, 'error': '该单词已存在', 'data': existing.to_dict()}), 409
 
     # 分析单词（AI优先，降级到词典和规则）
-    analysis, source = analyze_word_with_fallback(word_text)
+    try:
+        analysis, source = analyze_word_with_fallback(word_text)
+    except Exception as e:
+        logger.error('单词分析失败 %s: %s\n%s', word_text, e, traceback.format_exc())
+        return jsonify({'success': False, 'error': '单词分析失败，请稍后重试'}), 500
 
     # 创建单词记录
-    word = Word(
-        word=word_text,
-        phonetic=analysis.get('phonetic', ''),
-        meaning=analysis.get('meaning', ''),
-        word_type=analysis.get('type', '基础词'),
-        split_data=analysis.get('split', []),
-        morph_data=analysis.get('morph', []),
-        mnemonic=analysis.get('mnemonic', ''),
-        examples=analysis.get('examples', []),
-        tenses=analysis.get('tenses'),
-        status='new',
-        user_id=user_id,
-        wordbook_id=wordbook_id,
-        sort_order=get_next_sort_order(user_id, wordbook_id),
-    )
-    db.session.add(word)
-    db.session.commit()
+    try:
+        word = Word(
+            word=word_text,
+            phonetic=analysis.get('phonetic', ''),
+            meaning=analysis.get('meaning', ''),
+            word_type=analysis.get('type', '基础词'),
+            split_data=analysis.get('split', []),
+            morph_data=analysis.get('morph', []),
+            mnemonic=analysis.get('mnemonic', ''),
+            examples=analysis.get('examples', []),
+            tenses=analysis.get('tenses'),
+            status='new',
+            user_id=user_id,
+            wordbook_id=wordbook_id,
+            sort_order=get_next_sort_order(user_id, wordbook_id),
+        )
+        db.session.add(word)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        # UNIQUE 约束冲突（如边界情况下的重复添加）：返回友好提示而非 500
+        if 'UNIQUE constraint failed' in str(e):
+            return jsonify({'success': False, 'error': '该单词已存在'}), 409
+        logger.error('单词写入失败 %s: %s\n%s', word_text, e, traceback.format_exc())
+        return jsonify({'success': False, 'error': '单词保存失败，请稍后重试'}), 500
 
     return jsonify({
         'success': True,
@@ -1692,9 +1742,12 @@ def batch_add_words():
     # 可选：单词本 ID
     user_id = get_current_user_id()
     wordbook_id = data.get('wordbook_id')
-    # 统一处理 wordbook_id：字符串 '0'、整数 0、空字符串 都视为"未归类"
+    # 统一处理 wordbook_id：字符串 '0'、整数 0、空字符串 都视为"未归类"；非数字返回 400 而非 500
     if wordbook_id is not None and wordbook_id != '' and str(wordbook_id) != '0':
-        wordbook_id = int(wordbook_id)
+        try:
+            wordbook_id = int(wordbook_id)
+        except (TypeError, ValueError):
+            return jsonify({'success': False, 'error': '无效的单词本ID'}), 400
         book = Wordbook.query.get(wordbook_id)
         if not book:
             return jsonify({'success': False, 'error': '指定的单词本不存在'}), 400
@@ -1742,7 +1795,12 @@ def batch_add_words():
             skipped.append(word_text)
             continue
         # 先查本地词典（毫秒级，不耗时间）
-        dict_result = dictionary_service.lookup(word_text)
+        # 加 try/except 兜底：词典异常时按"无释义"处理，交给 AI/规则分析，绝不让批量导入 500
+        try:
+            dict_result = dictionary_service.lookup(word_text)
+        except Exception as e:
+            logger.error('批量导入词典查询异常 %s: %s\n%s', word_text, e, traceback.format_exc())
+            dict_result = None
         if dict_result and dict_result.get('meaning') and '暂无释义' not in dict_result.get('meaning', ''):
             # 词典有有效释义，直接使用
             pending.append((word_text, dict_result, is_starred, client_meaning))
@@ -1784,16 +1842,14 @@ def batch_add_words():
         ai_map = {}
         for word_text, result in results:
             ai_map[word_text] = result
+        # 本地词典命中的词（未进 AI 队列）保留原词典结果；用字典映射替代 O(n²) 内层循环，避免大词库导入卡顿/超时
+        dict_map = {w: a for w, a, _, _ in pending if a is not None}
         new_pending = []
         for word_text, _, starred, client_meaning in pending:
             if word_text in ai_map:
                 new_pending.append((word_text, ai_map[word_text], starred, client_meaning))
             else:
-                # 本地词典命中的，保持原样
-                for w, a, s, m in pending:
-                    if w == word_text and a is not None:
-                        new_pending.append((word_text, a, s, m))
-                        break
+                new_pending.append((word_text, dict_map.get(word_text), starred, client_meaning))
         pending = new_pending
 
     # 第二步B：对词典命中但例句是模板的词，用 AI 生成高质量例句
@@ -1856,7 +1912,21 @@ def batch_add_words():
         except Exception as e:
             failed.append({'word': word_text, 'error': str(e)})
 
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        logger.error('批量添加单词写入失败: %s\n%s', e, traceback.format_exc())
+        return jsonify({
+            'success': False,
+            'added': added,
+            'skipped': skipped,
+            'failed': failed + [{'word': f'批量提交失败（已处理{len(added)}个）', 'error': '保存失败，请重试'}],
+            'added_count': len(added),
+            'skipped_count': len(skipped),
+            'failed_count': len(failed) + 1,
+            'error': '部分单词保存失败，请重试'
+        }), 500
 
     return jsonify({
         'success': True,
@@ -3041,13 +3111,20 @@ def import_confirm():
     # 单词本 ID（可选，导入的单词会归入此单词本）
     user_id = get_current_user_id()
     wordbook_id = data.get('wordbook_id')
-    if wordbook_id is not None:
+    # 统一处理 wordbook_id：'0'/'' 视为未归类；非数字返回 400 而非 500
+    if wordbook_id is not None and wordbook_id != '' and str(wordbook_id) != '0':
+        try:
+            wordbook_id = int(wordbook_id)
+        except (TypeError, ValueError):
+            return jsonify({'success': False, 'error': '无效的单词本ID'}), 400
         # 校验单词本存在
         book = Wordbook.query.get(wordbook_id)
         if not book:
             return jsonify({'success': False, 'error': '指定的单词本不存在'}), 400
         if user_id and book.user_id and book.user_id != user_id:
             return jsonify({'success': False, 'error': '无权访问该单词本'}), 403
+    else:
+        wordbook_id = None
 
     added = []
     skipped = []
@@ -3058,10 +3135,17 @@ def import_confirm():
         word_text = str(raw_word).strip().lower()
         if not word_text:
             continue
-        if user_id:
-            existing = Word.query.filter_by(word=word_text, user_id=user_id).first()
+        # 按词本去重（与批量添加一致：同词在不同词本允许重复，同词本内不允许）
+        if wordbook_id:
+            if user_id:
+                existing = Word.query.filter_by(word=word_text, user_id=user_id, wordbook_id=wordbook_id).first()
+            else:
+                existing = Word.query.filter_by(word=word_text, wordbook_id=wordbook_id).first()
         else:
-            existing = Word.query.filter_by(word=word_text).first()
+            if user_id:
+                existing = Word.query.filter_by(word=word_text, user_id=user_id, wordbook_id=None).first()
+            else:
+                existing = Word.query.filter_by(word=word_text, wordbook_id=None).first()
         if existing:
             skipped.append(word_text)
             continue
@@ -3085,15 +3169,14 @@ def import_confirm():
         ai_map = {}
         for word_text, result in results:
             ai_map[word_text] = result
+        # 用字典映射替代 O(n²) 内层循环，避免大词库导入卡顿/超时
+        dict_map = {w: a for w, a in pending if a is not None}
         new_pending = []
         for word_text, _ in pending:
             if word_text in ai_map:
                 new_pending.append((word_text, ai_map[word_text]))
             else:
-                for w, a in pending:
-                    if w == word_text and a is not None:
-                        new_pending.append((word_text, a))
-                        break
+                new_pending.append((word_text, dict_map.get(word_text)))
         pending = new_pending
 
     # 按添加顺序分配 sort_order，保证导入的单词按用户输入顺序排列
@@ -3138,7 +3221,8 @@ def import_confirm():
         db.session.commit()
     except Exception as e:
         db.session.rollback()
-        return jsonify({'success': False, 'error': f'保存失败：{str(e)}'}), 500
+        logger.error('导入确认保存失败: %s\n%s', e, traceback.format_exc())
+        return jsonify({'success': False, 'error': '保存失败，请稍后重试'}), 500
 
     return jsonify({
         'success': True,
@@ -3172,12 +3256,20 @@ def ocr_recognize():
     if not allowed_file(file.filename):
         return jsonify({'success': False, 'error': '不支持的文件格式，请上传png/jpg/jpeg/bmp格式'}), 400
 
-    # 检查OCR服务是否可用
-    if not ocr_service.is_available():
-        return jsonify({
-            'success': False,
-            'error': '百度OCR API Key未配置，请在环境变量中设置 BAIDU_OCR_API_KEY 和 BAIDU_OCR_SECRET_KEY',
-        }), 503
+    # 获取当前用户（用于OCR限额控制）
+    current_user = get_current_user()
+    user_id = current_user.id if current_user else None
+    user_role = current_user.role if current_user else 'user'
+
+    # 检查OCR服务是否可用（含个人/全局限额检查）
+    if not ocr_service.is_available(user_id=user_id, role=user_role):
+        # 区分是未配置还是超限
+        if not (ocr_service.api_key and ocr_service.secret_key):
+            return jsonify({
+                'success': False,
+                'error': '百度OCR API Key未配置，请在环境变量中设置 BAIDU_OCR_API_KEY 和 BAIDU_OCR_SECRET_KEY',
+            }), 503
+        return jsonify({'success': False, 'error': '本月OCR识别次数已达上限，请下月再试或使用AI精准模式'}), 429
 
     # 确保上传目录存在
     upload_folder = Config.UPLOAD_FOLDER
@@ -3191,7 +3283,7 @@ def ocr_recognize():
     file.save(filepath)
 
     try:
-        # 调用OCR识别
+        # 调用OCR识别（传入用户身份以正确统计个人限额）
         words = ocr_service.recognize(image_path=filepath, user_id=user_id, role=user_role)
         return jsonify({
             'success': True,
@@ -3223,12 +3315,20 @@ def ocr_add_words():
     if not allowed_file(file.filename):
         return jsonify({'success': False, 'error': '不支持的文件格式'}), 400
 
-    # 检查OCR服务是否可用
-    if not ocr_service.is_available():
-        return jsonify({
-            'success': False,
-            'error': '百度OCR API Key未配置，请在环境变量中设置 BAIDU_OCR_API_KEY 和 BAIDU_OCR_SECRET_KEY',
-        }), 503
+    # 获取当前用户（用于OCR限额控制）
+    current_user = get_current_user()
+    user_id = get_current_user_id()
+    user_role = current_user.role if current_user else 'user'
+
+    # 检查OCR服务是否可用（含个人/全局限额检查）
+    if not ocr_service.is_available(user_id=user_id, role=user_role):
+        # 区分是未配置还是超限
+        if not (ocr_service.api_key and ocr_service.secret_key):
+            return jsonify({
+                'success': False,
+                'error': '百度OCR API Key未配置，请在环境变量中设置 BAIDU_OCR_API_KEY 和 BAIDU_OCR_SECRET_KEY',
+            }), 503
+        return jsonify({'success': False, 'error': '本月OCR识别次数已达上限，请下月再试或使用AI精准模式'}), 429
 
     # 确保上传目录存在
     upload_folder = Config.UPLOAD_FOLDER
@@ -3241,8 +3341,8 @@ def ocr_add_words():
     file.save(filepath)
 
     try:
-        # 1. OCR识别
-        words = ocr_service.recognize(image_path=filepath)
+        # 1. OCR识别（传入用户身份以正确统计个人限额）
+        words = ocr_service.recognize(image_path=filepath, user_id=user_id, role=user_role)
 
         if not words:
             return jsonify({'success': True, 'words': [], 'message': '未识别到英文单词', 'added': []})
@@ -3251,7 +3351,6 @@ def ocr_add_words():
         added = []
         skipped = []
         failed = []
-        user_id = get_current_user_id()
         wordbook_id = request.form.get('wordbook_id', type=int)
 
         pending = []  # [(word_text, dict_result_or_None)]
@@ -4468,7 +4567,8 @@ def clear_all_words():
         return jsonify({'success': True, 'message': '已清空所有数据'})
     except Exception as e:
         db.session.rollback()
-        return jsonify({'success': False, 'error': str(e)}), 500
+        logger.error('清空数据失败: %s\n%s', e, traceback.format_exc())
+        return jsonify({'success': False, 'error': '清空数据失败，请稍后重试'}), 500
 
 
 @app.route('/api/words/export', methods=['GET'])
@@ -4603,12 +4703,34 @@ def not_found(error):
 
 @app.errorhandler(500)
 def internal_error(error):
-    """500错误处理"""
+    """500错误处理：记录真实异常堆栈，并返回可读、可操作的具体错误信息（而非笼统的"服务器内部错误"）"""
     # 记录真实异常堆栈，便于线上问题定位
     logger.error('服务器内部错误 %s %s: %s\n%s',
                  request.method, request.path, error, traceback.format_exc())
     db.session.rollback()
-    return jsonify({'success': False, 'error': '服务器内部错误'}), 500
+
+    # 把常见的、用户可自助解决的异常映射为具体提示，避免"服务器内部错误"这种看不出原因的笼统提示。
+    # 注意：只返回白名单内的安全信息，绝不把堆栈/内部路径暴露给用户。
+    err_str = str(error)
+    err_cls = error.__class__.__name__ if error is not None else ''
+
+    if isinstance(error, (TimeoutError,)) or 'timeout' in err_str.lower():
+        msg = '服务处理超时，请稍后重试'
+    elif isinstance(error, SQLAlchemyError):
+        msg = '数据库操作失败，请稍后重试'
+    elif 'locked' in err_str.lower() or 'database is locked' in err_str.lower():
+        msg = '数据库正忙，请稍后重试'
+    elif 'no such table' in err_str.lower() or 'no such column' in err_str.lower():
+        msg = '数据表结构需要升级，请刷新页面后重试'
+    elif 'connection' in err_str.lower() and ('refused' in err_str.lower() or 'reset' in err_str.lower()):
+        msg = '依赖服务连接失败，请稍后重试'
+    elif 'memory' in err_str.lower() and 'out of' in err_str.lower():
+        msg = '服务器资源紧张，请稍后重试'
+    else:
+        # 未匹配到已知类型：返回带接口路径的定位信息，便于用户反馈，同时不泄露内部细节
+        msg = f'服务器处理该请求时出错（{request.path}），请稍后重试或联系管理员'
+
+    return jsonify({'success': False, 'error': msg}), 500
 
 
 @app.errorhandler(413)
@@ -4743,31 +4865,41 @@ def ensure_user_id_columns():
 
 def fix_word_unique_constraint():
     """
-    数据库迁移：将 words 表的 word 列从全局 UNIQUE 改为 (word, user_id) 联合唯一
-    这样不同用户可以添加同一个单词
+    数据库迁移：将 words 表的 word 列从全局 UNIQUE 改为 (word, user_id, wordbook_id) 联合唯一
+    - 不同用户可以添加同一个单词
+    - 同一用户在不同词本中可以添加相同单词（词本隔离）
+    - 同一用户在同一词本内不允许重复
     """
     from sqlalchemy import text, inspect
     inspector = inspect(db.engine)
     indexes = inspector.get_indexes('words')
-    # 查找旧的 word 唯一索引（名称可能是 ix_words_word 或 word）
+    # 查找旧的 word 唯一索引（名称可能是 ix_words_word、ix_words_word_user_id 或 word）
+    # 注意排除当前目标索引名，避免迁移重复运行时误删新索引
     old_unique_indexes = [
         idx for idx in indexes
         if idx.get('unique') and 'word' in idx.get('column_names', [])
+        and idx['name'] != 'ix_words_word_user_id_wordbook_id'
     ]
     if old_unique_indexes:
-        print("[迁移] 检测到 words.word 上的旧唯一索引，正在移除...")
+        print("[迁移] 检测到 words.word 相关旧唯一索引，正在移除...")
         with db.engine.connect() as conn:
             for idx in old_unique_indexes:
                 idx_name = idx['name']
                 conn.execute(text(f"DROP INDEX IF EXISTS {idx_name}"))
-            # 创建新的联合唯一索引（word + user_id）
-            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_words_word_user_id ON words(word, user_id)"))
+            # 创建新的联合唯一索引（word + user_id + wordbook_id）
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_words_word_user_id_wordbook_id "
+                "ON words(word, user_id, wordbook_id)"
+            ))
             conn.commit()
-        print(f"[迁移] 已移除 {len(old_unique_indexes)} 个旧索引，创建 (word, user_id) 联合唯一索引")
+        print(f"[迁移] 已移除 {len(old_unique_indexes)} 个旧索引，创建 (word, user_id, wordbook_id) 联合唯一索引")
     else:
-        # 确保联合唯一索引存在
+        # 确保联合唯一索引存在（若旧索引已被 DROP，重新创建）
         with db.engine.connect() as conn:
-            conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_words_word_user_id ON words(word, user_id)"))
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_words_word_user_id_wordbook_id "
+                "ON words(word, user_id, wordbook_id)"
+            ))
             conn.commit()
 
 

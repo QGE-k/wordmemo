@@ -7,12 +7,16 @@ import json
 import os
 import re
 import time
+import threading
 import requests
 from config import Config
 
 
 class OCRService:
     """百度OCR高精度版服务"""
+
+    # 用量文件读改写锁：防止多线程/多请求并发时计数丢失或写坏 JSON
+    _usage_lock = threading.Lock()
 
     # 百度OAuth认证接口
     TOKEN_URL = 'https://aip.baidubce.com/oauth/2.0/token'
@@ -73,21 +77,23 @@ class OCRService:
     def _increment_usage(self, user_id=None, role='user'):
         """递增调用次数（全局+个人）"""
         from datetime import datetime
-        current_month = datetime.now().strftime('%Y-%m')
-        global_count, users = self._get_usage()
-        global_count += 1
-        uid_str = str(user_id) if user_id else 'anonymous'
-        users[uid_str] = users.get(uid_str, 0) + 1
-        try:
-            os.makedirs(os.path.dirname(self.USAGE_FILE), exist_ok=True)
-            with open(self.USAGE_FILE, 'w', encoding='utf-8') as f:
-                json.dump({
-                    'month': current_month,
-                    'global_count': global_count,
-                    'users': users,
-                }, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            print(f"[OCR] 写入调用次数失败: {e}")
+        # 加锁保证读-改-写原子性，避免并发丢失计数
+        with self._usage_lock:
+            current_month = datetime.now().strftime('%Y-%m')
+            global_count, users = self._get_usage()
+            global_count += 1
+            uid_str = str(user_id) if user_id else 'anonymous'
+            users[uid_str] = users.get(uid_str, 0) + 1
+            try:
+                os.makedirs(os.path.dirname(self.USAGE_FILE), exist_ok=True)
+                with open(self.USAGE_FILE, 'w', encoding='utf-8') as f:
+                    json.dump({
+                        'month': current_month,
+                        'global_count': global_count,
+                        'users': users,
+                    }, f, ensure_ascii=False, indent=2)
+            except Exception as e:
+                print(f"[OCR] 写入调用次数失败: {e}")
         print(f"[OCR] 当月调用: 全局 {global_count}/{self.GLOBAL_MONTHLY_LIMIT}, 用户{uid_str}({role}) {users[uid_str]}/{('∞' if role=='admin' else self.USER_MONTHLY_LIMIT)}")
         return global_count, users[uid_str]
 
