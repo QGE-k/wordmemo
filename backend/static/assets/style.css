@@ -4621,6 +4621,21 @@ body.dragging-active {
   font-weight: 600;
 }
 
+/* ===== 已学会标记 ===== */
+.word-mastered-icon {
+  color: #10b981;
+  font-size: 13px;
+  font-weight: 700;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+/* 已学会按钮（弹窗中） */
+#modalMasterBtn.mastered-on {
+  color: #10b981;
+  font-weight: 600;
+}
+
 /* ===== 可滚动的单词列表 ===== */
 .word-list-scroll {
   max-height: 400px;

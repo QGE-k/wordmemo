@@ -120,7 +120,7 @@ def _invalidate_words_cache():
     _words_list_cache.clear()
 
 
-def _build_words_cache_key(status, search, wordbook_id, starred):
+def _build_words_cache_key(status, search, wordbook_id, starred, mastered=''):
     """构造缓存键：按用户与查询参数区分"""
     return (
         get_current_user_id(),
@@ -128,12 +128,13 @@ def _build_words_cache_key(status, search, wordbook_id, starred):
         search or '',
         wordbook_id or '',
         starred or '',
+        mastered or '',
     )
 
 
-def _get_words_cache(status, search, wordbook_id, starred):
+def _get_words_cache(status, search, wordbook_id, starred, mastered=''):
     """读取未过期的词库缓存，未命中返回 None"""
-    key = _build_words_cache_key(status, search, wordbook_id, starred)
+    key = _build_words_cache_key(status, search, wordbook_id, starred, mastered)
     entry = _words_list_cache.get(key)
     if not entry:
         return None
@@ -1495,12 +1496,14 @@ def get_words():
     - search: 按单词或释义搜索
     - wordbook_id: 按单词本过滤（传 0 或不传=全部，传具体 id=该单词本）
     - starred: 按重点标记过滤（传 1=只看重点单词）
+    - mastered: 按已学会标记过滤（传 1=只看已学会单词）
     """
     # 获取查询参数
     status = request.args.get('status', '').strip()
     search = request.args.get('search', '').strip()
     wordbook_id = request.args.get('wordbook_id', '').strip()
     starred = request.args.get('starred', '').strip()
+    mastered = request.args.get('mastered', '').strip()
 
     # 构建查询
     query = Word.query
@@ -1527,9 +1530,11 @@ def get_words():
                 pass
     if starred == '1':
         query = query.filter(Word.is_starred == True)
+    if mastered == '1':
+        query = query.filter(Word.is_mastered == True)
 
     # 命中缓存则直接返回，避免重复查询+序列化（进入词库/切换筛选/排序时显著提速）
-    cached = _get_words_cache(status, search, wordbook_id, starred)
+    cached = _get_words_cache(status, search, wordbook_id, starred, mastered)
     if cached is not None:
         return jsonify({'success': True, 'data': cached, 'total': len(cached), 'cached': True})
 
@@ -1538,7 +1543,7 @@ def get_words():
 
     # 使用轻量级序列化（省略拆解/例句/词根等重型JSON字段），加快数千词列表加载
     data = [w.to_list_dict() for w in words]
-    _words_list_cache[_build_words_cache_key(status, search, wordbook_id, starred)] = {
+    _words_list_cache[_build_words_cache_key(status, search, wordbook_id, starred, mastered)] = {
         'ts': time.time(),
         'data': data,
     }
@@ -2031,11 +2036,37 @@ def toggle_word_star(word_id):
     return jsonify({'success': True, 'is_starred': word.is_starred})
 
 
+@app.route('/api/words/<int:word_id>/master', methods=['POST'])
+def toggle_word_mastered(word_id):
+    """切换单词"已学会"标记（永久排除复习）
+
+    标记为已学会后：学习/复习/错题/自定义复习均不再出现该单词。
+    该标记与 status='mastered'(已掌握，仍可能参与防遗忘回顾) 不同，
+    是用户主动"学会后不再复习"的永久标记。可随时取消恢复复习。
+    """
+    word = Word.query.get(word_id)
+    if not word:
+        return jsonify({'success': False, 'error': '单词不存在'}), 404
+    user_id = get_current_user_id()
+    if user_id and word.user_id and word.user_id != user_id:
+        return jsonify({'success': False, 'error': '无权访问'}), 403
+
+    word.is_mastered = not (word.is_mastered or False)
+    if word.is_mastered:
+        # 标记为已学会：停止安排复习，并置为已掌握状态
+        word.status = 'mastered'
+        word.next_review = None
+    db.session.commit()
+    return jsonify({'success': True, 'is_mastered': word.is_mastered})
+
+
 @app.route('/api/words/batch-update-status', methods=['POST'])
 def batch_update_status():
     """批量更新单词状态
     请求体: {"word_ids": [1,2,3], "status": "new"}
-    支持状态: new, review, mastered
+    支持状态: new, review, mastered, mastered_forever, unmastered_forever
+    - mastered_forever: 标记为"已学会"（is_mastered=True，永久排除复习，状态置为 mastered）
+    - unmastered_forever: 取消"已学会"（is_mastered=False，仅清除该标记，不改动状态）
     """
     data = request.get_json()
     if not data or 'word_ids' not in data or 'status' not in data:
@@ -2047,8 +2078,8 @@ def batch_update_status():
     if not isinstance(word_ids, list) or len(word_ids) == 0:
         return jsonify({'success': False, 'error': 'word_ids 必须是非空列表'}), 400
 
-    if new_status not in ('new', 'review', 'mastered'):
-        return jsonify({'success': False, 'error': 'status 必须是 new/review/mastered'}), 400
+    if new_status not in ('new', 'review', 'mastered', 'mastered_forever', 'unmastered_forever'):
+        return jsonify({'success': False, 'error': 'status 必须是 new/review/mastered/mastered_forever/unmastered_forever'}), 400
 
     user_id = get_current_user_id()
     now = datetime.utcnow()
@@ -2066,6 +2097,26 @@ def batch_update_status():
             continue
         old_status = word.status
         old_last_review = word.last_review
+
+        # "已学会"与"取消已学会"是 is_mastered 标记的批量操作，不改变 status 状态机
+        if new_status == 'mastered_forever':
+            word.is_mastered = True
+            # 标记为已学会：停止安排复习，并置为已掌握状态
+            word.status = 'mastered'
+            word.next_review = None
+            if not word.last_review:
+                word.last_review = now
+                if word.first_learned is None:
+                    word.first_learned = now
+                if old_status == 'new':
+                    learn_history_delta += 1
+            updated += 1
+            continue
+        if new_status == 'unmastered_forever':
+            word.is_mastered = False
+            updated += 1
+            continue
+
         word.status = new_status
         # 状态变更时同步更新 last_review 和 LearnHistory
         if new_status == 'new':
@@ -2304,7 +2355,9 @@ def get_wrong_words():
     wordbook_id = request.args.get('wordbook_id', '').strip()
     limit = request.args.get('limit', 0, type=int)
 
-    query = Word.query.filter(Word.user_id == user_id, Word.wrong_count > 0)
+    query = Word.query.filter(Word.user_id == user_id, Word.wrong_count > 0,
+                              # 已学会单词（is_mastered=True）从错题本中排除
+                              Word.is_mastered.isnot(True))
     if wordbook_id and wordbook_id != '0':
         try:
             query = query.filter_by(wordbook_id=int(wordbook_id))
@@ -3451,6 +3504,8 @@ def get_stats():
         Word.next_review <= now,
         Word.last_review.isnot(None),
         Word.status.in_(['review', 'mastered']),
+        # 已学会单词（is_mastered=True）不计入待复习
+        Word.is_mastered.isnot(True),
     )
     if user_id:
         review_query = review_query.filter_by(user_id=user_id)
@@ -3725,6 +3780,8 @@ def get_today_review():
         Word.next_review.isnot(None),
         Word.next_review <= now,
         Word.status.in_(['review', 'mastered']),
+        # 已学会单词（is_mastered=True）永久排除复习
+        Word.is_mastered.isnot(True),
     )
     if user_id:
         base_query = base_query.filter_by(user_id=user_id)
@@ -3790,6 +3847,8 @@ def get_all_review():
     query = Word.query.filter(
         Word.last_review.isnot(None),
         Word.status.in_(['review', 'mastered']),
+        # 已学会单词（is_mastered=True）永久排除复习
+        Word.is_mastered.isnot(True),
     )
     if user_id:
         query = query.filter_by(user_id=user_id)
@@ -3809,6 +3868,8 @@ def get_all_review():
         q = Word.query
         if user_id:
             q = q.filter_by(user_id=user_id)
+        # 已学会单词（is_mastered=True）永久排除复习（自定义区间复习同样不出现）
+        q = q.filter(Word.is_mastered.isnot(True))
         if wordbook_id and wordbook_id != '0':
             try:
                 q = q.filter_by(wordbook_id=int(wordbook_id))
@@ -3912,6 +3973,19 @@ def submit_review(word_id):
     now = datetime.utcnow()
     was_mastered = (word.status == 'mastered')
     was_new = (word.status == 'new')
+
+    # 已学会单词（is_mastered=True，用户主动标记"学会后不再复习"）：
+    # 即使被提交复习，也保持退出复习队列，绝不重新安排 next_review
+    if word.is_mastered:
+        word.status = 'mastered'
+        word.next_review = None
+        word.last_review = now
+        db.session.commit()
+        return jsonify({
+            'success': True,
+            'data': word.to_dict(),
+            'message': '该单词已标记为已学会，不再安排复习',
+        })
 
     # 记录本次复习
     word.last_review = now
@@ -4075,6 +4149,8 @@ def get_today_learn():
     query = Word.query
     if user_id:
         query = query.filter_by(user_id=user_id)
+    # 已学会单词（is_mastered=True）不再进入学习队列
+    query = query.filter(Word.is_mastered.isnot(True))
 
     # 按词书过滤
     wordbook_id = request.args.get('wordbook_id', '').strip()
@@ -4146,6 +4222,8 @@ def get_today_learned_words():
         Word.last_review >= today_start_utc,
         Word.last_review < today_end_utc,
         Word.status != 'new',
+        # 已学会单词（is_mastered=True）不再作为待学/已学列表展示
+        Word.is_mastered.isnot(True),
     )
     if user_id:
         query = query.filter_by(user_id=user_id)
@@ -4359,6 +4437,8 @@ def export_words_csv():
     - wordbook_id: 按单词本过滤（不传=全部，0=未归类，具体id=该单词本）
     - status: 按状态过滤（new/review/mastered）
     - search: 搜索关键词
+    - starred: 按重点标记过滤（传 1=只看重点单词）
+    - mastered: 按已学会标记过滤（传 1=只看已学会单词）
     """
     import csv
     import io
@@ -4370,6 +4450,7 @@ def export_words_csv():
     status = request.args.get('status', '').strip()
     search = request.args.get('search', '').strip()
     starred = request.args.get('starred', '').strip()
+    mastered = request.args.get('mastered', '').strip()
 
     # 构建查询
     query = Word.query
@@ -4387,6 +4468,8 @@ def export_words_csv():
         query = query.filter(Word.status == status)
     if starred == '1':
         query = query.filter(Word.is_starred == True)
+    if mastered == '1':
+        query = query.filter(Word.is_mastered == True)
     if search:
         query = query.filter(
             db.or_(
@@ -4714,6 +4797,22 @@ def ensure_word_starred_column():
         print("[迁移] words.is_starred 列添加完成")
 
 
+def ensure_word_mastered_column():
+    """
+    数据库迁移：为 words 表添加 is_mastered 列（如果不存在）
+    用于标记"已学会"单词（永久排除复习：学习/复习/错题/自定义复习均不再出现）
+    """
+    from sqlalchemy import text, inspect
+    inspector = inspect(db.engine)
+    columns = [col['name'] for col in inspector.get_columns('words')]
+    if 'is_mastered' not in columns:
+        print("[迁移] 检测到 words 表缺少 is_mastered 列，正在添加...")
+        with db.engine.connect() as conn:
+            conn.execute(text("ALTER TABLE words ADD COLUMN is_mastered BOOLEAN DEFAULT FALSE"))
+            conn.commit()
+        print("[迁移] words.is_mastered 列添加完成")
+
+
 def ensure_word_sort_order_column():
     """
     数据库迁移：为 words 表添加 sort_order 列（如果不存在）
@@ -4941,6 +5040,8 @@ with app.app_context():
     ensure_word_wrong_count_column()
     # 迁移：为 words 表添加 is_starred 列（重点单词标记）
     ensure_word_starred_column()
+    # 迁移：为 words 表添加 is_mastered 列（已学会单词，永久排除复习）
+    ensure_word_mastered_column()
     # 迁移：为 learn_history 表添加 correct_count / total_count 列（准确率统计）
     ensure_learn_history_accuracy_columns()
     # 迁移：为 learn_history 表添加 checked_in 列（独立签到状态）

@@ -195,6 +195,7 @@ class WordAPI {
       qs.set('wordbook_id', params.wordbook_id);
     }
     if (params.starred) qs.set('starred', '1');
+    if (params.mastered) qs.set('mastered', '1');
     const query = qs.toString();
     // opts 可传 suppressWakeToast / timeout 等，透传给 request（后台静默刷新不弹"服务唤醒中"）
     const res = await this.request('/words' + (query ? '?' + query : ''), opts);
@@ -254,6 +255,13 @@ class WordAPI {
   // 切换单词重点标记
   toggleStar(wordId) {
     return this.request('/words/' + wordId + '/star', {
+      method: 'POST'
+    });
+  }
+
+  // 切换单词"已学会"标记（永久排除复习）
+  toggleMaster(wordId) {
+    return this.request('/words/' + wordId + '/master', {
       method: 'POST'
     });
   }
@@ -376,6 +384,8 @@ class WordAPI {
     if (wordbookId !== '' && wordbookId !== undefined) params.push(`wordbook_id=${wordbookId}`);
     if (options.random) params.push('random=1');
     if (options.starred) params.push('starred=1');
+    if (options.rangeStart) params.push(`range_start=${options.rangeStart}`);
+    if (options.rangeEnd) params.push(`range_end=${options.rangeEnd}`);
     const qs = params.length > 0 ? '?' + params.join('&') : '';
     const res = await this.request('/review/all' + qs);
     return res && res.data ? res.data : (Array.isArray(res) ? res : []);
@@ -1675,6 +1685,7 @@ function wordItemHtml(word, index) {
   const bookTag = book ? `<span class="word-book-tag" style="border-color:${book.color}40;color:${book.color}">${escapeHtml(book.name)}</span>` : '';
   const num = index !== undefined ? `<span class="word-num">${index}</span>` : '';
   const starTag = word.is_starred ? `<span class="word-star-icon" title="重点单词">★</span>` : '';
+  const masteredTag = word.is_mastered ? `<span class="word-mastered-icon" title="已学会（不再复习）">✓</span>` : '';
   // 自定义顺序模式下，且在具体某个词本内，显示拖动排序手柄（长按拖动）
   const showReorder = librarySort === 'custom' && libraryWordbook !== '' && libraryWordbook !== '0';
   const reorderHandle = showReorder ? `
@@ -1688,6 +1699,7 @@ function wordItemHtml(word, index) {
           ${escapeHtml(word.word)}
           ${bookTag}
           ${starTag}
+          ${masteredTag}
         </div>
         <div class="word-meaning">${escapeHtml(word.meaning || '暂无释义')}</div>
       </div>
@@ -3365,7 +3377,7 @@ function showMultiSelectBar() {
 
 function exitMultiSelectMode() {
   multiSelectIds.clear();
-  document.querySelectorAll('.word-item.multi-selected').forEach(el => el.classList.remove('multi-selected'));
+  document.querySelectorAll('#libraryList .word-item.multi-selected').forEach(el => el.classList.remove('multi-selected'));
   const bar = $('#multiSelectBar');
   if (bar) bar.style.display = 'none';
 }
@@ -3389,25 +3401,22 @@ function updateMultiSelectCount() {
 }
 
 function selectAllWords() {
-  // 选中当前列表中所有单词
-  const allItems = document.querySelectorAll('.word-item[data-id]');
+  // 基于当前筛选数据集（libraryData）全选，而非 document 级 DOM 查询。
+  // 修复 bug：document.querySelectorAll('.word-item[data-id]') 会误选其他弹窗/列表
+  // （如全局词本弹窗）遗留的 .word-item 节点，导致"显示10个却全选100多个"。
   const allBtn = $('#multiSelectAll');
-  // 检查当前可见的所有单词是否都已选中
-  const visibleIds = [];
-  allItems.forEach(item => {
-    const id = parseInt(item.getAttribute('data-id'), 10);
-    if (!isNaN(id)) visibleIds.push(id);
-  });
+  const visibleIds = (libraryData || []).map(w => w.id).filter(id => id != null);
   const allVisibleSelected = visibleIds.length > 0 && visibleIds.every(id => multiSelectIds.has(id));
   if (allVisibleSelected) {
-    // 如果当前可见的全选了，点击则取消全选（清空所有选中）
+    // 当前数据集已全选，点击则全部取消
     multiSelectIds.clear();
-    document.querySelectorAll('.word-item.multi-selected').forEach(el => el.classList.remove('multi-selected'));
+    document.querySelectorAll('#libraryList .word-item.multi-selected').forEach(el => el.classList.remove('multi-selected'));
     if (allBtn) allBtn.textContent = '全选';
   } else {
-    // 全选当前可见的
+    // 全选当前筛选数据集（重置后再加入，避免残留已失效的 id）
+    multiSelectIds.clear();
     visibleIds.forEach(id => multiSelectIds.add(id));
-    allItems.forEach(item => item.classList.add('multi-selected'));
+    document.querySelectorAll('#libraryList .word-item[data-id]').forEach(item => item.classList.add('multi-selected'));
     if (allBtn) allBtn.textContent = '取消全选';
   }
   updateMultiSelectCount();
@@ -3492,6 +3501,8 @@ function openMultiStatusModal() {
           <button class="btn-primary" data-status="new" style="width:100%;">未学习</button>
           <button class="btn-secondary" data-status="review" style="width:100%;">复习中</button>
           <button class="btn-secondary" data-status="mastered" style="width:100%;">已掌握</button>
+          <button class="btn-secondary" data-status="mastered_forever" style="width:100%;">✓ 已学会（不再复习）</button>
+          <button class="btn-secondary" data-status="unmastered_forever" style="width:100%;">↩ 取消已学会</button>
         </div>
         <button class="btn-secondary" id="multiStatusCancel" style="width:100%;">取消</button>
       </div>
@@ -3517,7 +3528,7 @@ function openMultiStatusModal() {
 
 async function handleMultiStatus(newStatus) {
   if (multiSelectIds.size === 0) return;
-  const statusLabel = { new: '未学习', review: '复习中', mastered: '已掌握' }[newStatus] || newStatus;
+  const statusLabel = { new: '未学习', review: '复习中', mastered: '已掌握', mastered_forever: '已学会', unmastered_forever: '取消已学会' }[newStatus] || newStatus;
   try {
     showLoading(`正在修改 ${multiSelectIds.size} 个单词状态...`);
     // 使用批量API一次性更新，避免逐个请求太慢
@@ -3787,8 +3798,9 @@ function bindLibraryItems(list) {
  */
 function libraryCurrentParams() {
   const params = {};
-  if (libraryFilter !== 'all' && libraryFilter !== 'starred') params.status = libraryFilter;
+  if (libraryFilter !== 'all' && libraryFilter !== 'starred' && libraryFilter !== 'mastered_forever') params.status = libraryFilter;
   if (libraryFilter === 'starred') params.starred = 1;
+  if (libraryFilter === 'mastered_forever') params.mastered = 1;
   if (librarySearch) params.search = librarySearch;
   if (libraryWordbook !== '') params.wordbook_id = libraryWordbook;
   return params;
@@ -5332,12 +5344,20 @@ function handleLearnDetail() {
   if (word) openWordDetail(word.id);
 }
 
+// 计算"模糊"词重插位置：按剩余队列长度比例缩放（建议点赞部长），
+// 间隔 = 剩余队列的25%，最小8个、最大30个，队列越长间隔越大，避免固定5词循环太短
+function calcLearnReinsertPos(curIndex, queue) {
+  const remaining = Math.max(1, queue.length - curIndex - 1);
+  const step = Math.max(8, Math.min(30, Math.floor(remaining * 0.25)));
+  return Math.min(curIndex + step + 1, queue.length);
+}
+
 // 学习翻卡：模糊 → 不标记学会，把当前词插到稍后位置，稍后再见加深记忆
 async function handleLearnHard() {
   const word = learnQueue[learnIndex];
   if (!word) return;
-  // 插入到 5 个位置后，稍后再见（不改变答题卡的稳定词表数量）
-  const insertPos = Math.min(learnIndex + 6, learnQueue.length);
+  // 按比例插到稍后位置，稍后再见（不改变答题卡的稳定词表数量）
+  const insertPos = calcLearnReinsertPos(learnIndex, learnQueue);
   learnQueue.splice(insertPos, 0, word);
   // 提交 hard 评分，安排明天复习（失败不影响本轮翻卡）
   try {
@@ -5347,6 +5367,26 @@ async function handleLearnHard() {
   }
   learnIndex++;
   renderLearnCard();
+}
+
+// 学习页：将当前单词标记为"已学会"（永久排除复习），并从当前学习队列移除
+async function handleLearnMarkMastered() {
+  const word = learnQueue[learnIndex];
+  if (!word) return;
+  if (!confirm(`确定将「${word.word}」标记为已学会吗？标记后该单词将不再出现在任何复习中。`)) return;
+  try {
+    await api.toggleMaster(word.id);
+    // 从当前队列移除该单词（已学会，不再复习）
+    learnQueue.splice(learnIndex, 1);
+    showToast('已标记为已学会，不再出现复习中', 'success');
+    // 若当前队列被清空，更新答题卡
+    if (learnAnswerSheet) learnAnswerSheet = learnQueue.map(w => w.id);
+    renderLearnCard();
+    // 实时刷新首页统计（非阻塞）
+    refreshHomeStats();
+  } catch (err) {
+    handleError(err);
+  }
 }
 
 /* ====================================================
@@ -5361,6 +5401,8 @@ let reviewQuizAnswered = false; // 复习测验题是否已作答
 let reviewAutoNextTimer = null;  // 复习自动下一题定时器
 let reviewAllMode = false;       // 自主复习模式：true=复习所有已学过的词（不受到期限制），false=仅到期
 let reviewAllActive = false;     // 当前会话是否处于自主复习（用于中断恢复时区分）
+let reviewRangeStart = 0;        // 区间复习起始位置（1-based，0=不限）
+let reviewRangeEnd = 0;          // 区间复习结束位置（1-based，0=不限）
 
 // 保存复习位置到 localStorage（用于中断恢复）
 function saveReviewPosition() {
@@ -5404,6 +5446,8 @@ async function loadReviewQueue() {
     reviewAllActive = reviewAllMode;
     const reviewOpts = { random: reviewRandomMode };
     if (reviewStarredOnly) reviewOpts.starred = true;
+    if (reviewRangeStart > 0) reviewOpts.rangeStart = reviewRangeStart;
+    if (reviewRangeEnd > 0) reviewOpts.rangeEnd = reviewRangeEnd;
     const res = reviewAllMode
       ? await api.getReviewAll(reviewWordbookId, reviewOpts)
       : await api.getReviewToday(reviewWordbookId, reviewOpts);
@@ -5857,9 +5901,9 @@ async function handleReviewRating(rating) {
     if (rating === 'again') {
       reviewQueue.push(word);
     }
-    // 评级为 hard 时，将单词插入到5个位置后（稍后重看）
+    // 评级为 hard 时，将单词按比例插到稍后位置（稍后重看）
     if (rating === 'hard') {
-      const insertPos = Math.min(reviewIndex + 6, reviewQueue.length);
+      const insertPos = calcLearnReinsertPos(reviewIndex, reviewQueue);
       reviewQueue.splice(insertPos, 0, word);
     }
     // 记录正确率到localStorage
@@ -5874,6 +5918,24 @@ async function handleReviewRating(rating) {
     console.error(err);
     reviewIndex++;
     renderReviewCard();
+  }
+}
+
+// 复习页：将当前单词标记为"已学会"（永久排除复习），并从当前队列移除
+async function handleReviewMarkMastered() {
+  const word = reviewQueue[reviewIndex];
+  if (!word) return;
+  if (!confirm(`确定将「${word.word}」标记为已学会吗？标记后该单词将不再出现在任何复习中。`)) return;
+  try {
+    await api.toggleMaster(word.id);
+    // 从当前队列移除该单词（已学会，不再复习）
+    reviewQueue.splice(reviewIndex, 1);
+    showToast('已标记为已学会，不再出现复习中', 'success');
+    renderReviewCard();
+    // 实时刷新首页统计（非阻塞）
+    refreshHomeStats();
+  } catch (err) {
+    handleError(err);
   }
 }
 
@@ -6138,8 +6200,9 @@ async function handleExportWords(format) {
   const params = new URLSearchParams();
   params.set('format', format);
   if (libraryWordbook !== '') params.set('wordbook_id', libraryWordbook);
-  if (libraryFilter !== 'all' && libraryFilter !== 'starred') params.set('status', libraryFilter);
+  if (libraryFilter !== 'all' && libraryFilter !== 'starred' && libraryFilter !== 'mastered_forever') params.set('status', libraryFilter);
   if (libraryFilter === 'starred') params.set('starred', '1');
+  if (libraryFilter === 'mastered_forever') params.set('mastered', '1');
   if (librarySearch) params.set('search', librarySearch);
 
   const url = `${api.baseURL}/words/export?${params.toString()}`;
@@ -6427,6 +6490,14 @@ function fillDetailModal(word) {
     starBtn.textContent = isStarred ? '★ 取消重点' : '☆ 标重点';
     starBtn.classList.toggle('starred', isStarred);
   }
+
+  // 已学会按钮状态
+  const masterBtn = $('#modalMasterBtn');
+  if (masterBtn) {
+    const isMastered = !!word.is_mastered;
+    masterBtn.textContent = isMastered ? '✓ 取消已学会' : '✓ 已学会';
+    masterBtn.classList.toggle('mastered-on', isMastered);
+  }
 }
 
 // 关闭详情弹窗
@@ -6523,6 +6594,29 @@ async function handleToggleStar() {
       // 刷新列表
       if ($('#page-library').classList.contains('active')) renderLibrary();
       if ($('#page-home').classList.contains('active')) renderHome();
+    }
+  } catch (err) {
+    handleError(err);
+  }
+}
+
+async function handleToggleMaster() {
+  if (!currentDetailWord) return;
+  try {
+    const res = await api.toggleMaster(currentDetailWord.id);
+    if (res && res.success) {
+      currentDetailWord.is_mastered = res.is_mastered;
+      // 更新按钮显示
+      const btn = $('#modalMasterBtn');
+      if (btn) {
+        btn.textContent = res.is_mastered ? '✓ 取消已学会' : '✓ 已学会';
+        btn.classList.toggle('mastered-on', res.is_mastered);
+      }
+      showToast(res.is_mastered ? '已标记为已学会，不再出现复习中' : '已取消已学会，可恢复复习', 'success');
+      // 刷新列表与首页统计
+      if ($('#page-library').classList.contains('active')) renderLibrary();
+      if ($('#page-home').classList.contains('active')) renderHome();
+      refreshHomeStats();
     }
   } catch (err) {
     handleError(err);
@@ -6914,6 +7008,7 @@ function bindEvents() {
     switchPage('review');
     // 进入时同步复习范围 UI（默认今日到期）
     updateReviewModeUI();
+    updateReviewRangeUI();
   });
 
   // 重点单词学习/复习
@@ -6938,9 +7033,13 @@ function bindEvents() {
       // 保留当前所选词本，只复习该词本内的重点单词（重点单词是该词本的子词本）
       // 重点复习使用自主复习：所有重点词都可复习，不受到期限制（避免"没有到期重点词"）
       reviewAllMode = true;
+      // 重点复习与区间复习互斥：进入重点复习时清除区间，避免区间分支覆盖重点过滤
+      reviewRangeStart = 0;
+      reviewRangeEnd = 0;
       switchPage('review');
       // 同步复习范围 UI
       updateReviewModeUI();
+      updateReviewRangeUI();
     });
   }
   $('#goLibraryFromHome').addEventListener('click', () => switchPage('library'));
@@ -7405,6 +7504,16 @@ function bindEvents() {
       }
     });
   }
+  // 复习页：标记当前单词为已学会
+  const btnReviewMastered = $('#btnReviewMastered');
+  if (btnReviewMastered) {
+    btnReviewMastered.addEventListener('click', handleReviewMarkMastered);
+  }
+  // 学习页：标记当前单词为已学会
+  const btnLearnMastered = $('#btnLearnMastered');
+  if (btnLearnMastered) {
+    btnLearnMastered.addEventListener('click', handleLearnMarkMastered);
+  }
   // 翻卡模式：翻今天所有按钮（卡片中）
   const reviewTodayBtn = $('#btnLearnReviewToday');
   if (reviewTodayBtn) {
@@ -7444,6 +7553,10 @@ function bindEvents() {
       localStorage.setItem('wordmemo_learn_wordbook', learnWordbookId);
       const learnWbSel = $('#learnWordbookSelect');
       if (learnWbSel) learnWbSel.value = reviewWordbookId;
+      // 切换词书后，原区间位置相对新词书无意义，清除区间并同步 UI
+      reviewRangeStart = 0;
+      reviewRangeEnd = 0;
+      updateReviewRangeUI();
       reviewQueue = [];
       reviewIndex = 0;
       loadReviewQueue();
@@ -7545,6 +7658,7 @@ function bindEvents() {
   // 测验模式操作按钮
   $('#btnQuizDetail').addEventListener('click', handleLearnDetail);
   $('#btnQuizKnown').addEventListener('click', handleQuizKnown);
+  $('#btnQuizHard').addEventListener('click', handleLearnHard);
   $('#btnQuizSkip').addEventListener('click', handleQuizNext);
   $('#btnQuizPrev').addEventListener('click', handleLearnPrev);
 
@@ -7622,6 +7736,7 @@ function bindEvents() {
     if (word) openWordDetail(word.id);
   });
   $('#btnReviewQuizKnown').addEventListener('click', handleReviewQuizKnown);
+  $('#btnReviewQuizHard').addEventListener('click', () => handleReviewRating('hard'));
   $('#btnReviewQuizSkip').addEventListener('click', handleReviewQuizNext);
 
   // 复习页：自主复习切换（所有已学过的词，不受到期限制）
@@ -7632,6 +7747,62 @@ function bindEvents() {
       // 手动切换自主复习时，重置为重点词过滤，回到"所有已学过的词"的全局复习
       reviewStarredOnly = false;
       updateReviewModeUI();
+      updateReviewRangeUI();
+      reviewQueue = [];
+      loadReviewQueue();
+    });
+  }
+
+  // 区间复习：显示/隐藏区间输入行，并回填当前区间值
+  function updateReviewRangeUI() {
+    const row = $('#reviewRangeRow');
+    if (!row) return;
+    if (reviewAllMode) {
+      row.style.display = 'flex';
+      $('#reviewRangeStart').value = reviewRangeStart > 0 ? reviewRangeStart : '';
+      $('#reviewRangeEnd').value = reviewRangeEnd > 0 ? reviewRangeEnd : '';
+      updateReviewRangeTip();
+    } else {
+      row.style.display = 'none';
+    }
+  }
+  // 区间提示：显示当前生效区间
+  function updateReviewRangeTip() {
+    const tip = $('#reviewRangeTip');
+    if (!tip) return;
+    tip.textContent = (reviewRangeStart > 0 || reviewRangeEnd > 0)
+      ? `当前复习第 ${reviewRangeStart || 1} - ${reviewRangeEnd || '末尾'} 个词（按词书顺序）`
+      : '默认复习全部已学词';
+  }
+  // 区间"确定"：校验并重新加载
+  const btnApplyRange = $('#btnReviewRangeApply');
+  if (btnApplyRange) {
+    btnApplyRange.addEventListener('click', () => {
+      const s = parseInt($('#reviewRangeStart').value, 10);
+      const e = parseInt($('#reviewRangeEnd').value, 10);
+      if ((s && isNaN(s)) || (e && isNaN(e))) {
+        alert('请输入有效的数字区间');
+        return;
+      }
+      reviewRangeStart = (s && s > 0) ? s : 0;
+      reviewRangeEnd = (e && e > 0) ? e : 0;
+      if (reviewRangeStart > 0 && reviewRangeEnd > 0 && reviewRangeStart > reviewRangeEnd) {
+        alert('起始位置不能大于结束位置');
+        return;
+      }
+      reviewQueue = [];
+      loadReviewQueue();
+    });
+  }
+  // 区间"清除"：恢复全部已学词
+  const btnClearRange = $('#btnReviewRangeClear');
+  if (btnClearRange) {
+    btnClearRange.addEventListener('click', () => {
+      reviewRangeStart = 0;
+      reviewRangeEnd = 0;
+      $('#reviewRangeStart').value = '';
+      $('#reviewRangeEnd').value = '';
+      updateReviewRangeTip();
       reviewQueue = [];
       loadReviewQueue();
     });
@@ -7681,6 +7852,11 @@ function bindEvents() {
   const modalStarBtn = $('#modalStarBtn');
   if (modalStarBtn) {
     modalStarBtn.addEventListener('click', handleToggleStar);
+  }
+  // 已学会按钮
+  const modalMasterBtn = $('#modalMasterBtn');
+  if (modalMasterBtn) {
+    modalMasterBtn.addEventListener('click', handleToggleMaster);
   }
   // AI刷新例句按钮
   const refreshExBtn = $('#modalRefreshExamplesBtn');

@@ -9,7 +9,7 @@
   <!-- 预连接：提前建立TCP/TLS连接，减少首字节时间 -->
   <link rel="preconnect" href="/" crossorigin>
   <link rel="dns-prefetch" href="/">
-  <link rel="stylesheet" href="assets/style.css?v=20260810a">
+  <link rel="stylesheet" href="assets/style.css?v=20260811a">
   <!-- PWA 支持：允许"添加到桌面"当App用 -->
   <link rel="manifest" href="/manifest.json">
   <link rel="icon" type="image/png" href="/icons/icon-192.png">
@@ -343,6 +343,7 @@
         <button class="filter-tab" data-status="review">复习中</button>
         <button class="filter-tab" data-status="mastered">已掌握</button>
         <button class="filter-tab" data-status="starred">⭐ 重点</button>
+        <button class="filter-tab" data-status="mastered_forever">✓ 已学会</button>
         <select class="sort-select" id="sortSelect" title="排序方式">
           <option value="added_desc">最近添加</option>
           <option value="added_asc">最早添加</option>
@@ -492,13 +493,21 @@
       <div class="card-actions card-actions-extra" id="learnExtraActions" style="display:none">
         <button class="btn-secondary" id="btnLearnAddNew">+ 未学习</button>
         <button class="btn-secondary" id="btnLearnReviewToday">翻今天所有</button>
+        <button class="btn-secondary" id="btnLearnMastered">✓ 已学会</button>
       </div>
-      <!-- 测验模式操作按钮 -->
+      <!-- 测验模式操作按钮（看词选义/看义选词/拼写默写通用：与翻卡一致可评分模糊/记得） -->
       <div class="card-actions" id="quizActions" style="display:none">
         <button class="btn-secondary" id="btnQuizPrev">上一题</button>
         <button class="btn-secondary" id="btnQuizDetail">详情</button>
+        <button class="rating-btn rating-hard learn-rating-btn" id="btnQuizHard" title="有点印象但不熟，稍后再次出现加深记忆">
+          <span class="rating-label">模糊</span>
+          <span class="rating-desc">稍后再背</span>
+        </button>
         <button class="btn-secondary" id="btnQuizSkip">下一题</button>
-        <button class="btn-primary" id="btnQuizKnown">已学会</button>
+        <button class="rating-btn rating-good learn-rating-btn" id="btnQuizKnown" title="确实记住了，按记忆曲线安排复习">
+          <span class="rating-label">记得</span>
+          <span class="rating-desc">加深记忆</span>
+        </button>
       </div>
     </section>
 
@@ -628,13 +637,21 @@
       <!-- 复习页额外按钮：加入新词 -->
       <div class="card-actions card-actions-extra" id="reviewExtraActions" style="display:none">
         <button class="btn-secondary" id="btnReviewAddNew">+ 未学习</button>
+        <button class="btn-secondary" id="btnReviewMastered">✓ 已学会</button>
       </div>
       <!-- 测验模式操作按钮 -->
       <div class="card-actions" id="reviewQuizActions" style="display:none">
         <button class="btn-secondary" id="btnReviewQuizPrev">上一题</button>
         <button class="btn-secondary" id="btnReviewQuizDetail">详情</button>
+        <button class="rating-btn rating-hard" id="btnReviewQuizHard" title="有点印象但不熟，稍后再次出现加深记忆">
+          <span class="rating-label">模糊</span>
+          <span class="rating-desc">稍后再背</span>
+        </button>
         <button class="btn-secondary" id="btnReviewQuizSkip">下一题</button>
-        <button class="btn-primary" id="btnReviewQuizKnown">已学会</button>
+        <button class="rating-btn rating-good" id="btnReviewQuizKnown" title="记得很清楚，按遗忘曲线安排下次复习">
+          <span class="rating-label">记得</span>
+          <span class="rating-desc">加深记忆</span>
+        </button>
       </div>
     </section>
 
@@ -1013,6 +1030,7 @@
       <div class="modal-footer">
         <button class="btn-secondary" id="modalDeleteBtn">删除</button>
         <button class="btn-secondary" id="modalStarBtn">☆ 标重点</button>
+        <button class="btn-secondary" id="modalMasterBtn">✓ 已学会</button>
         <button class="btn-secondary" id="modalMoveBtn">移动到词本</button>
         <button class="btn-primary" id="modalEditBtn">编辑</button>
       </div>

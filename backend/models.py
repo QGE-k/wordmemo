@@ -109,6 +109,10 @@ class Word(db.Model):
     wrong_count = db.Column(db.Integer, default=0)
     # 是否标记为重点单词
     is_starred = db.Column(db.Boolean, default=False)
+    # 是否"已学会"（永久排除复习：学习/复习/错题/自定义复习均不再出现）
+    # 与 status='mastered'(已掌握，仍可能参与防遗忘回顾) 不同：
+    # is_mastered=True 表示用户主动标记"已学会"，彻底不再安排复习
+    is_mastered = db.Column(db.Boolean, default=False)
     # 词本内排序权重（用户可手动调整单词顺序，数值小的排前面）
     sort_order = db.Column(db.Integer, default=0)
 
@@ -134,6 +138,7 @@ class Word(db.Model):
             'wordbook_id': self.wordbook_id,
             'wrong_count': self.wrong_count or 0,
             'is_starred': self.is_starred if self.is_starred is not None else False,
+            'is_mastered': self.is_mastered if self.is_mastered is not None else False,
             'sort_order': self.sort_order if self.sort_order is not None else 0,
         }
 
@@ -159,6 +164,7 @@ class Word(db.Model):
             'wordbook_id': self.wordbook_id,
             'wrong_count': self.wrong_count or 0,
             'is_starred': self.is_starred if self.is_starred is not None else False,
+            'is_mastered': self.is_mastered if self.is_mastered is not None else False,
             'sort_order': self.sort_order if self.sort_order is not None else 0,
         }
 
