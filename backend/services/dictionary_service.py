@@ -1165,6 +1165,7 @@ class DictionaryService:
         'beautiful': 'adj. 美丽的，漂亮的',
         'quickly': 'adv. 快速地，迅速地',
         'running': 'n. 跑步\nv. run的现在分词',
+        'teenager': 'n. 青少年，十几岁的少年',
         'football': 'n. 足球',
         'basketball': 'n. 篮球',
         'sunglasses': 'n. 太阳镜',
@@ -5265,7 +5266,17 @@ class DictionaryService:
 
     def __init__(self):
         """初始化本地词典服务"""
-        pass
+        # 云端全部单词的 AI 简洁释义（最高优先级，优先于 ECDICT/手工词典）
+        # 由后台批量生成，固化在 backend/data/ai_meanings.json
+        self.AI_MEANINGS = {}
+        try:
+            import json as _json
+            import os as _os
+            _path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), '..', 'data', 'ai_meanings.json')
+            with open(_path, encoding='utf-8') as _f:
+                self.AI_MEANINGS = _json.load(_f)
+        except Exception as _e:
+            print(f'[dict] 加载 AI 释义失败: {_e}')
 
     def _get_inflections(self, word_lower, meaning=''):
         """
@@ -7271,6 +7282,56 @@ class DictionaryService:
         word_lower = word.lower().strip()
         # 清理文档提取残留的尾部括号（如 "hurt （" → "hurt"，"damage （" → "damage"）
         word_lower = re.sub(r"[（(]+$", "", word_lower).strip()
+
+        # ===== AI 简洁释义（最高优先级）=====
+        # 云端全部单词已用 AI 生成简洁常考释义，固化在 ai_meanings.json，优先于 ECDICT/手工词典，
+        # 避免 ECDICT 的生硬翻译（如 teenager → "十三岁到十九岁的少年" 应为 "青少年"）。
+        meaning = self.AI_MEANINGS.get(word_lower)
+        if not meaning:
+            # 兼容撇号差异（直/弯引号）：don't vs don’t
+            _alt = word_lower.replace('’', "'")
+            meaning = self.AI_MEANINGS.get(_alt) or self.AI_MEANINGS.get(word_lower.replace("'", '’'))
+        if not meaning:
+            # 归一化键（去尾部标点/空白）
+            _norm = self._normalize_key(word_lower)
+            if _norm != word_lower:
+                meaning = self.AI_MEANINGS.get(_norm)
+        if meaning:
+            # 生成拆解：词组逐词拆解，单次给出基础词条目，保证拆解区域不为空
+            ai_split = []
+            if ' ' in word_lower:
+                for part in word_lower.split():
+                    part_data = self._query_ecdict(part)
+                    pm = self._clean_meaning(part_data.get('translation', ''), part_data.get('pos', '')) if part_data else ''
+                    pm = pm.split('\n')[0][:60] if pm else ''
+                    ai_split.append({
+                        'part': part,
+                        'meaning': pm or part,
+                        'original': part,
+                        'original_meaning': pm,
+                        'transform': '原形不变',
+                        'explain': '独立单词',
+                    })
+            else:
+                m0 = meaning.split('\n')[0][:60]
+                ai_split.append({
+                    'part': word_lower,
+                    'meaning': m0,
+                    'original': word_lower,
+                    'original_meaning': m0,
+                    'transform': '原形不变',
+                    'explain': '基础单词',
+                })
+            return {
+                'phonetic': '',
+                'meaning': meaning,
+                'type': '复合词' if ' ' in word_lower else '基础词',
+                'split': ai_split,
+                'morph': [],
+                'mnemonic': '',
+                'examples': self._get_zhuanshenben_examples(word_lower, meaning),
+                'tenses': None if ' ' in word_lower else self._get_inflections(word_lower, meaning),
+            }
 
         # ===== 补充词典（用户笔记句式/谚语/搭配，释义精简常用）=====
         # 优先级最高：这些是专升本笔记中手工整理的常用释义，比 ECDICT 更贴合考试
