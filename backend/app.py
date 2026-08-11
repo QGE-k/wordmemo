@@ -571,20 +571,24 @@ def admin_refresh_word_meanings():
     # all=true 时全量重清洗所有词（应用"每词性最多2个核心义"新逻辑），
     # 默认只处理纯英文污染的释义（在线兜底残留）。
     all_words = bool(data.get('all', False))
-    # 分批处理：limit/offset 控制单次处理窗口，避免一次性加载全部 2017 词导致
-    # Render 免费版 512MB 内存 OOM(502)。limit<=0 表示一次性全量（不推荐）。
+    # 分批处理：limit/offset 用 SQL 层分页（.limit().offset()），只加载当前窗口的词，
+    # 避免一次性加载全部 2017 词导致 Render 免费版 512MB 内存 OOM(502)。
+    # limit<=0 表示一次性全量（不推荐，仅供小词库）。
     batch_limit = int(data.get('limit', 0) or 0)
     batch_offset = int(data.get('offset', 0) or 0)
 
-    polluted = Word.query.filter(
+    base_q = Word.query.filter(
         Word.meaning.isnot(None),
         Word.meaning != '',
-    ).order_by(Word.id).all()
+    ).order_by(Word.id)
+    if batch_limit > 0:
+        # SQL 层分页：只加载当前窗口，避免全量加载造成 OOM
+        polluted = base_q.limit(batch_limit).offset(batch_offset).all()
+    else:
+        polluted = base_q.all()
     if not all_words:
         # 只处理释义不含中文（被英文释义污染）的词条
         polluted = [w for w in polluted if not _meaning_has_chinese(w.meaning)]
-    if batch_limit > 0:
-        polluted = polluted[batch_offset:batch_offset + batch_limit]
 
     updated = 0
     skipped = 0
