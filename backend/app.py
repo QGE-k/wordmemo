@@ -568,13 +568,17 @@ def admin_refresh_word_meanings():
 
     data = request.get_json(silent=True) or {}
     refresh_examples = bool(data.get('refresh_examples', False))
+    # all=true 时全量重清洗所有词（应用"每词性最多2个核心义"新逻辑），
+    # 默认只处理纯英文污染的释义（在线兜底残留）。
+    all_words = bool(data.get('all', False))
 
     polluted = Word.query.filter(
         Word.meaning.isnot(None),
         Word.meaning != '',
     ).all()
-    # 只处理释义不含中文（被英文释义污染）的词条
-    polluted = [w for w in polluted if not _meaning_has_chinese(w.meaning)]
+    if not all_words:
+        # 只处理释义不含中文（被英文释义污染）的词条
+        polluted = [w for w in polluted if not _meaning_has_chinese(w.meaning)]
 
     updated = 0
     skipped = 0

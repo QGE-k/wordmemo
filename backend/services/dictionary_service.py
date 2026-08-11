@@ -24,6 +24,9 @@ _RARE_MEANINGS = frozenset([
     '蒸馏', '冶炼', '熔炼', '锻压', '淬火', '电解', '电解液',
     '航海', '航海术', '罗盘', '桅杆', '缆绳', '锚链',
     '语法', '句法', '词法', '音标', '托福', '雅思', 'GMAT', 'GRE',
+    # 生僻/低频义项精简：这些义项在专升本/四级考试几乎不考，混入会干扰核心义
+    '审问', '传讯', '审订', '审编', '反驳', '做买卖', '善行', '研究者',
+    '使发达', '正起作用的', '转向', '趋向', '进行中的', '即将来临的',
 ])
 
 # 希腊字母序号 → 符号（拼音）。ECDICT 对 alpha 等的描述性释义是
@@ -1112,9 +1115,21 @@ class DictionaryService:
         'industrious': 'adj. 勤劳的，勤奋的',
         'parent': 'n. 父母，家长',
         'mind': 'n. 头脑，思想\nv. 介意，在意',
-        'like': 'v. 喜欢\nprep. 像，如同\nadj. 相似的',
+        'like': 'v. 喜欢\nprep. 像，如同',
+        "one's": "某人的，一个人的",
+        # 高频常用词核心义覆盖：每词性最多2个常考义
+        'answer': 'n. 答案，回答\nv. 回答',
+        'question': 'n. 问题\nv. 询问，提问',
+        'big': 'adj. 大的，重要的',
+        'play': 'v. 玩，演奏\nn. 游戏，戏剧',
+        'walk': 'v. 走路，步行\nn. 散步',
+        'quick': 'adj. 快的，迅速的\nadv. 快速地',
+        'important': 'adj. 重要的',
+        'happy': 'adj. 快乐的，幸福的',
+        'develop': 'v. 发展，开发；培养',
         'dislike': 'n. 不喜欢\nv. 不喜欢，厌恶',
         'unlike': 'prep. 不像，和...不同',
+        'traffic': 'n. 交通，通行',
         'judge': 'n. 法官，裁判\nv. 判断，评判',
         'cover': 'n. 封面，遮盖物\nv. 覆盖，报道',
         'loud': 'adj. 大声的，响亮的',
@@ -5757,16 +5772,27 @@ class DictionaryService:
 
         # 词性优先级：如果有 pos 频率数据，按频率排序；否则默认 名词 > 动词 > 形容词 > 副词
         # 对于专升本考试，大多数核心词是名词（如 pressure, nerve, culture, development）
+        # ECDICT pos 字段词性编码：n=名词 v=动词 j/j=形容词 r=副词 i=介词 p=介词 c=连词 u=代词
+        # 注意：介词在 ECDICT pos 字段里用 i 表示（如 on: i:91, at: i:100, like: i:68），
+        # 必须把 translation 里的 prep. 行映射为 'i'，才能匹配 pos_freq 计算频率，保留介词核心义（like→"像"）。
         def _pos_code(line):
             low = line.lower().strip()
+            if low.startswith('prep.'):
+                return 'i'
+            if low.startswith('conj.'):
+                return 'c'
+            if low.startswith('pron.'):
+                return 'u'
             if low.startswith('adj.') or low.startswith('a.'):
                 return 'j'
             if low.startswith('vi.') or low.startswith('vt.') or low.startswith('v.') or low.startswith('aux.'):
                 return 'v'
             if low.startswith('n.'):
                 return 'n'
-            if low.startswith('adv.') or low.startswith('ad.') or low.startswith('r.'):
+            if low.startswith('adv.') or low.startswith('ad.'):
                 return 'r'
+            if low.startswith('num.'):
+                return 'm'
             return 'o'
 
         def _pos_priority(line):
@@ -5775,8 +5801,8 @@ class DictionaryService:
                 # 有频率数据：按频率降序排（频率高的词性排前面）
                 return -pos_freq.get(code, 0)
             # 无频率数据：名词优先（专升本核心词多为名词），然后动词、形容词、副词
-            order = {'n': 0, 'v': 1, 'j': 2, 'r': 3, 'o': 4}
-            return order.get(code, 4)
+            order = {'n': 0, 'v': 1, 'j': 2, 'i': 3, 'r': 4, 'c': 5, 'u': 6, 'm': 7, 'o': 8}
+            return order.get(code, 8)
 
         clean_lines.sort(key=_pos_priority)
 
@@ -5853,21 +5879,23 @@ class DictionaryService:
         if not pos_groups:
             return clean_lines[0][:40]
 
-        # 词性组排序：有 pos 频率数据按频率降序，否则 名词>动词>形容词>副词>其他
+        # 词性组排序：有 pos 频率数据按频率降序，否则 名词>动词>形容词>介词>副词>连词>代词
         def _group_priority(code):
             if pos_freq:
                 return -pos_freq.get(code, 0)
-            order = {'n': 0, 'v': 1, 'j': 2, 'r': 3, 'o': 4}
-            return order.get(code, 4)
+            order = {'n': 0, 'v': 1, 'j': 2, 'i': 3, 'r': 4, 'c': 5, 'u': 6, 'm': 7, 'o': 8}
+            return order.get(code, 8)
 
         ordered_codes = sorted(pos_groups.keys(), key=_group_priority)
         meanings = []
         for code in ordered_codes[:2]:
             g = pos_groups[code]
-            # 同一词性内，优先多字释义（更贴近考试释义），再按出现顺序。
-            # 数量适中：每组最多保留 3 个最常考释义（ECDICT 按频率排序，取前 3 即常用义）。
-            # 不刻意压到 2 条，避免砍掉有用的常考义；生僻/专业义已在上方过滤。
-            parts = g['meanings'][:3]
+            # 同一词性内，按 ECDICT 出现顺序（首个即最核心/最常用义）。
+            # 数量：每组最多保留 2 个最常考核心义（百词斩风格），避免 noun 3 个 + vt 3 个 = 6 个太多。
+            # 生僻/专业义已在上方过滤，此处精简为"要背的核心义"。
+            parts = g['meanings'][:2]
+            if not parts:
+                continue
             joined = '，'.join(parts)
             if g['prefix']:
                 meanings.append(f"{g['prefix']} {joined}")
@@ -7191,6 +7219,11 @@ class DictionaryService:
         # 先精确匹配
         if word_lower in self.DICTIONARY:
             result = self.DICTIONARY[word_lower].copy()
+            # MEANING_OVERRIDES 优先：核心义覆写表优先级最高，
+            # 覆盖 DICTIONARY 中旧版/释义过多的 meaning（如 like 应含"喜欢+像"）。
+            # 仅覆盖 meaning，保留 DICTIONARY 的拆解/例句/变形等结构。
+            if word_lower in self.MEANING_OVERRIDES:
+                result['meaning'] = self.MEANING_OVERRIDES[word_lower]
             # 合并变形数据（时态/复数/比较级等，有什么附加什么）
             if 'tenses' not in result or not result.get('tenses'):
                 infl = self._get_inflections(word_lower, result.get('meaning', ''))
@@ -7266,7 +7299,10 @@ class DictionaryService:
 
         # 已知动词但不在词典中：返回基础释义 + 时态
         if word_lower in self.VERB_TENSES:
-            meaning = self.BASIC_VERB_MEANINGS.get(word_lower, f'v. {word_lower}')
+            # MEANING_OVERRIDES 优先：覆盖 BASIC_VERB_MEANINGS 的简略释义，
+            # 如 like 应显示"喜欢+像"（核心义覆写），而非仅"v. 喜欢"。
+            meaning = self.MEANING_OVERRIDES.get(word_lower) or \
+                self.BASIC_VERB_MEANINGS.get(word_lower, f'v. {word_lower}')
             m0 = meaning.split('\n')[0][:60]
             result = {
                 'phonetic': '',
