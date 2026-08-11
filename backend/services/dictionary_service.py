@@ -5278,6 +5278,20 @@ class DictionaryService:
         except Exception as _e:
             print(f'[dict] 加载 AI 释义失败: {_e}')
 
+    def _part_meaning(self, part):
+        """获取拆分部分的释义，优先级：AI简洁释义 → MEANING_OVERRIDES → 清洗后的ECDICT。
+        返回第一行核心义（截断60字），无则返回空串。"""
+        p = part.strip().lower()
+        if p in self.AI_MEANINGS:
+            return self.AI_MEANINGS[p].split('\n')[0][:60].strip()
+        if p in self.MEANING_OVERRIDES:
+            return self.MEANING_OVERRIDES[p].split('\n')[0][:60].strip()
+        data = self._query_ecdict(p)
+        if data and data.get('translation'):
+            m = self._clean_meaning(data['translation'], data.get('pos', ''))
+            return (m.split('\n')[0][:60] if m else '').strip()
+        return ''
+
     def _get_inflections(self, word_lower, meaning=''):
         """
         获取单词的变形数据，统一存入 tenses 字段
@@ -6159,9 +6173,8 @@ class DictionaryService:
         part1, part2, base1, base2 = best
 
         def _part_entry(part, base):
-            bd = self._query_ecdict(base)
-            bm = self._clean_meaning(bd.get('translation', ''), bd.get('pos', '')) if bd else ''
-            bm = bm.split('\n')[0][:60] if bm else base
+            bm = self._part_meaning(base)
+            bm = bm[:60] if bm else base
             if base != part:
                 return {
                     'part': part,
@@ -6346,9 +6359,8 @@ class DictionaryService:
         p1, p2 = self.AUTO_COMPOUNDS[word_lower]
         out = []
         for part in (p1, p2):
-            bd = self._query_ecdict(part)
-            bm = self._clean_meaning(bd.get('translation', ''), bd.get('pos', '')) if bd else ''
-            bm = bm.split('\n')[0][:40] if bm else part
+            bm = self._part_meaning(part)
+            bm = bm[:40] if bm else part
             out.append({
                 'part': part,
                 'meaning': bm,
@@ -7032,11 +7044,7 @@ class DictionaryService:
             # 补充拆解信息（逐词拆分用于学习参考）
             split = []
             for part in parts:
-                part_data = self._query_ecdict(part)
-                part_meaning = ''
-                if part_data and part_data.get('translation'):
-                    part_meaning = self._clean_meaning(part_data['translation'], part_data.get('pos', ''))
-                    part_meaning = part_meaning.split('\n')[0][:60] if part_meaning else ''
+                part_meaning = self._part_meaning(part)
                 split.append({
                     'part': part,
                     'meaning': part_meaning or part,
@@ -7056,39 +7064,15 @@ class DictionaryService:
             # 补充拆解信息（逐词拆分用于学习参考）
             split = []
             for part in parts:
-                # 优先使用 MEANING_OVERRIDES 中的常用释义
-                if part in self.MEANING_OVERRIDES:
-                    part_meaning = self.MEANING_OVERRIDES[part]
-                    split.append({
-                        'part': part,
-                        'meaning': part_meaning,
-                        'original': part,
-                        'original_meaning': part_meaning,
-                        'transform': '原形不变',
-                        'explain': '独立单词',
-                    })
-                    continue
-                part_data = self._query_ecdict(part)
-                if part_data and part_data.get('translation'):
-                    part_meaning = self._clean_meaning(part_data['translation'], part_data.get('pos', ''))
-                    part_meaning = part_meaning.split('\n')[0][:60] if part_meaning else ''
-                    split.append({
-                        'part': part,
-                        'meaning': part_meaning or f'{part}',
-                        'original': part,
-                        'original_meaning': part_meaning,
-                        'transform': '原形不变',
-                        'explain': '独立单词',
-                    })
-                else:
-                    split.append({
-                        'part': part,
-                        'meaning': '',
-                        'original': part,
-                        'original_meaning': '',
-                        'transform': '原形不变',
-                        'explain': '独立单词',
-                    })
+                part_meaning = self._part_meaning(part)
+                split.append({
+                    'part': part,
+                    'meaning': part_meaning or f'{part}',
+                    'original': part,
+                    'original_meaning': part_meaning,
+                    'transform': '原形不变',
+                    'explain': '独立单词',
+                })
             result['split'] = split
             result['tenses'] = None  # 短语不显示时态按钮
             return result
@@ -7140,14 +7124,14 @@ class DictionaryService:
         # 4. 有整体释义了，拆分每个单词用于学习参考
         split = []
         for part in parts:
-            # 优先使用 MEANING_OVERRIDES 中的常用释义（避免 ECDICT 返回生僻释义）
-            if part in self.MEANING_OVERRIDES:
-                override_meaning = self.MEANING_OVERRIDES[part]
+            # 优先使用 AI/MEANING_OVERRIDES 中的常用释义（避免 ECDICT 返回生僻/生硬释义）
+            part_meaning = self._part_meaning(part)
+            if part_meaning:
                 split.append({
                     'part': part,
-                    'meaning': override_meaning,
+                    'meaning': part_meaning,
                     'original': part,
-                    'original_meaning': override_meaning,
+                    'original_meaning': part_meaning,
                     'transform': '原形不变',
                     'explain': '独立单词',
                 })
@@ -7301,9 +7285,7 @@ class DictionaryService:
             ai_split = []
             if ' ' in word_lower:
                 for part in word_lower.split():
-                    part_data = self._query_ecdict(part)
-                    pm = self._clean_meaning(part_data.get('translation', ''), part_data.get('pos', '')) if part_data else ''
-                    pm = pm.split('\n')[0][:60] if pm else ''
+                    pm = self._part_meaning(part)
                     ai_split.append({
                         'part': part,
                         'meaning': pm or part,
@@ -7345,9 +7327,8 @@ class DictionaryService:
             supp_split = []
             if ' ' in word_lower:
                 for part in word_lower.split():
-                    part_data = self._query_ecdict(part)
-                    pm = self._clean_meaning(part_data.get('translation', ''), part_data.get('pos', '')) if part_data else ''
-                    pm = pm.split('\n')[0][:60] if pm else ''
+                    pm = self._part_meaning(part)
+                    pm = pm[:60] if pm else ''
                     supp_split.append({
                         'part': part,
                         'meaning': pm or part,
@@ -7825,9 +7806,8 @@ class DictionaryService:
         if not split:
             if ' ' in word_lower:
                 for part in word_lower.split():
-                    pd = self._query_ecdict(part)
-                    pm = self._clean_meaning(pd.get('translation', ''), pd.get('pos', '')) if pd else ''
-                    pm = pm.split('\n')[0][:60] if pm else ''
+                    pm = self._part_meaning(part)
+                    pm = pm[:60] if pm else ''
                     split.append({
                         'part': part,
                         'meaning': pm or part,
