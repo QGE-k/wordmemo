@@ -4918,10 +4918,11 @@ function handleChoiceAnswer(btn, currentWord) {
   if (isCorrect) {
     btn.classList.add('correct');
     feedback.className = 'quiz-feedback correct';
-    feedback.innerHTML = `回答正确！<span class="quiz-accuracy">正确率：${accuracy}%（${learnTotalWords}词，错${learnWrongCount}个）</span><span class="quiz-known-hint">点击「已学会」继续</span>`;
+    feedback.innerHTML = `回答正确！<span class="quiz-accuracy">正确率：${accuracy}%（${learnTotalWords}词，错${learnWrongCount}个）</span>`;
     playCorrectSound();
-    // 答对后不自动跳转：由用户点击"已学会"确认后才标记完成并进入下一题，
-    // 符合"点学会才算学完"的要求，避免自动跳题导致无法标记当前词
+    // 答对后自动进入下一题（延迟 900ms 让用户看到正确反馈）
+    if (autoNextTimer) clearTimeout(autoNextTimer);
+    autoNextTimer = setTimeout(() => handleLearnKnown(), 900);
   } else {
     btn.classList.add('wrong');
     playWrongSound();
@@ -5012,9 +5013,11 @@ function handleReverseAnswer(btn, currentWord) {
     btn.classList.add('correct');
     playCorrectSound();
     feedback.className = 'quiz-feedback correct';
-    feedback.innerHTML = `回答正确！<span class="quiz-accuracy">正确率：${accuracy}%（${learnTotalWords}词，错${learnWrongCount}个）</span><span class="quiz-known-hint">点击「已学会」继续</span>`;
+    feedback.innerHTML = `回答正确！<span class="quiz-accuracy">正确率：${accuracy}%（${learnTotalWords}词，错${learnWrongCount}个）</span>`;
     optionsEl.querySelectorAll('.quiz-option').forEach(b => b.classList.add('disabled'));
-    // 答对后不自动跳转：由用户点击"已学会"确认后才标记完成并进入下一题
+    // 答对后自动进入下一题（延迟 900ms 让用户看到正确反馈）
+    if (autoNextTimer) clearTimeout(autoNextTimer);
+    autoNextTimer = setTimeout(() => handleLearnKnown(), 900);
   } else {
     btn.classList.add('wrong');
     playWrongSound();
@@ -5074,7 +5077,9 @@ function handleSpellSubmit() {
     feedback.className = 'quiz-feedback correct';
     feedback.textContent = '拼写正确！';
     playCorrectSound();
-    // 答对后不自动跳转：由用户点击"已学会"确认后才标记完成并进入下一题
+    // 答对后自动进入下一题（延迟 900ms 让用户看到正确反馈）
+    if (autoNextTimer) clearTimeout(autoNextTimer);
+    autoNextTimer = setTimeout(() => handleLearnKnown(), 900);
   } else {
     input.classList.add('wrong');
     playWrongSound();
@@ -5689,9 +5694,11 @@ function handleReviewChoiceAnswer(btn, currentWord) {
   if (isCorrect) {
     btn.classList.add('correct');
     feedback.className = 'quiz-feedback correct';
-    feedback.innerHTML = `回答正确！<span class="quiz-accuracy">正确率：${accuracy}%（${reviewTotalWords}词，错${reviewWrongCount}个）</span><span class="quiz-known-hint">点击「已学会」继续</span>`;
+    feedback.innerHTML = `回答正确！<span class="quiz-accuracy">正确率：${accuracy}%（${reviewTotalWords}词，错${reviewWrongCount}个）</span>`;
     playCorrectSound();
-    // 答对后不自动跳转：由用户点击"已学会"确认后才标记复习完成并进入下一题
+    // 答对后自动提交复习评分并进入下一题（延迟 900ms 让用户看到正确反馈）
+    if (reviewAutoNextTimer) clearTimeout(reviewAutoNextTimer);
+    reviewAutoNextTimer = setTimeout(() => handleReviewQuizKnown(), 900);
   } else {
     btn.classList.add('wrong');
     playWrongSound();
@@ -5777,9 +5784,11 @@ function handleReviewReverseAnswer(btn, currentWord) {
     btn.classList.add('correct');
     playCorrectSound();
     feedback.className = 'quiz-feedback correct';
-    feedback.innerHTML = `回答正确！<span class="quiz-accuracy">正确率：${accuracy}%（${reviewTotalWords}词，错${reviewWrongCount}个）</span><span class="quiz-known-hint">点击「已学会」继续</span>`;
+    feedback.innerHTML = `回答正确！<span class="quiz-accuracy">正确率：${accuracy}%（${reviewTotalWords}词，错${reviewWrongCount}个）</span>`;
     optionsEl.querySelectorAll('.quiz-option').forEach(b => b.classList.add('disabled'));
-    // 答对后不自动跳转：由用户点击"已学会"确认后才标记复习完成并进入下一题
+    // 答对后自动提交复习评分并进入下一题（延迟 900ms 让用户看到正确反馈）
+    if (reviewAutoNextTimer) clearTimeout(reviewAutoNextTimer);
+    reviewAutoNextTimer = setTimeout(() => handleReviewQuizKnown(), 900);
   } else {
     btn.classList.add('wrong');
     playWrongSound();
@@ -5837,7 +5846,9 @@ function handleReviewSpellSubmit() {
     feedback.className = 'quiz-feedback correct';
     feedback.textContent = '拼写正确！';
     playCorrectSound();
-    // 答对后不自动跳转：由用户点击"已学会"确认后才标记复习完成并进入下一题
+    // 答对后自动提交复习评分并进入下一题（延迟 900ms 让用户看到正确反馈）
+    if (reviewAutoNextTimer) clearTimeout(reviewAutoNextTimer);
+    reviewAutoNextTimer = setTimeout(() => handleReviewQuizKnown(), 900);
   } else {
     input.classList.add('wrong');
     playWrongSound();
