@@ -60,6 +60,89 @@ _GREEK_SYMBOLS = {
     '二十四': 'ω（奥米伽）', '24': 'ω（奥米伽）',
 }
 
+# 释义规范化的全角标点替换表：背诵释义统一使用全角中文标点，
+# 避免 ECDICT 网络释义残留的半角 ! ? ... 混入（如 "你好!"、"你好吗?"）。
+# 注意：先替换 '...'（三连点）再替换 '…'，避免把 '……' 拆散。
+_PUNCT_NORM_TRANS = str.maketrans({
+    '!': '！',
+    '?': '？',
+    ';': '；',
+    ':': '：',
+    '(': '（',
+    ')': '）',
+    ',': '，',
+})
+
+# 例句/用途句启发式：释义中出现"她/他/我们…"这类带主语代词的完整小句，
+# 通常是 ECDICT 网络释义里混入的例句（如 "她擅长画画"），而非核心释义。
+# 识别规则：以主语代词开头，且长度>=4（避免误伤 "他乡" 这类两字词义）。
+_EXAMPLE_SUBJECT_RE = re.compile(
+    r'^[\s，,]*?(她|他|我们|你们|他们|她们|它们|大家|人们|某人|人人|别人|谁)'
+)
+
+# 冗余拓展正则：释义间重复的"或某地/和某物"等拓展尾巴，如
+# "拜访某人" 与 "拜访某人或某地" 重复，仅保留更简洁的核心译文。
+_EXT_TAIL_RE = re.compile(r'^(或|和|与|及|和某|或某|某人|某地|某物)')
+
+# 高频口语/日常短语的核心义覆写：ECDICT 对这些短语的释义常混入
+# 多个问候语、例句或冗余义（如 how are you? → "你好!你好吗?"），
+# 这里统一为专升本最常考的单一核心译文，风格与百词斩一致。
+# key 一律小写（lookup 内部已转小写）。
+_PHRASE_OVERRIDES = {
+    'how are you?': '你好吗？',
+    'how are you': '你好吗？',
+    "what's up": '怎么了？发生什么事了？',
+    'be expert at': '擅长，在……方面是内行',
+    'be good at': '擅长，善于',
+    'be interested in': '对……感兴趣',
+    'be fond of': '喜欢，喜爱',
+    'be tired of': '厌倦，厌烦',
+    'be afraid of': '害怕，担心',
+    'be proud of': '为……感到自豪',
+    'call on sb': '拜访，拜访某人',
+    'get up': '起床，起立',
+    'get along with': '与……相处，进展',
+    'get on with': '与……相处，进展',
+    'look forward to': '盼望，期待',
+    'take part in': '参加，参与',
+    'take care of': '照顾，照料',
+    'make a decision': '做决定',
+    'make up one\'s mind': '下定决心',
+    'give up': '放弃',
+    'give in': '屈服，让步',
+    'as soon as': '一……就……',
+    'in front of': '在……前面',
+    'in the front of': '在……前部',
+    'thank you': '谢谢',
+    'thank you very much': '非常感谢',
+    'apologize to': '向某人道歉',
+    'how time flies': '时间过得真快',
+    'be supposed to': '应该，被期望',
+    'be used to': '习惯于',
+    'used to': '过去常常',
+    'agree with': '同意，赞成',
+    'be busy with': '忙于，忙碌于',
+    'be late for': '迟到',
+    'be full of': '充满，装满',
+    'be made of': '由……制成',
+    'be made from': '由……制成',
+    'be different from': '与……不同',
+    'be similar to': '与……相似',
+    'be good for': '对……有益',
+    'be bad for': '对……有害',
+    'be responsible for': '对……负责',
+    'be satisfied with': '对……满意',
+    'be patient with': '对……耐心',
+    'from now on': '从现在起',
+    'from then on': '从那时起',
+    'by the way': '顺便说一下',
+    'of course': '当然',
+    'come on': '来吧，加油',
+    'come true': '实现，成真',
+    'grow up': '长大，成长',
+    'hurry up': '赶快，快点',
+}
+
 
 class DictionaryService:
     """本地词典服务，提供离线单词查询和规则分析"""
@@ -5835,6 +5918,18 @@ class DictionaryService:
                 part = part.strip()
                 if not part:
                     continue
+                # 全角标点统一：仅把半角 ! ? : ; ( ) 等转为全角中文标点，
+                # 避免 ECDICT 网络/口语释义残留的半角符号（"你好!"、"你好吗?"）。
+                # 省略号统一为 ……（用正则合并任意数量的 … 或 ..，避免重复翻倍）。
+                part = _re.sub(r'[.．。]{2,}', '……', part)
+                part = _re.sub(r'…+', '……', part)
+                part = part.translate(_PUNCT_NORM_TRANS).strip()
+                if not part:
+                    continue
+                # 去掉释义开头的冗余 "使" 前缀标记，如 "(使)起床"、"（使）起立" → "起床"、"起立"。
+                part = _re.sub(r'^[（(]使[)）]', '', part).strip()
+                if not part:
+                    continue
                 # 希腊字母描述性释义（如"希腊字母表的第一个字母"）改写为核心义的符号+拼音，
                 # 如 alpha → "α（阿尔法）"，与百词斩等主流背单词软件一致。
                 # 兼容多种写法：第X个字母 / 第 X 个字母 / 第二十一字母 / 第十五字母 / 第12个字母。
@@ -5852,6 +5947,10 @@ class DictionaryService:
                             part = symbol
                 # 过滤过长的释义（超过15个字的专业术语）
                 if len(part) > 15:
+                    continue
+                # 过滤例句/用途小句：以主语代词开头且长度>=4 的完整小句
+                # （如 "她擅长画画"、"你身体怎么样"），不是核心释义。
+                if len(part) >= 4 and _EXAMPLE_SUBJECT_RE.match(part):
                     continue
                 skip = False
                 for marker in ['人名', '地名', '药名', '网络用语']:
@@ -5871,9 +5970,23 @@ class DictionaryService:
             # 保留 ECDICT 原有顺序（按常用程度排列，首个即最核心义）。
             # 不按字数取舍，避免砍掉"龙/手/水/拿"这类单字核心义；
             # 单字标记与生僻义已在上方过滤掉，不会混入碎片。
+            # 去重：同一词性下，若新释义是某已保留释义的重复/冗余拓展
+            # （如 "拜访某人或某地" 拓自已保留的 "拜访某人"），则丢弃，只保留更简洁的核心译文。
             for part in candidates:
                 g = pos_groups.setdefault(code, {'prefix': pos_std, 'meanings': []})
-                if part not in g['meanings']:
+                if part in g['meanings']:
+                    continue
+                redundant = False
+                for k in g['meanings']:
+                    # 新释义是已保留释义的尾部拓展（"拜访某人" → "拜访某人或某地"）
+                    if part.startswith(k) and len(part) > len(k) and _EXT_TAIL_RE.match(part[len(k):]):
+                        redundant = True
+                        break
+                    # 新释义包含已保留的较核心释义（长度>=4）且更长（"访问或拜访某人" → 精简掉）
+                    if len(k) >= 4 and len(part) > len(k) and k in part:
+                        redundant = True
+                        break
+                if not redundant:
                     g['meanings'].append(part)
 
         if not pos_groups:
@@ -6894,6 +7007,36 @@ class DictionaryService:
         parts = phrase.split()
         if len(parts) < 2:
             return None
+
+        # 0. 优先查高频口语短语核心义覆写表（释义最贴合考试、无例句混杂）
+        override = _PHRASE_OVERRIDES.get(phrase)
+        if override:
+            result = {
+                'meaning': override,
+                'type': '短语',
+                'explain': '高频常考短语',
+                'phonetic': '',
+                'pos_label': '',
+            }
+            # 补充拆解信息（逐词拆分用于学习参考）
+            split = []
+            for part in parts:
+                part_data = self._query_ecdict(part)
+                part_meaning = ''
+                if part_data and part_data.get('translation'):
+                    part_meaning = self._clean_meaning(part_data['translation'], part_data.get('pos', ''))
+                    part_meaning = part_meaning.split('\n')[0][:60] if part_meaning else ''
+                split.append({
+                    'part': part,
+                    'meaning': part_meaning or part,
+                    'original': part,
+                    'original_meaning': part_meaning,
+                    'transform': '原形不变',
+                    'explain': '独立单词',
+                })
+            result['split'] = split
+            result['tenses'] = None  # 短语不显示时态按钮
+            return result
 
         # 0. 优先查内置短语词典（专升本常见短语，释义准确）
         if phrase in self.PHRASE_DICTIONARY:
