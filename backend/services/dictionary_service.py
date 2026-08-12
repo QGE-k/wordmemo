@@ -209,6 +209,9 @@ class DictionaryService:
         'or': '名词后缀，表示"做...的人"',
         'ist': '名词后缀，表示"...主义者"',
         'tion': '名词后缀，表示动作或状态',
+        'ion': '名词后缀，表示动作或状态（动词变名词）',
+        'ation': '名词后缀，表示动作或结果（动词变名词）',
+        'ition': '名词后缀，表示动作或状态',
         'sion': '名词后缀，表示动作或状态',
         'ment': '名词后缀，表示行为或结果',
         'ness': '名词后缀，表示状态或性质',
@@ -229,7 +232,6 @@ class DictionaryService:
         'ship': '名词后缀，表示关系或状态',
         'hood': '名词后缀，表示时期或状态',
         'dom': '名词后缀，表示领域或状态',
-        'ous': '形容词后缀，表示"多...的"',
         'ward': '副词后缀，表示方向',
         's': '复数或第三人称单数后缀',
         'es': '复数或第三人称单数后缀',
@@ -239,8 +241,9 @@ class DictionaryService:
         'age': '名词后缀，表示行为或结果',
         'ish': '形容词后缀，表示"...似的"',
         'like': '形容词后缀，表示"...般的"',
-        'hood': '名词后缀，表示时期或状态',
         'th': '名词后缀，表示状态或性质',
+        'ess': '名词后缀，表示女性（表的女性身份）',
+        'ress': '名词后缀，表示女性（wait→waitress）',
     }
 
     # 常见动词的时态变形表（五种形态：原形/第三人称单数/过去式/过去分词/现在分词）
@@ -2507,16 +2510,14 @@ class DictionaryService:
             'meaning': 'n. 信息，资料',
             'type': '派生词',
             'split': [
-                {'part': 'in-', 'meaning': '前缀，表示"进入"', 'original': 'in-', 'original_meaning': '前缀，表示"进入"', 'transform': '本身是前缀，无变形', 'explain': '前缀，表示"注入"'},
-                {'part': 'form', 'meaning': 'n. 形式，形状', 'original': 'form', 'original_meaning': 'n. 形式，形状（拉丁语 forma）', 'transform': '原形不变', 'explain': '词根，表示"形成"，"注入形式"引申为"告知"'},
-                {'part': '-ation', 'meaning': '名词后缀，表示动作或状态', 'original': '-ation', 'original_meaning': '名词后缀，表示动作或状态', 'transform': '本身是后缀，无变形', 'explain': '把动词变成名词，表示"告知的内容"即信息'},
+                {'part': 'inform', 'meaning': 'v. 通知，告知', 'original': 'inform', 'original_meaning': 'v. 通知，告知（信息由"告知"而来）', 'transform': '原形不变', 'explain': '词根'},
+                {'part': '-ation', 'meaning': '名词后缀，表示动作或状态', 'original': '-ation', 'original_meaning': '名词后缀', 'transform': '本身是后缀，无变形', 'explain': '把动词变成名词，表示"被告知的内容"即信息'},
             ],
             'morph': [
-                {'type': 'prefix', 'word': 'in-', 'meaning': '前缀，表示"进入"'},
-                {'type': 'root', 'word': 'form', 'meaning': 'n. 形式，形状'},
+                {'type': 'root', 'word': 'inform', 'meaning': 'v. 通知，告知'},
                 {'type': 'suffix', 'word': '-ation', 'meaning': '名词后缀'},
             ],
-            'mnemonic': 'in（进入）+ form（形式）+ ation（名词后缀）→ 将知识"注入形式"的过程 → 告知 → 信息。联想：form(形式)、reform(改革)。',
+            'mnemonic': 'inform（告知）+ ation（名词后缀）→ 被告知的内容 → 信息。记住动词 inform（通知、告知），就能连带记住名词 information（信息）。',
             'examples': [
                 {'en': 'You can find more information on the school website.', 'zh': '你可以在学校网站上找到更多信息。'},
                 {'en': 'The book provides useful information about career planning.', 'zh': '这本书提供了关于职业规划的有用信息。'},
@@ -6051,6 +6052,18 @@ class DictionaryService:
             return False
         return True
 
+    def _is_bare_root(self, word, ecdict_data):
+        """
+        判断 ECDICT 中该词是否为"词根碎片"而非独立完整单词。
+        特征：有释义但 pos 词性字段为空、通常也无音标（如 prepar、translat、decis）。
+        这类词是字典收录的派生词根残留，不能作为独立单词展示给用户。
+        独立完整单词（如 prepare、translate、decide）都有 pos 字段。
+        """
+        if not ecdict_data or not ecdict_data.get('translation'):
+            return False
+        pos = ecdict_data.get('pos', '') or ''
+        return not pos.strip()
+
     def _convert_phonetic(self, phonetic):
         """将 ECDICT 音标编码转换为标准 IPA 格式"""
         if not phonetic:
@@ -6586,6 +6599,33 @@ class DictionaryService:
         'x-ray': ('x', 'ray'),
     }
 
+    # 派生词精确拆解覆盖表：处理算法难以拆正确的不规则派生词。
+    # 这些词的词根在 ECDICT 中是"词根碎片"（如 decis、pronunci），算法会自动跳过，
+    # 但为让用户"记住单词里的单词"，这里手工指定完整词根 + 后缀。
+    # value 为拆解列表，每项 {part, base, meaning, transform, explain}，格式同 COMPOUND_SPLITS。
+    DERIVATION_SPLITS = {
+        'decision': [
+            {'part': 'decide', 'base': 'decide', 'meaning': 'v. 决定，决断', 'transform': '把词尾 de 改为 sion（动词变名词）', 'explain': '词根'},
+            {'part': '-sion', 'base': 'sion', 'meaning': '名词后缀，表示动作或结果', 'transform': '本身是后缀', 'explain': '名词后缀，动词变名词'},
+        ],
+        'pronunciation': [
+            {'part': 'pronounce', 'base': 'pronounce', 'meaning': 'v. 发音', 'transform': '把词尾 ce 改为 ciation（动词变名词）', 'explain': '词根'},
+            {'part': '-iation', 'base': 'iation', 'meaning': '名词后缀，表示行为或结果', 'transform': '本身是后缀', 'explain': '名词后缀，动词变名词'},
+        ],
+        'scientist': [
+            {'part': 'science', 'base': 'science', 'meaning': 'n. 科学', 'transform': '去 e 加 -ist（表示从事该学科的人）', 'explain': '词根'},
+            {'part': '-ist', 'base': 'ist', 'meaning': '名词后缀，表示"...学家/...者"', 'transform': '本身是后缀', 'explain': '名词后缀，表示人'},
+        ],
+        'pianist': [
+            {'part': 'piano', 'base': 'piano', 'meaning': 'n. 钢琴', 'transform': '去 o 加 -ist（表示弹钢琴的人）', 'explain': '词根'},
+            {'part': '-ist', 'base': 'ist', 'meaning': '名词后缀，表示"...演奏者/...者"', 'transform': '本身是后缀', 'explain': '名词后缀，表示人'},
+        ],
+        'satisfaction': [
+            {'part': 'satisfy', 'base': 'satisfy', 'meaning': 'v. 使满意，满足', 'transform': '动词变名词（satisfy→satisfaction）', 'explain': '词根'},
+            {'part': '-action', 'base': 'action', 'meaning': '名词后缀，表示状态或结果', 'transform': '本身是后缀', 'explain': '名词后缀，动词变名词'},
+        ],
+    }
+
     def _build_auto_compound(self, word_lower):
         """按 AUTO_COMPOUNDS 自动构建复合词拆解（释义从 ECDICT 自动取）"""
         p1, p2 = self.AUTO_COMPOUNDS[word_lower]
@@ -6603,9 +6643,10 @@ class DictionaryService:
             })
         return out
 
-    def _build_curated_compound(self, word_lower):
-        """按 COMPOUND_SPLITS 覆盖表构建复合词拆解结果"""
-        parts = self.COMPOUND_SPLITS[word_lower]
+    def _build_curated_compound(self, word_lower, table=None):
+        """按 COMPOUND_SPLITS / DERIVATION_SPLITS 覆盖表构建拆解结果"""
+        table = table or self.COMPOUND_SPLITS
+        parts = table[word_lower]
         split = []
         for p in parts:
             meaning = p.get('meaning') or p['base']
@@ -6710,6 +6751,21 @@ class DictionaryService:
                 'split': self._build_auto_compound(word_lower),
                 'morph': [],
                 'mnemonic': f'"{word_lower}" 由两个单词组成，按单词拆解更易记忆。',
+                'examples': self._get_zhuanshenben_examples(word_lower, meaning),
+                'tenses': self._get_inflections(word_lower, meaning),
+                'pos_label': self._pos_label(ecdict_data.get('pos', '')),
+            }
+        # 0c. 派生词精确覆盖表：处理算法难以拆正确的不规则派生词（decision→decide+sion 等）
+        if word_lower in self.DERIVATION_SPLITS:
+            meaning = self.MEANING_OVERRIDES.get(word_lower) or \
+                self._clean_meaning(ecdict_data.get('translation', ''), ecdict_data.get('pos', ''))
+            return {
+                'phonetic': self._convert_phonetic(ecdict_data.get('phonetic', '')),
+                'meaning': meaning,
+                'type': '派生词',
+                'split': self._build_curated_compound(word_lower, table=self.DERIVATION_SPLITS),
+                'morph': [],
+                'mnemonic': f'"{word_lower}"由词根和名词后缀组成，记住词根更易记整个单词。',
                 'examples': self._get_zhuanshenben_examples(word_lower, meaning),
                 'tenses': self._get_inflections(word_lower, meaning),
                 'pos_label': self._pos_label(ecdict_data.get('pos', '')),
@@ -6865,70 +6921,55 @@ class DictionaryService:
             }
 
         # ===== 第三层：派生词拆解（前缀/后缀分析）=====
+        # 优先级：先识别"从哪个完整单词变来"（如 preparation → prepare + ation，
+        # teacher → teach + er），再识别前缀（如 unhappy → un + happy），
+        # 最后才是前缀+后缀组合。这样最符合"记一个单词顺便记住里面的单词"的目标。
         detected_prefix = None
         detected_root = word_lower
         detected_suffix = None
         final_root = word_lower
 
-        # 检测前缀
-        for prefix in sorted(self.PREFIXES.keys(), key=len, reverse=True):
-            if word_lower.startswith(prefix) and len(word_lower) > len(prefix) + 2:
-                candidate = word_lower[len(prefix):]
-                # 检查去掉前缀后的词是否是已知单词（如 rediscover → discover）
-                candidate_data = self._query_ecdict(candidate)
-                if self._is_real_word(candidate, candidate_data):
-                    detected_prefix = prefix
-                    detected_root = candidate
-                    final_root = candidate
-                    break
-                # 如果去掉前缀后的词不是已知单词，尝试进一步去后缀
-                for suffix in sorted(self.SUFFIXES.keys(), key=len, reverse=True):
-                    if candidate.endswith(suffix) and len(candidate) > len(suffix) + 1:
-                        inner = candidate[:-len(suffix)]
-                        # 检查 inner 是否是已知单词
-                        inner_data = self._query_ecdict(inner)
-                        if self._is_real_word(inner, inner_data):
-                            detected_prefix = prefix
-                            detected_root = candidate
-                            detected_suffix = suffix
-                            final_root = inner
-                            break
-                        # y/i 变体检查: happi → happy
-                        if inner and len(inner) >= 2 and inner[-1] == 'i':
-                            y_candidate = inner[:-1] + 'y'
-                            y_data = self._query_ecdict(y_candidate)
-                            if self._is_real_word(y_candidate, y_data):
-                                detected_prefix = prefix
-                                detected_root = candidate
-                                detected_suffix = suffix
-                                final_root = y_candidate
+        # 特例：-tion / -sion 结尾的名词，t/s 属于词根，应去掉 ion 找动词原形。
+        # 如 action → act + ion、operation → operate + ion、translation → translate + ion、
+        #    discussion → discuss + ion、expression → express + ion、population → populate + ion
+        if not detected_suffix:
+            for _sk in ('sion', 'tion'):
+                if word_lower.endswith(_sk) and len(word_lower) > len(_sk) + 1:
+                    ion_root = word_lower[:-3]  # 去掉 ion
+                    # 检查 ion_root 或 ion_root+e 是否为完整单词（如 act、operat→operate）
+                    # 词根碎片（如 translat、decis，pos 为空）不算完整单词，需跳过
+                    for _cand in (ion_root, ion_root + 'e'):
+                        if _cand and len(_cand) >= 2:
+                            _cdata = self._query_ecdict(_cand)
+                            if self._is_real_word(_cand, _cdata) and not self._is_bare_root(_cand, _cdata):
+                                detected_suffix = 'ion'
+                                detected_root = ion_root
+                                final_root = _cand
                                 break
-                        # e 结尾检查: mak → make
-                        if inner and not inner.endswith('e'):
-                            e_candidate = inner + 'e'
-                            e_data = self._query_ecdict(e_candidate)
-                            if self._is_real_word(e_candidate, e_data):
-                                detected_prefix = prefix
-                                detected_root = candidate
-                                detected_suffix = suffix
-                                final_root = e_candidate
-                                break
-                if detected_prefix:
-                    break
+                    if detected_suffix:
+                        break
 
-        # 如果没有检测到前缀，仅检测后缀
-        if not detected_prefix:
+        # 优先检测后缀：去掉后缀后（含 y/i、双写、去e变体）是完整已知单词。
+        # 如 preparation → prepare + ation、teacher → teach + er、waitress → wait + ress
+        if not detected_suffix:
             for suffix in sorted(self.SUFFIXES.keys(), key=len, reverse=True):
                 if word_lower.endswith(suffix) and len(word_lower) > len(suffix) + 1:
                     candidate = word_lower[:-len(suffix)]
-                    # 检查去掉后缀后的词是否是真正的单词（排除缩写/生僻/无词频词根）
-                    candidate_data = self._query_ecdict(candidate)
-                    if self._is_real_word(candidate, candidate_data):
-                        detected_suffix = suffix
-                        detected_root = candidate
-                        final_root = candidate
-                        break
-                    # y/i 变体检查: happi → happy
+                    # 0. 若去掉后缀后以辅音结尾，先尝试补 e 形成完整单词（prepar → prepare）。
+                    #    当 candidate 是"词根碎片"（如 prepar、translat，pos 为空）时，
+                    #    必须优先补 e 用完整词形，避免把碎片展示给用户。
+                    if candidate and len(candidate) >= 2 and not candidate.endswith('e'):
+                        cand_data = self._query_ecdict(candidate)
+                        e_candidate = candidate + 'e'
+                        e_data = self._query_ecdict(e_candidate)
+                        if self._is_real_word(e_candidate, e_data) and \
+                           (not self._is_real_word(candidate, cand_data) or self._is_bare_root(candidate, cand_data)):
+                            # candidate 是词根碎片或非完整词，优先用完整词 e_candidate
+                            detected_suffix = suffix
+                            final_root = e_candidate
+                            detected_root = e_candidate
+                            break
+                # 1. y/i 变体检查: happi → happy
                     if candidate and len(candidate) >= 2 and candidate[-1] == 'i':
                         y_candidate = candidate[:-1] + 'y'
                         y_data = self._query_ecdict(y_candidate)
@@ -6936,22 +6977,80 @@ class DictionaryService:
                             detected_suffix = suffix
                             final_root = y_candidate
                             break
-                    # 双写辅音检查: runn → run
-                    if candidate and len(candidate) >= 2 and candidate[-1] == candidate[-2]:
+                    # 2. 双写辅音检查: runn → run
+                    #    仅限辅音字母双写（排除 ee/oo 等元音双写，如 freedom → free 的 ee 不是双写辅音）
+                    if candidate and len(candidate) >= 2 and candidate[-1] == candidate[-2] \
+                            and candidate[-1] not in 'aeiou':
                         short_candidate = candidate[:-1]
                         short_data = self._query_ecdict(short_candidate)
                         if self._is_real_word(short_candidate, short_data):
                             detected_suffix = suffix
                             final_root = short_candidate
                             break
-                    # e 结尾检查: mak → make
-                    if candidate and not candidate.endswith('e'):
+                    # 3. 去掉后缀后的候选词本身是完整单词：如 wait → waitress、teach → teacher
+                    #    词根碎片（如 decis、scient，pos 为空）不算完整单词，跳过
+                    candidate_data = self._query_ecdict(candidate)
+                    if self._is_real_word(candidate, candidate_data) and not self._is_bare_root(candidate, candidate_data):
+                        detected_suffix = suffix
+                        detected_root = candidate
+                        final_root = candidate
+                        break
+                    # 4. e 结尾检查（兜底，含去 e 场景）：如 communicat → communicate
+                    if candidate and len(candidate) >= 2 and not candidate.endswith('e'):
                         e_candidate = candidate + 'e'
                         e_data = self._query_ecdict(e_candidate)
                         if self._is_real_word(e_candidate, e_data):
                             detected_suffix = suffix
                             final_root = e_candidate
                             break
+
+        # 若后缀检测未命中，再尝试前缀检测（含前缀+后缀组合）
+        if not detected_suffix:
+            # 检测前缀
+            for prefix in sorted(self.PREFIXES.keys(), key=len, reverse=True):
+                if word_lower.startswith(prefix) and len(word_lower) > len(prefix) + 2:
+                    candidate = word_lower[len(prefix):]
+                    # 检查去掉前缀后的词是否是已知单词（如 rediscover → discover）
+                    candidate_data = self._query_ecdict(candidate)
+                    if self._is_real_word(candidate, candidate_data):
+                        detected_prefix = prefix
+                        detected_root = candidate
+                        final_root = candidate
+                        break
+                    # 如果去掉前缀后的词不是已知单词，尝试进一步去后缀
+                    for suffix in sorted(self.SUFFIXES.keys(), key=len, reverse=True):
+                        if candidate.endswith(suffix) and len(candidate) > len(suffix) + 1:
+                            inner = candidate[:-len(suffix)]
+                            # 检查 inner 是否是已知单词
+                            inner_data = self._query_ecdict(inner)
+                            if self._is_real_word(inner, inner_data):
+                                detected_prefix = prefix
+                                detected_root = candidate
+                                detected_suffix = suffix
+                                final_root = inner
+                                break
+                            # y/i 变体检查: happi → happy
+                            if inner and len(inner) >= 2 and inner[-1] == 'i':
+                                y_candidate = inner[:-1] + 'y'
+                                y_data = self._query_ecdict(y_candidate)
+                                if self._is_real_word(y_candidate, y_data):
+                                    detected_prefix = prefix
+                                    detected_root = candidate
+                                    detected_suffix = suffix
+                                    final_root = y_candidate
+                                    break
+                            # e 结尾检查: mak → make
+                            if inner and not inner.endswith('e'):
+                                e_candidate = inner + 'e'
+                                e_data = self._query_ecdict(e_candidate)
+                                if self._is_real_word(e_candidate, e_data):
+                                    detected_prefix = prefix
+                                    detected_root = candidate
+                                    detected_suffix = suffix
+                                    final_root = e_candidate
+                                    break
+                    if detected_prefix:
+                        break
 
         word_type = '基础词'
         morph = []

@@ -5275,6 +5275,16 @@ function openReviewAnswerSheet() {
  * 渲染卡片背面的拆解信息
  * 显示每个部分的：当前部分 + 意思 + 原词→变形→当前 + 作用说明
  */
+// 根据拆解部分的类型返回配色 class（词根/前缀/后缀/基础单词）
+function splitPartType(s) {
+  const e = (s.explain || '') + (s.transform || '');
+  if (e.includes('前缀')) return 'prefix';
+  if (e.includes('后缀')) return 'suffix';
+  if (e.includes('词根')) return 'root';
+  if (e.includes('基础') || e.includes('独立')) return 'base';
+  return 'root';
+}
+
 function renderCardSplit(container, splitData) {
   if (!splitData || splitData.length === 0) {
     container.innerHTML = '';
@@ -5301,7 +5311,7 @@ function renderCardSplit(container, splitData) {
       : '';
     return `
       <div class="split-item">
-        <div class="split-part">${escapeHtml(s.part || '')}</div>
+        <div class="split-part split-part--${splitPartType(s)}">${escapeHtml(s.part || '')}</div>
         ${s.meaning ? `<div class="split-meaning">${escapeHtml(s.meaning)}</div>` : ''}
         ${transformChain}
         ${originalMeaning}
@@ -6462,7 +6472,7 @@ function fillDetailModal(word) {
         : '';
       return `
         <div class="split-item">
-          <div class="split-part">${escapeHtml(s.part || '')}</div>
+          <div class="split-part split-part--${splitPartType(s)}">${escapeHtml(s.part || '')}</div>
           ${s.meaning ? `<div class="split-meaning">${escapeHtml(s.meaning)}</div>` : ''}
           ${transformChain}
           ${originalMeaning}

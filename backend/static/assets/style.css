@@ -2094,9 +2094,36 @@ button:focus-visible {
 }
 
 .split-part {
+  display: inline-block;
   font-size: 15px;
-  font-weight: 600;
-  color: #475569;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 8px;
+  letter-spacing: 0.3px;
+}
+/* 词根：蓝色 */
+.split-part--root {
+  color: #1e40af;
+  background: #e0e7ff;
+  border: 1px solid #c7d2fe;
+}
+/* 前缀：紫色 */
+.split-part--prefix {
+  color: #7e22ce;
+  background: #f3e8ff;
+  border: 1px solid #e9d5ff;
+}
+/* 后缀：绿色 */
+.split-part--suffix {
+  color: #065f46;
+  background: #d1fae5;
+  border: 1px solid #a7f3d0;
+}
+/* 基础单词 / 独立单词：灰色 */
+.split-part--base {
+  color: #334155;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
 }
 
 .split-meaning {
@@ -3283,6 +3310,27 @@ button:focus-visible {
 
 .split-list .split-part {
   color: #475569;
+}
+/* 弹窗中按类型给拆解部分上色 */
+.split-list .split-part--root {
+  color: #1e40af;
+  background: #e0e7ff;
+  border: 1px solid #c7d2fe;
+}
+.split-list .split-part--prefix {
+  color: #7e22ce;
+  background: #f3e8ff;
+  border: 1px solid #e9d5ff;
+}
+.split-list .split-part--suffix {
+  color: #065f46;
+  background: #d1fae5;
+  border: 1px solid #a7f3d0;
+}
+.split-list .split-part--base {
+  color: #334155;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
 }
 
 .split-list .split-meaning,
