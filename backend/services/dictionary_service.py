@@ -5292,6 +5292,172 @@ class DictionaryService:
             return (m.split('\n')[0][:60] if m else '').strip()
         return ''
 
+    def _describe_transform(self, part, lemma, form_type):
+        """
+        根据原形与当前拼写，生成详细的变形规则描述（如 "加 -s 变复数"、"去掉词尾不发音的 e，加 -ing"）。
+        用于拆解区域的"原词 → 规则 → 当前词"展示。
+        """
+        try:
+            part = (part or '').lower()
+            lemma = (lemma or '').lower()
+        except Exception:
+            return '变形'
+        if not lemma or part == lemma:
+            return '原形不变'
+        ft = (form_type or '').lower()
+        # 名词复数
+        if ft.startswith('s'):
+            if part == lemma + 's':
+                return '加 -s 变复数'
+            if part == lemma + 'es':
+                return '加 -es 变复数'
+            if part == lemma[:-1] + 'ies':
+                return '把词尾 y 变 i，加 -es 变复数'
+            if part == lemma[:-1] + 'ves':
+                return '把词尾 f/fe 变 v，加 -es 变复数'
+            return '变复数'
+        # 现在分词/动名词
+        if ft.startswith('i'):
+            if part == lemma + 'ing':
+                return '加 -ing 构成现在分词'
+            if part == lemma[:-1] + 'ing':
+                return '去掉词尾不发音的 e，加 -ing 构成现在分词'
+            if part == lemma + lemma[-1] + 'ing':
+                return '双写词尾辅音字母，加 -ing 构成现在分词'
+            if part == lemma[:-1] + 'ying':
+                return '把词尾 y 变 i，加 -ing 构成现在分词'
+            return '加 -ing 构成现在分词'
+        # 过去式/过去分词
+        if ft.startswith('p') or ft.startswith('d'):
+            tense = '过去式' if ft.startswith('p') else '过去分词'
+            if part == lemma + 'ed':
+                return f'加 -ed 构成{tense}'
+            if part == lemma + 'd':
+                return f'去掉词尾不发音的 e，加 -d 构成{tense}'
+            if part == lemma + lemma[-1] + 'ed':
+                return f'双写词尾辅音字母，加 -ed 构成{tense}'
+            if part == lemma[:-1] + 'ied':
+                return f'把词尾 y 变 i，加 -ed 构成{tense}'
+            return f'加 -ed 构成{tense}'
+        # 第三人称单数
+        if ft.startswith('3'):
+            if part == lemma + 's':
+                return '加 -s 构成第三人称单数'
+            if part == lemma + 'es':
+                return '加 -es 构成第三人称单数'
+            if part == lemma[:-1] + 'ies':
+                return '把词尾 y 变 i，加 -es 构成第三人称单数'
+            return '构成第三人称单数'
+        # 比较级/最高级
+        if ft.startswith('r') or ft.startswith('t'):
+            deg = '比较级' if ft.startswith('r') else '最高级'
+            if part in (lemma + 'er', lemma + 'r'):
+                return f'加 -er 构成{deg}'
+            if part == lemma[:-1] + 'ier':
+                return f'把词尾 y 变 i，加 -er 构成{deg}'
+            if part in (lemma + 'est', lemma + 'st'):
+                return f'加 -est 构成{deg}'
+            if part == lemma[:-1] + 'iest':
+                return f'把词尾 y 变 i，加 -est 构成{deg}'
+            return deg
+        return '变形'
+
+    def _build_part_split(self, part, phrase=''):
+        """
+        构建某个词组件的拆解信息（单词拆解卡片，图2风格）。
+        优先用 AI 简洁释义作为 meaning/original_meaning；
+        用 ECDICT exchange 检测原词与变形规则（如 sports→sport 加-s变复数, meeting→meet 去掉词尾e加-ing）。
+        返回 {part, meaning, original, original_meaning, transform, explain}。
+        """
+        part = (part or '').strip()
+        if not part:
+            return None
+        meaning = self._part_meaning(part)
+        original = part
+        original_meaning = meaning
+        transform = '原形不变'
+        explain = '独立单词'
+
+        try:
+            pd = self._query_ecdict(part)
+        except Exception:
+            pd = None
+        if pd and pd.get('translation'):
+            if not meaning:
+                m = self._clean_meaning(pd['translation'], pd.get('pos', ''))
+                meaning = m.split('\n')[0][:60] if m else ''
+            exch = self._parse_exchange(pd.get('exchange', ''))
+            lemma = (exch.get('0') or '').strip()
+            form_type = exch.get('1') or ''
+            # 仅对"看起来确实是变形"的情况做原词+规则展示：
+            # - part 至少 3 个字母（避免把 of/to 等函数词误判成某词变形）
+            # - 生成的规则是具体描述（如 加-s变复数），排除 ECDICT 的错误/泛化条目（如 of→have 的"变形"）
+            if lemma and lemma.lower() != part.lower() and len(part) >= 3:
+                desc = self._describe_transform(part, lemma, form_type)
+                if desc and desc not in ('原形不变', '变形'):
+                    original = lemma
+                    transform = desc
+                    om = self._part_meaning(lemma)
+                    if om:
+                        original_meaning = om
+                    # explain：复数作定语 / -ing 说明等
+                    if form_type.startswith('s'):
+                        if phrase:
+                            words = phrase.split()
+                            if len(words) >= 2 and words[0].lower() == part.lower():
+                                explain = f'复数形式作定语，修饰 {words[1]}'
+                            else:
+                                explain = f'"{lemma}"的复数形式'
+                        else:
+                            explain = f'"{lemma}"的复数形式'
+                    elif form_type.startswith('i'):
+                        explain = f'"{lemma}"加 -ing 变成名词/现在分词，表示"{lemma}的动作或状态"'
+                    elif form_type.startswith('p'):
+                        explain = f'"{lemma}"的过去式'
+                    elif form_type.startswith('d'):
+                        explain = f'"{lemma}"的过去分词'
+                    elif form_type.startswith('3'):
+                        explain = f'"{lemma}"的第三人称单数形式'
+                    else:
+                        explain = f'由"{lemma}"变形而来'
+        return {
+            'part': part,
+            'meaning': meaning or part,
+            'original': original,
+            'original_meaning': original_meaning,
+            'transform': transform,
+            'explain': explain,
+        }
+
+    def _build_ai_minimal_result(self, word_lower, ai_meaning):
+        """核心未命中但有 AI 释义时，构建精简结果（含拆解）"""
+        m0 = ai_meaning.split('\n')[0][:60]
+        split = []
+        if ' ' in word_lower:
+            for part in word_lower.split():
+                sp = self._build_part_split(part, word_lower)
+                split.append(sp or {
+                    'part': part, 'meaning': part,
+                    'original': part, 'original_meaning': '',
+                    'transform': '原形不变', 'explain': '独立单词',
+                })
+        else:
+            split.append({
+                'part': word_lower, 'meaning': m0,
+                'original': word_lower, 'original_meaning': m0,
+                'transform': '原形不变', 'explain': '基础单词',
+            })
+        return {
+            'phonetic': '',
+            'meaning': ai_meaning,
+            'type': '复合词' if ' ' in word_lower else '基础词',
+            'split': split,
+            'morph': [],
+            'mnemonic': '',
+            'examples': self._get_zhuanshenben_examples(word_lower, ai_meaning),
+            'tenses': None if ' ' in word_lower else self._get_inflections(word_lower, ai_meaning),
+        }
+
     def _get_inflections(self, word_lower, meaning=''):
         """
         获取单词的变形数据，统一存入 tenses 字段
@@ -7041,17 +7207,14 @@ class DictionaryService:
                 'phonetic': '',
                 'pos_label': '',
             }
-            # 补充拆解信息（逐词拆分用于学习参考）
+            # 补充拆解信息（逐词拆分用于学习参考，含变形检测）
             split = []
             for part in parts:
-                part_meaning = self._part_meaning(part)
-                split.append({
-                    'part': part,
-                    'meaning': part_meaning or part,
-                    'original': part,
-                    'original_meaning': part_meaning,
-                    'transform': '原形不变',
-                    'explain': '独立单词',
+                sp = self._build_part_split(part, phrase)
+                split.append(sp or {
+                    'part': part, 'meaning': part,
+                    'original': part, 'original_meaning': '',
+                    'transform': '原形不变', 'explain': '独立单词',
                 })
             result['split'] = split
             result['tenses'] = None  # 短语不显示时态按钮
@@ -7061,17 +7224,14 @@ class DictionaryService:
         if phrase in self.PHRASE_DICTIONARY:
             entry = self.PHRASE_DICTIONARY[phrase]
             result = entry.copy()
-            # 补充拆解信息（逐词拆分用于学习参考）
+            # 补充拆解信息（逐词拆分用于学习参考，含变形检测）
             split = []
             for part in parts:
-                part_meaning = self._part_meaning(part)
-                split.append({
-                    'part': part,
-                    'meaning': part_meaning or f'{part}',
-                    'original': part,
-                    'original_meaning': part_meaning,
-                    'transform': '原形不变',
-                    'explain': '独立单词',
+                sp = self._build_part_split(part, phrase)
+                split.append(sp or {
+                    'part': part, 'meaning': part,
+                    'original': part, 'original_meaning': '',
+                    'transform': '原形不变', 'explain': '独立单词',
                 })
             result['split'] = split
             result['tenses'] = None  # 短语不显示时态按钮
@@ -7124,82 +7284,22 @@ class DictionaryService:
         # 4. 有整体释义了，拆分每个单词用于学习参考
         split = []
         for part in parts:
-            # 优先使用 AI/MEANING_OVERRIDES 中的常用释义（避免 ECDICT 返回生僻/生硬释义）
-            part_meaning = self._part_meaning(part)
-            if part_meaning:
-                split.append({
-                    'part': part,
-                    'meaning': part_meaning,
-                    'original': part,
-                    'original_meaning': part_meaning,
-                    'transform': '原形不变',
-                    'explain': '独立单词',
-                })
+            # 统一用 _build_part_split：AI 简洁释义 + ECDICT 变形检测
+            # （sports→sport 加-s变复数, meeting→meet 去掉词尾e加-ing）
+            sp = self._build_part_split(part, phrase)
+            if sp:
+                split.append(sp)
                 continue
-            part_data = self._query_ecdict(part)
-            if part_data and part_data.get('translation'):
-                part_meaning = self._clean_meaning(part_data['translation'], part_data.get('pos', ''))
-                part_meaning = part_meaning.split('\n')[0][:60] if part_meaning else ''
-
-                # 检查该单词是否是某个原词的变形（如 sports -> sport 的复数）
-                part_exchange = self._parse_exchange(part_data.get('exchange', ''))
-                original = part
-                original_meaning = part_meaning
-                transform = '原形不变'
-
-                if '0' in part_exchange and '1' in part_exchange:
-                    lemma = part_exchange['0']
-                    form_type = part_exchange['1']
-                    form_desc = {
-                        'p': '过去式', 'd': '过去分词', 'i': '现在分词/动名词',
-                        '3': '第三人称单数', 's': '复数形式',
-                        'r': '比较级', 't': '最高级',
-                        's1': '复数形式', 's2': '复数形式', 's3': '复数形式（作定语）',
-                        'p1': '过去式', 'p2': '过去式',
-                        'd1': '过去分词', 'd2': '过去分词',
-                        'i1': '现在分词/动名词', 'i2': '现在分词/动名词',
-                    }
-                    transform = form_desc.get(form_type, '')
-                    if not transform:
-                        for code, desc in form_desc.items():
-                            if form_type.startswith(code):
-                                transform = desc
-                                break
-                    if not transform:
-                        transform = '变形'
-                    lemma_data = self._query_ecdict(lemma)
-                    if lemma_data and lemma_data.get('translation'):
-                        original = lemma
-                        lemma_meaning = self._clean_meaning(lemma_data['translation'], lemma_data.get('pos', ''))
-                        original_meaning = lemma_meaning.split('\n')[0][:60] if lemma_meaning else ''
-
-                split.append({
-                    'part': part,
-                    'meaning': part_meaning or f'{part}（暂无释义）',
-                    'original': original,
-                    'original_meaning': original_meaning,
-                    'transform': transform,
-                    'explain': '独立单词',
-                })
-            elif part in self.DICTIONARY:
-                part_meaning = self.DICTIONARY[part].get('meaning', '')
-                split.append({
-                    'part': part,
-                    'meaning': part_meaning,
-                    'original': part,
-                    'original_meaning': part_meaning,
-                    'transform': '原形不变',
-                    'explain': '独立单词',
-                })
-            else:
-                split.append({
-                    'part': part,
-                    'meaning': f'{part}（暂无释义）',
-                    'original': part,
-                    'original_meaning': '',
-                    'transform': '原形不变',
-                    'explain': '独立单词',
-                })
+            # 兜底：插件词/无释义
+            part_meaning = self._part_meaning(part)
+            split.append({
+                'part': part,
+                'meaning': part_meaning or f'{part}（暂无释义）',
+                'original': part,
+                'original_meaning': part_meaning or '',
+                'transform': '原形不变',
+                'explain': '独立单词',
+            })
 
         # 3. 如果短语整体没有释义，从各部分拼接一个基础释义
         if not phrase_translation:
@@ -7254,7 +7354,11 @@ class DictionaryService:
 
     def lookup(self, word):
         """
-        查询本地词典
+        查询本地词典（外层包装）
+        - 先取 AI 简洁释义（ai_meanings.json，最高优先级，仅用于覆盖 meaning）
+        - 再走 _lookup_core 正常拆解路径（DICTIONARY/COMPOUND_SPLITS/_handle_phrase/ECDICT 等，
+          保证拆解区域显示"原词 → 变形规则 → 当前词"的完整信息，如 sports → 加-s变复数 → sports）
+        - 核心未命中但有 AI 释义时，用 _build_ai_minimal_result 兜底输出
 
         参数:
             word: 要查询的单词或词组
@@ -7267,54 +7371,52 @@ class DictionaryService:
         # 清理文档提取残留的尾部括号（如 "hurt （" → "hurt"，"damage （" → "damage"）
         word_lower = re.sub(r"[（(]+$", "", word_lower).strip()
 
-        # ===== AI 简洁释义（最高优先级）=====
-        # 云端全部单词已用 AI 生成简洁常考释义，固化在 ai_meanings.json，优先于 ECDICT/手工词典，
-        # 避免 ECDICT 的生硬翻译（如 teenager → "十三岁到十九岁的少年" 应为 "青少年"）。
-        meaning = self.AI_MEANINGS.get(word_lower)
-        if not meaning:
+        # AI 简洁释义（最高优先级，用于覆盖 meaning，不拦截拆解）
+        ai_meaning = self.AI_MEANINGS.get(word_lower) if self.AI_MEANINGS else ''
+        if not ai_meaning and self.AI_MEANINGS:
             # 兼容撇号差异（直/弯引号）：don't vs don’t
             _alt = word_lower.replace('’', "'")
-            meaning = self.AI_MEANINGS.get(_alt) or self.AI_MEANINGS.get(word_lower.replace("'", '’'))
-        if not meaning:
+            ai_meaning = self.AI_MEANINGS.get(_alt) or self.AI_MEANINGS.get(word_lower.replace("'", '’'))
+        if not ai_meaning and self.AI_MEANINGS:
             # 归一化键（去尾部标点/空白）
             _norm = self._normalize_key(word_lower)
             if _norm != word_lower:
-                meaning = self.AI_MEANINGS.get(_norm)
-        if meaning:
-            # 生成拆解：词组逐词拆解，单次给出基础词条目，保证拆解区域不为空
-            ai_split = []
-            if ' ' in word_lower:
-                for part in word_lower.split():
-                    pm = self._part_meaning(part)
-                    ai_split.append({
-                        'part': part,
-                        'meaning': pm or part,
-                        'original': part,
-                        'original_meaning': pm,
-                        'transform': '原形不变',
-                        'explain': '独立单词',
-                    })
-            else:
-                m0 = meaning.split('\n')[0][:60]
-                ai_split.append({
-                    'part': word_lower,
-                    'meaning': m0,
-                    'original': word_lower,
-                    'original_meaning': m0,
-                    'transform': '原形不变',
-                    'explain': '基础单词',
-                })
-            return {
-                'phonetic': '',
-                'meaning': meaning,
-                'type': '复合词' if ' ' in word_lower else '基础词',
-                'split': ai_split,
-                'morph': [],
-                'mnemonic': '',
-                'examples': self._get_zhuanshenben_examples(word_lower, meaning),
-                'tenses': None if ' ' in word_lower else self._get_inflections(word_lower, meaning),
-            }
+                ai_meaning = self.AI_MEANINGS.get(_norm)
 
+        result = self._lookup_core(word_lower)
+
+        if result:
+            # 用 AI 简洁释义覆盖 meaning（保住 teenager → 青少年 等修复）
+            if ai_meaning:
+                result['meaning'] = ai_meaning
+                # 若拆解首项是整词本身，同步更新其 meaning 为 AI 简洁释义
+                if result.get('split'):
+                    first = result['split'][0]
+                    if first and first.get('part') and first['part'].lower() == word_lower:
+                        first['meaning'] = ai_meaning.split('\n')[0][:60]
+            return result
+
+        # 核心未命中但有 AI 释义：构建精简结果（保证有拆解）
+        if ai_meaning:
+            return self._build_ai_minimal_result(word_lower, ai_meaning)
+        return None
+
+    def _lookup_core(self, word):
+        """
+        查询本地词典核心逻辑（不含 AI 简洁释义覆盖，拆解走正常路径）
+
+        参数:
+            word: 要查询的单词或词组
+
+        返回:
+            dict: 查询结果（与AI返回格式相同），如果未找到返回None
+        """
+        # 统一转为小写进行查询
+        word_lower = word.lower().strip()
+        # 清理文档提取残留的尾部括号（如 "hurt （" → "hurt"，"damage （" → "damage"）
+        word_lower = re.sub(r"[（(]+$", "", word_lower).strip()
+
+        # ===== AI 简洁释义（最低兜底，仅用于核心未命中时，见 lookup 外层）=====
         # ===== 补充词典（用户笔记句式/谚语/搭配，释义精简常用）=====
         # 优先级最高：这些是专升本笔记中手工整理的常用释义，比 ECDICT 更贴合考试
         # 先精确匹配，再用归一化键匹配（处理末尾标点不一致，如 "doing sth." vs "doing sth"）
@@ -7323,19 +7425,15 @@ class DictionaryService:
             supp_meaning = self._get_supp_norm_map().get(self._normalize_key(word_lower))
         if supp_meaning:
             meaning = supp_meaning
-            # 生成拆解：词组逐词拆解，单次给出基础词条目，保证拆解区域不为空
+            # 生成拆解：词组逐词拆解（含变形检测），单次给出基础词条目
             supp_split = []
             if ' ' in word_lower:
                 for part in word_lower.split():
-                    pm = self._part_meaning(part)
-                    pm = pm[:60] if pm else ''
-                    supp_split.append({
-                        'part': part,
-                        'meaning': pm or part,
-                        'original': part,
-                        'original_meaning': pm,
-                        'transform': '原形不变',
-                        'explain': '独立单词',
+                    sp = self._build_part_split(part, word_lower)
+                    supp_split.append(sp or {
+                        'part': part, 'meaning': part,
+                        'original': part, 'original_meaning': '',
+                        'transform': '原形不变', 'explain': '独立单词',
                     })
             else:
                 m0 = meaning.split('\n')[0][:60]
