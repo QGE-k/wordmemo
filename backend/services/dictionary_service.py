@@ -5269,6 +5269,8 @@ class DictionaryService:
         # 云端全部单词的 AI 简洁释义（最高优先级，优先于 ECDICT/手工词典）
         # 由后台批量生成，固化在 backend/data/ai_meanings.json
         self.AI_MEANINGS = {}
+        # 不规则动词反向表：变形形式 → (原形, 时态键)，用于识别 took→take 等不规则变形
+        self._IRREG_REV = None
         try:
             import json as _json
             import os as _os
@@ -5289,13 +5291,45 @@ class DictionaryService:
         data = self._query_ecdict(p)
         if data and data.get('translation'):
             m = self._clean_meaning(data['translation'], data.get('pos', ''))
-            return (m.split('\n')[0][:60] if m else '').strip()
+            if m:
+                # 过滤纯英文词根释义残留（如 univers → "University"），
+                # 词根本身无有效中文释义时视为无释义，由调用方兜底。
+                import re as _re2
+                first = m.split('\n')[0][:60].strip()
+                if first and not any('\u4e00' <= c <= '\u9fff' for c in first):
+                    return ''
+                return first
         return ''
+
+    def _irregular_base(self, word):
+        """不规则动词反向查询：返回 (原形, 时态中文描述) 或 None。
+        例如 took → ('take', '过去式')，understood → ('understand', '过去分词')。"""
+        w = (word or '').lower().strip()
+        if not w:
+            return None
+        if self._IRREG_REV is None:
+            rev = {}
+            tensename = {
+                'past': '过去式',
+                'past_participle': '过去分词',
+                'present_participle': '现在分词',
+                'third_singular': '第三人称单数',
+            }
+            for base, forms in self.VERB_TENSES.items():
+                for key, tname in tensename.items():
+                    val = (forms.get(key) or '').strip()
+                    # 跳过含 '/' 的复合写法（如 was/were）与哥伦原形相同的情况
+                    if not val or val.lower() == base or '/' in val:
+                        continue
+                    rev.setdefault(val.lower(), (base, tname))
+            self._IRREG_REV = rev
+        return self._IRREG_REV.get(w)
 
     def _describe_transform(self, part, lemma, form_type):
         """
         根据原形与当前拼写，生成详细的变形规则描述（如 "加 -s 变复数"、"去掉词尾不发音的 e，加 -ing"）。
         用于拆解区域的"原词 → 规则 → 当前词"展示。
+        先走规则匹配；规则匹配不上（如 took≠take+ed）时才回退到不规则动词表。
         """
         try:
             part = (part or '').lower()
@@ -5305,6 +5339,30 @@ class DictionaryService:
         if not lemma or part == lemma:
             return '原形不变'
         ft = (form_type or '').lower()
+        # 归一化复合变形类型：pd/dp 都是过去分词（ECDICT 中 -ed 形容词常标 pd/dp）
+        if ft in ('pd', 'dp'):
+            ft = 'd'
+        elif ft in ('sp', 'ps'):
+            ft = 's'
+        elif ft == 's3':
+            # 名词复数合并标记（如 weekend: 1:s3），取复数含义
+            ft = 's'
+        elif ft == '3s':
+            # 动词第三人称单数合并标记
+            ft = '3'
+
+        def _fallback(generic):
+            """规则匹配不上时的回退：先查不规则动词表，查不到再用通用描述。
+            例如 took 不是 take+ed，规则匹配不上，回退查出 "{take} 的不规则过去式"。"""
+            irr = self._irregular_base(part)
+            if irr:
+                irr_base, irr_tname = irr
+                if irr_base in (lemma, lemma.lower()):
+                    return f'不规则{irr_tname}'
+                if not lemma or lemma == part:
+                    return f'不规则{irr_tname}'
+            return generic
+
         # 名词复数
         if ft.startswith('s'):
             if part == lemma + 's':
@@ -5315,7 +5373,7 @@ class DictionaryService:
                 return '把词尾 y 变 i，加 -es 变复数'
             if part == lemma[:-1] + 'ves':
                 return '把词尾 f/fe 变 v，加 -es 变复数'
-            return '变复数'
+            return _fallback('变复数')
         # 现在分词/动名词
         if ft.startswith('i'):
             if part == lemma + 'ing':
@@ -5326,7 +5384,7 @@ class DictionaryService:
                 return '双写词尾辅音字母，加 -ing 构成现在分词'
             if part == lemma[:-1] + 'ying':
                 return '把词尾 y 变 i，加 -ing 构成现在分词'
-            return '加 -ing 构成现在分词'
+            return _fallback('加 -ing 构成现在分词')
         # 过去式/过去分词
         if ft.startswith('p') or ft.startswith('d'):
             tense = '过去式' if ft.startswith('p') else '过去分词'
@@ -5338,7 +5396,7 @@ class DictionaryService:
                 return f'双写词尾辅音字母，加 -ed 构成{tense}'
             if part == lemma[:-1] + 'ied':
                 return f'把词尾 y 变 i，加 -ed 构成{tense}'
-            return f'加 -ed 构成{tense}'
+            return _fallback(f'加 -ed 构成{tense}')
         # 第三人称单数
         if ft.startswith('3'):
             if part == lemma + 's':
@@ -5347,7 +5405,7 @@ class DictionaryService:
                 return '加 -es 构成第三人称单数'
             if part == lemma[:-1] + 'ies':
                 return '把词尾 y 变 i，加 -es 构成第三人称单数'
-            return '构成第三人称单数'
+            return _fallback('构成第三人称单数')
         # 比较级/最高级
         if ft.startswith('r') or ft.startswith('t'):
             deg = '比较级' if ft.startswith('r') else '最高级'
@@ -6369,7 +6427,6 @@ class DictionaryService:
         'winter',          # 不是 wint+er
         'spring',          # 不是 spr+ing
         'middle',          # 不是 mid+dle
-        'midnight',        # 优先按 mid+night 复合词，若无法识别则为基础词
         'episode',         # 不是 epi+sode
         'library',         # 不是 libr+ary
         'knowledge',       # 不是 know+ledge
@@ -6518,6 +6575,15 @@ class DictionaryService:
         'chairman': ('chair', 'man'),
         'spokesman': ('spokes', 'man'),
         'businessman': ('business', 'man'),
+        'website': ('web', 'site'),
+        'shopkeeper': ('shop', 'keeper'),
+        'midnight': ('mid', 'night'),
+        'taxpayer': ('tax', 'payer'),
+        'eco-system': ('eco', 'system'),
+        'upload': ('up', 'load'),
+        'e-book': ('e', 'book'),
+        'eco-friendly': ('eco', 'friendly'),
+        'x-ray': ('x', 'ray'),
     }
 
     def _build_auto_compound(self, word_lower):
@@ -6673,12 +6739,20 @@ class DictionaryService:
         if '0' in exchange and '1' in exchange:
             lemma = exchange['0']
             form_type = exchange['1']
-            form_desc = {
-                'p': '过去式', 'd': '过去分词', 'i': '现在分词/动名词',
-                '3': '第三人称单数', 's': '复数形式',
-                'r': '比较级', 't': '最高级',
-            }
-            transform = form_desc.get(form_type, '变形')
+            # 用统一的具体规则生成器（加-ed/加-s/把y变i等），而非泛化的"变形"
+            transform = self._describe_transform(word_lower, lemma, form_type)
+            # describe 可能返回"原形不变"，此时改用分类名
+            if transform in ('原形不变', '变形'):
+                form_desc = {
+                    'p': '过去式', 'd': '过去分词', 'i': '现在分词/动名词',
+                    '3': '第三人称单数', 's': '复数形式', 'pd': '过去分词',
+                    'dp': '过去分词', '3s': '第三人称单数', 's3': '第三人称单数',
+                    'r': '比较级', 't': '最高级',
+                }
+                transform = form_desc.get(form_type, '变形')
+            # 3s/s3 同时表示"第三人称单数+复数"，若译义为名词复数则用复数描述
+            if form_type in ('3s', 's3') and (translation or '').find('复数') != -1:
+                transform = '加 -es 变复数' if word_lower == (lemma or '') + 'es' else '变复数'
 
             # 查询原词的释义
             lemma_data = self._query_ecdict(lemma)
@@ -6706,17 +6780,6 @@ class DictionaryService:
                 'transform': transform,
                 'explain': f'是"{lemma}"的{transform}',
             }]
-
-            # 如果原词也有释义，添加原词信息
-            if lemma_translation and lemma != word_lower:
-                split.append({
-                    'part': lemma,
-                    'meaning': lemma_translation,
-                    'original': lemma,
-                    'original_meaning': lemma_translation,
-                    'transform': '原形',
-                    'explain': '原词',
-                })
 
             return {
                 'phonetic': phonetic,
@@ -6900,6 +6963,11 @@ class DictionaryService:
             # 查询词根的释义
             root_data = self._query_ecdict(final_root)
             root_meaning = self._clean_meaning(root_data.get('translation', ''), root_data.get('pos', '')) if root_data else ''
+            # 过滤纯英文词根释义残留（如 univers → "University"），无有效中文释义视为无释义
+            if root_meaning:
+                _rfirst = root_meaning.split('\n')[0][:60].strip()
+                if not any('\u4e00' <= c <= '\u9fff' for c in _rfirst):
+                    root_meaning = ''
 
             # 确定变形描述
             transform_desc = '原形不变'
@@ -7425,6 +7493,19 @@ class DictionaryService:
             supp_meaning = self._get_supp_norm_map().get(self._normalize_key(word_lower))
         if supp_meaning:
             meaning = supp_meaning
+            # 补充词典里的真复合词（如 baby-proofing → baby+proofing）：
+            # 用补充词典释义作为 meaning，但按复合词拆解，而不是当作单个基础词。
+            if ' ' not in word_lower and word_lower in self.AUTO_COMPOUNDS:
+                return {
+                    'phonetic': '',
+                    'meaning': meaning,
+                    'type': '复合词',
+                    'split': self._build_auto_compound(word_lower),
+                    'morph': [],
+                    'mnemonic': f'"{word_lower}" 由两个单词组成，按单词拆解更易记忆。',
+                    'examples': self._get_zhuanshenben_examples(word_lower, meaning),
+                    'tenses': self._get_inflections(word_lower, meaning),
+                }
             # 生成拆解：词组逐词拆解（含变形检测），单次给出基础词条目
             supp_split = []
             if ' ' in word_lower:
@@ -7549,15 +7630,26 @@ class DictionaryService:
                 zs_examples = self._get_zhuanshenben_examples(base, result.get('meaning', ''))
                 if zs_examples:
                     result['examples'] = zs_examples
-            # 基础词兜底拆解：保证拆解区域不为空
-            if not result.get('split'):
+            # 复数复合词：在已有拆解前插入"当前词=base加-s变复数"的首项，
+            # 保留 base 内部拆解（如 classrooms → classroom加-s变复数 + class + room）
+            if result.get('split'):
+                base_m = (result.get('meaning') or '').split('\n')[0][:60] or base
+                result['split'] = [{
+                    'part': word_lower,
+                    'meaning': f'{base_m}（{base}的复数）',
+                    'original': base,
+                    'original_meaning': base_m,
+                    'transform': '加 -s 变复数',
+                    'explain': f'"{base}"的复数形式',
+                }] + result.get('split')
+            else:
                 m = (result.get('meaning') or '').split('\n')[0][:60]
                 result['split'] = [{
                     'part': word_lower,
                     'meaning': m,
                     'original': base,
                     'original_meaning': m,
-                    'transform': f'是"{base}"的复数形式',
+                    'transform': '加 -s 变复数',
                     'explain': f'"{base}"的复数形式',
                 }]
             return result
@@ -7578,6 +7670,20 @@ class DictionaryService:
                 zs_examples = self._get_zhuanshenben_examples(base, result.get('meaning', ''))
                 if zs_examples:
                     result['examples'] = zs_examples
+            # ing 变形词：补一条"原词→加-ing→当前词"的拆解首项（如 going → go 加-ing）
+            base_m = (result.get('meaning') or '').split('\n')[0][:60] or base
+            ing_entry = {
+                'part': word_lower,
+                'meaning': f'{base_m}（{base}加 -ing 的现在分词）',
+                'original': base,
+                'original_meaning': base_m,
+                'transform': '加 -ing 构成现在分词',
+                'explain': f'"{base}"加 -ing 变成现在分词/动名词',
+            }
+            if result.get('split'):
+                result['split'] = [ing_entry] + result.get('split')
+            else:
+                result['split'] = [ing_entry]
             return result
 
         # 已知动词但不在词典中：返回基础释义 + 时态
